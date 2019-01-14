@@ -1,0 +1,8 @@
+[package]
+name = "fleetfs"
+description = "FleetFS"
+license = "Apache-2.0"
+version = "0.0.0"
+authors = ["Christopher Berner <christopherberner@gmail.com>"]
+
+[dependencies]
