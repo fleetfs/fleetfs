@@ -25,24 +25,54 @@ use std::sync::atomic::Ordering;
 use std::path::Path;
 use std::fs::File;
 use futures::future::ok;
+use std::io::SeekFrom;
+use std::io::Seek;
+use std::fs::OpenOptions;
 
 
 type BoxFuture = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 
-fn write(req: Request<Body>) -> BoxFuture {
+fn truncate(req: Request<Body>) -> BoxFuture {
     let response = req.into_body()
         .concat2()
-        .map(|chunk| {
+        .map(move |chunk| {
+            let bytes = chunk.bytes();
+            let path = Path::new("junk/junk.txt");
+            let display = path.display();
+
+            let mut file = match File::create(&path) {
+                Err(why) => panic!("couldn't create {}: {}",
+                                   display,
+                                   why.description()),
+                Ok(file) => file,
+            };
+
+            Response::new(Body::from("done"))
+        });
+
+    Box::new(response)
+}
+
+fn write(req: Request<Body>) -> BoxFuture {
+    let offset: u64 = req.uri().path()[1..].parse().unwrap();
+    let response = req.into_body()
+        .concat2()
+        .map(move |chunk| {
         let bytes = chunk.bytes();
         let path = Path::new("junk/junk.txt");
         let display = path.display();
 
-        let mut file = match File::create(&path) {
+        let mut file = match OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&path) {
             Err(why) => panic!("couldn't create {}: {}",
                                display,
                                why.description()),
             Ok(file) => file,
         };
+
+        file.seek(SeekFrom::Start(offset));
 
         match file.write_all(bytes) {
             Err(why) => {
@@ -59,6 +89,7 @@ fn write(req: Request<Body>) -> BoxFuture {
 }
 
 fn read(req: Request<Body>) -> BoxFuture {
+    println!("Reading file");
     let response = req.into_body()
         .concat2()
         .map(|chunk| {
@@ -78,7 +109,10 @@ fn handler(req: Request<Body>, state: &AtomicUsize) -> BoxFuture {
         (&Method::GET, "/") => {
             return read(req);
         },
-        (&Method::POST, "/") => {
+        (&Method::POST, "/truncate") => {
+            return truncate(req);
+        },
+        (&Method::POST, _) => {
             return write(req);
         },
         _ => {
