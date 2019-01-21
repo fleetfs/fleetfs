@@ -9,3 +9,4 @@ authors = ["Christopher Berner <christopherberner@gmail.com>"]
 bytes = "0.4"
 futures = "0.1"
 hyper = "0.12"
+clap = "2.32"
