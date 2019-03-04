@@ -1,2 +1,2 @@
-# fleet
+# fleetfs
 FleetFS distributed filesystem

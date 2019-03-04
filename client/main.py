@@ -8,10 +8,10 @@ import sys
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
 
-PATH_HEADER = 'X-Fleet-Path'
+PATH_HEADER = 'X-FleetFS-Path'
 
 
-class FleetFUSE(LoggingMixIn, Operations):
+class FleetFS(LoggingMixIn, Operations):
     def __init__(self, server_url):
         self.server_url = server_url
 
@@ -67,7 +67,7 @@ class FleetFUSE(LoggingMixIn, Operations):
 
 
 def main(mountpoint, server_url):
-    FUSE(FleetFUSE(server_url), mountpoint, nothreads=True, foreground=True)
+    FUSE(FleetFS(server_url), mountpoint, nothreads=True, foreground=True)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-mod fleet;
+mod fleetfs;
 
 extern crate bytes;
 extern crate futures;
@@ -33,11 +33,13 @@ use clap::App;
 use clap::Arg;
 use clap::ArgMatches;
 
+const PATH_HEADER: &str = "X-FleetFS-Path";
+
 
 type BoxFuture = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 
 fn truncate(req: Request<Body>, data_dir: String) -> BoxFuture {
-    let filename: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
+    let filename: String = req.headers()[PATH_HEADER].to_str().unwrap()[1..].to_string();
     let response = req.into_body()
         .concat2()
         .map(move |chunk| {
@@ -59,7 +61,7 @@ fn truncate(req: Request<Body>, data_dir: String) -> BoxFuture {
 }
 
 fn write(req: Request<Body>, data_dir: String) -> BoxFuture {
-    let filename: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
+    let filename: String = req.headers()[PATH_HEADER].to_str().unwrap()[1..].to_string();
     let offset: u64 = req.uri().path()[1..].parse().unwrap();
     let response = req.into_body()
         .concat2()
@@ -95,7 +97,7 @@ fn write(req: Request<Body>, data_dir: String) -> BoxFuture {
 }
 
 fn list_dir(req: Request<Body>, data_dir: String) -> BoxFuture {
-    let dir_name: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
+    let dir_name: String = req.headers()[PATH_HEADER].to_str().unwrap()[1..].to_string();
     println!("Listing directory");
     let response = req.into_body()
         .concat2()
@@ -114,7 +116,7 @@ fn list_dir(req: Request<Body>, data_dir: String) -> BoxFuture {
 }
 
 fn read(req: Request<Body>, data_dir: String) -> BoxFuture {
-    let filename: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
+    let filename: String = req.headers()[PATH_HEADER].to_str().unwrap()[1..].to_string();
 
     if filename.len() == 0 {
         return list_dir(req, data_dir);
