@@ -8,6 +8,9 @@ import sys
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
 
+PATH_HEADER = 'X-Fleet-Path'
+
+
 class FleetFUSE(LoggingMixIn, Operations):
     def __init__(self, server_url):
         self.server_url = server_url
@@ -15,8 +18,9 @@ class FleetFUSE(LoggingMixIn, Operations):
     def getattr(self, path, fh=None):
         if path == '/':
             return dict(st_mode=(stat.S_IFDIR | 0o755), st_nlink=2)
-        if path == '/junk.txt':
-            r = requests.get(self.server_url)
+        files = self.readdir('/', fh=(0,))
+        if path.lstrip('/') in files:
+            r = requests.get(self.server_url, headers={PATH_HEADER: path})
             if r.status_code != 200:
                 raise FuseOSError(errno.EIO)
             return dict(
@@ -32,25 +36,31 @@ class FleetFUSE(LoggingMixIn, Operations):
         raise FuseOSError(errno.ENOENT)
 
     def read(self, path, size, offset, fh):
-        r = requests.get(self.server_url)
+        r = requests.get(self.server_url, headers={PATH_HEADER: path})
         if r.status_code != 200:
             raise FuseOSError(errno.EIO)
         content = r.content
         return content[offset:size]
 
     def readdir(self, path, fh):
-        return ['.', '..', 'junk.txt']
+        r = requests.get(self.server_url, headers={PATH_HEADER: path})
+        if r.status_code != 200:
+            raise FuseOSError(errno.EIO)
+        return r.json()
 
     def truncate(self, path, length, fh=None):
         if length != 0:
             raise FuseOSError(errno.EIO)
-        r = requests.post(self.server_url + 'truncate')
+        r = requests.post(self.server_url + '/truncate', headers={PATH_HEADER: path})
         if r.status_code != 200:
             raise FuseOSError(errno.EIO)
         return 0
 
+    def create(self, path, mode, fi=None):
+        self.write(path, '', 0, fh=0)
+
     def write(self, path, data, offset, fh):
-        r = requests.post(self.server_url + str(offset), data)
+        r = requests.post(self.server_url + '/' + str(offset), data, headers={PATH_HEADER: path})
         if r.status_code != 200:
             raise FuseOSError(errno.EIO)
         return len(data)

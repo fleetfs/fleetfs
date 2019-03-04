@@ -37,11 +37,12 @@ use clap::ArgMatches;
 type BoxFuture = Box<Future<Item=Response<Body>, Error=hyper::Error> + Send>;
 
 fn truncate(req: Request<Body>, data_dir: String) -> BoxFuture {
+    let filename: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
     let response = req.into_body()
         .concat2()
         .map(move |chunk| {
             let bytes = chunk.bytes();
-            let path = Path::new(&data_dir).join("junk.txt");
+            let path = Path::new(&data_dir).join(filename);
             let display = path.display();
 
             let mut file = match File::create(&path) {
@@ -58,12 +59,13 @@ fn truncate(req: Request<Body>, data_dir: String) -> BoxFuture {
 }
 
 fn write(req: Request<Body>, data_dir: String) -> BoxFuture {
+    let filename: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
     let offset: u64 = req.uri().path()[1..].parse().unwrap();
     let response = req.into_body()
         .concat2()
         .map(move |chunk| {
         let bytes = chunk.bytes();
-        let path = Path::new(&data_dir).join("junk.txt");
+        let path = Path::new(&data_dir).join(filename);
         let display = path.display();
 
         let mut file = match OpenOptions::new()
@@ -92,12 +94,37 @@ fn write(req: Request<Body>, data_dir: String) -> BoxFuture {
     Box::new(response)
 }
 
+fn list_dir(req: Request<Body>, data_dir: String) -> BoxFuture {
+    let dir_name: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
+    println!("Listing directory");
+    let response = req.into_body()
+        .concat2()
+        .map(move |chunk| {
+            let mut entries = vec![];
+            for entry in fs::read_dir(Path::new(&data_dir).join(dir_name)).unwrap() {
+                let filename = entry.unwrap().path().clone().to_str().unwrap().to_string();
+                // TODO: there must be a better way to strip the data_dir substring off the left side
+                entries.push(filename.split_at(data_dir.len() + 1).1.to_string());
+            }
+
+            Response::new(Body::from(serde_json::to_string(&entries).unwrap()))
+        });
+
+    Box::new(response)
+}
+
 fn read(req: Request<Body>, data_dir: String) -> BoxFuture {
+    let filename: String = req.headers()["X-Fleet-Path"].to_str().unwrap()[1..].to_string();
+
+    if filename.len() == 0 {
+        return list_dir(req, data_dir);
+    }
+
     println!("Reading file");
     let response = req.into_body()
         .concat2()
         .map(move |chunk| {
-            let contents = fs::read_to_string(Path::new(&data_dir).join("junk.txt"))
+            let contents = fs::read_to_string(Path::new(&data_dir).join(filename))
                 .expect("Something went wrong reading the file");
 
             Response::new(Body::from(contents))
