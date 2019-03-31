@@ -4,6 +4,7 @@ description = "FleetFS"
 license = "Apache-2.0"
 version = "0.0.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 bytes = "0.4"

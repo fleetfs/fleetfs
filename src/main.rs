@@ -1,8 +1,3 @@
-extern crate bytes;
-extern crate clap;
-extern crate futures;
-extern crate hyper;
-
 use std::error::Error;
 use std::fs;
 use std::fs::File;
