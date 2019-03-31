@@ -4,7 +4,6 @@ import logging
 import click
 import requests
 import stat
-import sys
 
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
