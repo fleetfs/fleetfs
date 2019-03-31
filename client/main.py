@@ -67,6 +67,14 @@ class FleetFS(LoggingMixIn, Operations):
             raise FuseOSError(errno.EIO)
         return len(data)
 
+    def unlink(self, path):
+        if path == '/':
+            raise FuseOSError(errno.EROFS)
+        r = requests.delete(self.server_url, headers={PATH_HEADER: path})
+        if r.status_code != 200:
+            raise FuseOSError(errno.EIO)
+        return 0
+
 
 @click.command()
 @click.option("--server-url", default="http://localhost:3000", help="URL of server")

@@ -135,12 +135,33 @@ fn read(req: Request<Body>, data_dir: String) -> BoxFuture {
     Box::new(response)
 }
 
+fn unlink(req: Request<Body>, data_dir: String) -> BoxFuture {
+    let filename: String = req.headers()[PATH_HEADER].to_str().unwrap()[1..].to_string();
+
+    assert_ne!(filename.len(), 0);
+
+    println!("Deleting file");
+    let response = req.into_body()
+        .concat2()
+        .map(move |chunk| {
+            fs::remove_file(Path::new(&data_dir).join(filename))
+                .expect("Something went wrong reading the file");
+
+            Response::new(Body::from("success"))
+        });
+
+    Box::new(response)
+}
+
 fn handler(req: Request<Body>, state: &AtomicUsize, data_dir: String) -> BoxFuture {
     let mut response = Response::new(Body::empty());
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
             return read(req, data_dir);
+        },
+        (&Method::DELETE, "/") => {
+            return unlink(req, data_dir);
         },
         (&Method::POST, "/truncate") => {
             return truncate(req, data_dir);
