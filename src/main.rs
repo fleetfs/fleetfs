@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 
 use bytes::Buf;
+use clap::crate_version;
 use clap::App;
 use clap::Arg;
 use futures::future;
@@ -171,7 +172,7 @@ fn handler(req: Request<Body>, data_dir: String) -> BoxFuture {
 
 fn main() {
     let matches = App::new("FleetFS")
-        .version("0.0.0")
+        .version(crate_version!())
         .author("Christopher Berner")
         .arg(Arg::with_name("port")
             .long("port")
