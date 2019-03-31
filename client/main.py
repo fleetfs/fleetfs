@@ -58,6 +58,7 @@ class FleetFS(LoggingMixIn, Operations):
 
     def create(self, path, mode, fi=None):
         self.write(path, '', 0, fh=0)
+        return 0
 
     def write(self, path, data, offset, fh):
         r = requests.post(self.server_url + '/' + str(offset), data, headers={PATH_HEADER: path})
