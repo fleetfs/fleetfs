@@ -75,13 +75,17 @@ class FleetFS(LoggingMixIn, Operations):
         return 0
 
 
+VERBOSITY = [logging.FATAL, logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+
+
 @click.command()
 @click.option("--server-url", default="http://localhost:3000", help="URL of server")
 @click.option("--mount-point", required=True, help="Local mount point for the filesystem")
-def main(server_url, mount_point):
+@click.option('-v', '--verbose', count=True)
+def main(server_url, mount_point, verbose):
+    logging.basicConfig(level=logging.DEBUG if verbose >= len(VERBOSITY) else VERBOSITY[verbose])
     FUSE(FleetFS(server_url), mount_point, nothreads=True, foreground=True)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
     main()
