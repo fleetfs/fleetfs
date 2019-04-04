@@ -22,12 +22,22 @@ fn main() {
             .default_value("/tmp/fleetfs")
             .help("Set local directory used to store data")
             .takes_value(true))
+        .arg(Arg::with_name("peers")
+            .long("peers")
+            .value_name("PEERS")
+            .default_value("")
+            .help("Comma separated list of peer URLs")
+            .takes_value(true))
         .get_matches();
 
     let port: u16 = matches.value_of("port").unwrap_or_default().parse().unwrap();
     let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
+    let peers: Vec<String> = matches.value_of("peers").unwrap_or_default()
+        .split(",")
+        .map(|x| x.to_string())
+        .collect();
 
     println!("Starting");
-    Node::new(data_dir, port).run();
+    Node::new(data_dir, port, &peers).run();
 }
 

@@ -1,0 +1,70 @@
+use hyper::{Body, Client};
+use hyper::Method;
+use hyper::Request;
+use hyper::header::HeaderValue;
+use hyper::rt::Future;
+
+use tokio;
+
+use crate::fleetfs::core::{BoxFuture, PATH_HEADER, NO_FORWARD_HEADER};
+
+
+pub struct PeerClient {
+    server_url: String,
+}
+
+impl PeerClient {
+    pub fn new(server_url: &String) -> PeerClient {
+        PeerClient {
+            server_url: server_url.clone()
+        }
+    }
+
+    pub fn truncate(self, req: Request<Body>) -> BoxFuture {
+        unreachable!();
+    }
+
+    pub fn write(self, filename: String, offset: u64, bytes: &[u8]) {
+        let client = Client::new();
+        let uri: hyper::Uri = format!("{}/{}", self.server_url, offset).parse().unwrap();
+        let mut req = Request::new(Body::from(Vec::from(bytes)));
+        req.headers_mut().insert(PATH_HEADER, HeaderValue::from_str(filename.as_str()).unwrap());
+        req.headers_mut().insert(NO_FORWARD_HEADER, HeaderValue::from_static("true"));
+        *req.method_mut() = Method::POST;
+        *req.uri_mut() = uri.clone();
+
+        let task = client
+            .request(req)
+            .map(|res| {
+                println!("write() response: {}", res.status());
+            })
+            .map_err(|err| {
+                println!("write() error: {}", err);
+            });
+
+        tokio::spawn(task);
+    }
+
+    pub fn unlink(self, filename: String) -> BoxFuture {
+        let client = Client::new();
+        let uri: hyper::Uri = format!("{}/", self.server_url).parse().unwrap();
+        let mut req = Request::new(Body::from(""));
+        req.headers_mut().insert(PATH_HEADER, HeaderValue::from_str(filename.as_str()).unwrap());
+        req.headers_mut().insert(NO_FORWARD_HEADER, HeaderValue::from_static("true"));
+        *req.method_mut() = Method::DELETE;
+        *req.uri_mut() = uri.clone();
+
+        let task = client
+            .request(req)
+            .map(|res| {
+                println!("unlink() response: {}", res.status());
+                res
+            })
+            .map_err(|err| {
+                println!("unlink() error: {}", err);
+                err
+            });
+
+        return Box::new(task);
+    }
+}

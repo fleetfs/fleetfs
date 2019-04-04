@@ -81,10 +81,11 @@ VERBOSITY = [logging.FATAL, logging.ERROR, logging.WARNING, logging.INFO, loggin
 @click.command()
 @click.option("--server-url", default="http://localhost:3000", help="URL of server")
 @click.option("--mount-point", required=True, help="Local mount point for the filesystem")
+@click.option("--direct-io", is_flag=True, help="Mount filesystem with direct IO")
 @click.option('-v', '--verbose', count=True)
-def main(server_url, mount_point, verbose):
+def main(server_url, mount_point, direct_io, verbose):
     logging.basicConfig(level=logging.DEBUG if verbose >= len(VERBOSITY) else VERBOSITY[verbose])
-    FUSE(FleetFS(server_url), mount_point, nothreads=True, foreground=True)
+    FUSE(FleetFS(server_url), mount_point, nothreads=True, foreground=True, direct_io=direct_io)
 
 
 if __name__ == '__main__':
