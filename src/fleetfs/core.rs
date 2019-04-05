@@ -133,7 +133,7 @@ impl DistributedFile {
         let response = req.into_body()
             .concat2()
             .map(move |_| {
-                let contents = fs::read_to_string(Path::new(&self.local_data_dir).join(self.filename))
+                let contents = fs::read(Path::new(&self.local_data_dir).join(self.filename))
                     .expect("Something went wrong reading the file");
 
                 Response::new(Body::from(contents))
