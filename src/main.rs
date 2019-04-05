@@ -35,9 +35,10 @@ fn main() {
     let peers: Vec<String> = matches.value_of("peers").unwrap_or_default()
         .split(",")
         .map(|x| x.to_string())
+        .filter(|x| x.len() > 0)
         .collect();
 
-    println!("Starting");
+    println!("Starting with peers: {:?}", &peers);
     Node::new(data_dir, port, &peers).run();
 }
 
