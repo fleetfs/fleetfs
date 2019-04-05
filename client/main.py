@@ -49,9 +49,7 @@ class FleetFS(LoggingMixIn, Operations):
         return r.json()
 
     def truncate(self, path, length, fh=None):
-        if length != 0:
-            raise FuseOSError(errno.EIO)
-        r = requests.post(self.server_url + '/truncate', headers={PATH_HEADER: path})
+        r = requests.post(self.server_url + '/truncate/' + str(length), headers={PATH_HEADER: path})
         if r.status_code != 200:
             raise FuseOSError(errno.EIO)
         return 0

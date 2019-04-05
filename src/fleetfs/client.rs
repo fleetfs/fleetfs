@@ -20,8 +20,25 @@ impl PeerClient {
         }
     }
 
-    pub fn truncate(self, req: Request<Body>) -> BoxFuture {
-        unreachable!();
+    pub fn truncate(self, filename: &String, new_length: u64) {
+        let client = Client::new();
+        let uri: hyper::Uri = format!("{}/truncate/{}", self.server_url, new_length).parse().unwrap();
+        let mut req = Request::new(Body::from(""));
+        req.headers_mut().insert(PATH_HEADER, HeaderValue::from_str(filename.as_str()).unwrap());
+        req.headers_mut().insert(NO_FORWARD_HEADER, HeaderValue::from_static("true"));
+        *req.method_mut() = Method::POST;
+        *req.uri_mut() = uri.clone();
+
+        let task = client
+            .request(req)
+            .map(|res| {
+                println!("write() response: {}", res.status());
+            })
+            .map_err(|err| {
+                println!("write() error: {}", err);
+            });
+
+        tokio::spawn(task);
     }
 
     pub fn write(self, filename: String, offset: u64, bytes: &[u8]) {

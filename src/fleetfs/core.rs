@@ -39,18 +39,27 @@ impl DistributedFile {
     }
 
     fn truncate(self, req: Request<Body>) -> BoxFuture {
+        let new_length: u64 = req.uri().path()["/truncate/".len()..].parse().unwrap();
+        let forward: bool = req.headers().get(NO_FORWARD_HEADER).is_none();
         let response = req.into_body()
             .concat2()
             .map(move |_| {
-                let path = Path::new(&self.local_data_dir).join(self.filename);
+                let path = Path::new(&self.local_data_dir).join(&self.filename);
                 let display = path.display();
 
-                match File::create(&path) {
+                let file = match File::create(&path) {
                     Err(why) => panic!("couldn't create {}: {}",
                                        display,
                                        why.description()),
                     Ok(file) => file,
                 };
+                file.set_len(new_length);
+
+                if forward {
+                    for peer in self.peers {
+                        peer.truncate(&self.filename, new_length);
+                    }
+                }
 
                 Response::new(Body::from("done"))
             });
@@ -177,15 +186,16 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
 
     let file = DistributedFile::new(filename, data_dir, peers);
 
+    if req.method() == Method::POST && req.uri().path().starts_with("/truncate") {
+        return file.truncate(req);
+    }
+
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
             return file.read(req);
         },
         (&Method::DELETE, "/") => {
             return file.unlink(req);
-        },
-        (&Method::POST, "/truncate") => {
-            return file.truncate(req);
         },
         (&Method::POST, _) => {
             return file.write(req);
