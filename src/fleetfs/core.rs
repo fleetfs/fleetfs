@@ -15,6 +15,7 @@ use hyper::Method;
 use hyper::Request;
 use hyper::rt::Future;
 use hyper::service::service_fn;
+use log::info;
 use crate::fleetfs::client::PeerClient;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
@@ -100,7 +101,7 @@ impl DistributedFile {
                         panic!("couldn't write to {}: {}", display,
                                why.description())
                     },
-                    Ok(_) => println!("successfully wrote to {}", display),
+                    Ok(_) => info!("successfully wrote to {}", display),
                 }
 
                 if forward {
@@ -116,7 +117,7 @@ impl DistributedFile {
     }
 
     fn list_dir(self, req: Request<Body>) -> BoxFuture {
-        println!("Listing directory");
+        info!("Listing directory");
         let response = req.into_body()
             .concat2()
             .map(move |_| {
@@ -138,7 +139,7 @@ impl DistributedFile {
             return self.list_dir(req);
         }
 
-        println!("Reading file");
+        info!("Reading file");
         let response = req.into_body()
             .concat2()
             .map(move |_| {
@@ -155,7 +156,7 @@ impl DistributedFile {
         let forward: bool = req.headers().get(NO_FORWARD_HEADER).is_none();
         assert_ne!(self.filename.len(), 0);
 
-        println!("Deleting file");
+        info!("Deleting file");
         let path = Path::new(&self.local_data_dir).join(&self.filename);
         let response = req.into_body()
             .concat2()

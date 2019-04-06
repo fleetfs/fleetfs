@@ -3,6 +3,7 @@ use hyper::Method;
 use hyper::Request;
 use hyper::header::HeaderValue;
 use hyper::rt::Future;
+use log::info;
 
 use tokio;
 
@@ -32,10 +33,10 @@ impl PeerClient {
         let task = client
             .request(req)
             .map(|res| {
-                println!("write() response: {}", res.status());
+                info!("write() response: {}", res.status());
             })
             .map_err(|err| {
-                println!("write() error: {}", err);
+                info!("write() error: {}", err);
             });
 
         tokio::spawn(task);
@@ -53,10 +54,10 @@ impl PeerClient {
         let task = client
             .request(req)
             .map(|res| {
-                println!("write() response: {}", res.status());
+                info!("write() response: {}", res.status());
             })
             .map_err(|err| {
-                println!("write() error: {}", err);
+                info!("write() error: {}", err);
             });
 
         tokio::spawn(task);
@@ -74,11 +75,11 @@ impl PeerClient {
         let task = client
             .request(req)
             .map(|res| {
-                println!("unlink() response: {}", res.status());
+                info!("unlink() response: {}", res.status());
                 res
             })
             .map_err(|err| {
-                println!("unlink() error: {}", err);
+                info!("unlink() error: {}", err);
                 err
             });
 
