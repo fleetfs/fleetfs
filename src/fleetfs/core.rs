@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::Seek;
+use std::io::{Seek, Read};
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
@@ -17,8 +17,11 @@ use hyper::rt::Future;
 use hyper::service::service_fn;
 use log::info;
 use crate::fleetfs::client::PeerClient;
+use std::collections::HashMap;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
+pub const OFFSET_HEADER: &str = "X-FleetFS-Offset";
+pub const SIZE_HEADER: &str = "X-FleetFS-Size";
 pub const NO_FORWARD_HEADER: &str = "X-FleetFS-No-Forward";
 
 
@@ -134,17 +137,62 @@ impl DistributedFile {
         Box::new(response)
     }
 
+    fn getattr(self, req: Request<Body>) -> BoxFuture {
+        info!("Getting metadata for file");
+        let response = req.into_body()
+            .concat2()
+            .map(move |_| {
+                let path = Path::new(&self.local_data_dir).join(&self.filename);
+
+                let metadata = fs::metadata(path).unwrap();
+
+                let mut map = HashMap::new();
+                map.insert("length", metadata.len());
+
+                Response::new(Body::from(serde_json::to_string(&map).unwrap()))
+            });
+
+        Box::new(response)
+    }
+
     fn read(self, req: Request<Body>) -> BoxFuture {
         if self.filename.len() == 0 {
             return self.list_dir(req);
         }
 
+        let offset: u64 = req.headers().get(OFFSET_HEADER).unwrap().to_str().unwrap().parse().unwrap();
+        let size: u64 = req.headers().get(SIZE_HEADER).unwrap().to_str().unwrap().parse().unwrap();
         info!("Reading file");
         let response = req.into_body()
             .concat2()
             .map(move |_| {
-                let contents = fs::read(Path::new(&self.local_data_dir).join(self.filename))
-                    .expect("Something went wrong reading the file");
+                let path = Path::new(&self.local_data_dir).join(&self.filename);
+                let display = path.display();
+
+                let mut file = match File::open(&path) {
+                    Err(why) => panic!("couldn't create {}: {}",
+                                       display,
+                                       why.description()),
+                    Ok(file) => file,
+                };
+
+                match file.seek(SeekFrom::Start(offset)) {
+                    Err(why) => {
+                        panic!("couldn't seek to {} in {} because {}", offset, display,
+                               why.description())
+                    },
+                    Ok(_) => {}
+                }
+
+                let mut handle = file.take(size);
+
+                let mut contents = vec![0; size as usize];
+                let bytes_read = handle.read(&mut contents);
+                match bytes_read {
+                    Err(_) => panic!(),
+                    Ok(size) => contents.truncate(size)
+                };
+                info!("read bytes: {:?}", contents);
 
                 Response::new(Body::from(contents))
             });
@@ -194,6 +242,9 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
             return file.read(req);
+        },
+        (&Method::GET, "/getattr") => {
+            return file.getattr(req);
         },
         (&Method::DELETE, "/") => {
             return file.unlink(req);

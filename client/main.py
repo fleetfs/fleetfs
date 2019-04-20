@@ -9,6 +9,8 @@ from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
 
 PATH_HEADER = 'X-FleetFS-Path'
+OFFSET_HEADER = 'X-FleetFS-Offset'
+SIZE_HEADER = 'X-FleetFS-Size'
 
 
 class FleetFS(LoggingMixIn, Operations):
@@ -20,15 +22,16 @@ class FleetFS(LoggingMixIn, Operations):
             return dict(st_mode=(stat.S_IFDIR | 0o755), st_nlink=2)
         files = self.readdir('/', fh=(0,))
         if path.lstrip('/') in files:
-            r = requests.get(self.server_url, headers={PATH_HEADER: path})
+            r = requests.get(self.server_url + '/getattr', headers={PATH_HEADER: path})
             if r.status_code != 200:
                 raise FuseOSError(errno.EIO)
+            metadata = r.json()
             return dict(
                 st_mode=(stat.S_IFREG | 0o777),
                 st_nlink=1,
                 st_uid=0,
                 st_gid=0,
-                st_size=len(r.content),
+                st_size=metadata['length'],
                 st_atime=0,
                 st_mtime=0,
                 st_ctime=0
@@ -36,11 +39,11 @@ class FleetFS(LoggingMixIn, Operations):
         raise FuseOSError(errno.ENOENT)
 
     def read(self, path, size, offset, fh):
-        r = requests.get(self.server_url, headers={PATH_HEADER: path})
+        r = requests.get(self.server_url, headers={PATH_HEADER: path, OFFSET_HEADER: str(offset), SIZE_HEADER: str(size)})
         if r.status_code != 200:
             raise FuseOSError(errno.EIO)
         content = r.content
-        return content[offset:size]
+        return content
 
     def readdir(self, path, fh):
         r = requests.get(self.server_url, headers={PATH_HEADER: path})
