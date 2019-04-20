@@ -14,8 +14,8 @@ DATA_DIR=$(mktemp --directory)
 DATA_DIR2=$(mktemp --directory)
 DIR=$(mktemp --directory)
 DIR2=$(mktemp --directory)
-cargo run -- --port 3300 --data-dir $DATA_DIR --peers http://localhost:3301 &
-cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers http://localhost:3300 &
+cargo run --release -- --port 3300 --data-dir $DATA_DIR --peers http://localhost:3301 &
+cargo run --release -- --port 3301 --data-dir $DATA_DIR2 --peers http://localhost:3300 &
 sleep 2
 python client/main.py --server-url http://localhost:3300 --mount-point $DIR &
 sleep 2
