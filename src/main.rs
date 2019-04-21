@@ -43,6 +43,10 @@ fn main() {
             .default_value("")
             .help("Act as a client, and mount FUSE at given path")
             .takes_value(true))
+        .arg(Arg::with_name("direct-io")
+            .long("direct-io")
+            .requires("mount-point")
+            .help("Mount FUSE with direct IO"))
         .arg(Arg::with_name("v")
             .short("v")
             .multiple(true)
@@ -53,6 +57,7 @@ fn main() {
     let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
     let server_url: String = matches.value_of("server-url").unwrap_or_default().to_string();
     let mount_point: String = matches.value_of("mount-point").unwrap_or_default().to_string();
+    let direct_io: bool = matches.is_present("direct-io");
     let verbosity: u64 = matches.occurrences_of("v");
     let peers: Vec<String> = matches.value_of("peers").unwrap_or_default()
         .split(",")
@@ -76,7 +81,13 @@ fn main() {
     }
     else {
         println!("Connecting to server {} and mounting FUSE at {}", &server_url, &mount_point);
-        let fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o"), &OsStr::new("auto_unmount")];
+        let mut fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o")];
+        if direct_io {
+            fuse_args.push(&OsStr::new("auto_unmount,direct_io"))
+        }
+        else {
+            fuse_args.push(&OsStr::new("auto_unmount"))
+        }
         let fs = FleetFUSE::new(server_url);
         fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mount_point, &fuse_args).unwrap();
     }
