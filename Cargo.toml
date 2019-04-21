@@ -19,3 +19,6 @@ fuse_mt = "0.4"
 time = "0.1"
 libc = "0.2"
 reqwest = "0.9"
+
+[profile.release]
+debug = true

@@ -265,7 +265,7 @@ impl FilesystemMT for FleetFUSE {
     }
 
     fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32) -> ResultData {
-        debug!("read() called with {:?}", path);
+        debug!("read() called on {:?} with offset={} and size={}", path, offset, size);
         let client = NodeClient::new(&self.server_url);
         let filename = path.to_str().unwrap().to_string();
         match client.read(&filename, offset, size) {
