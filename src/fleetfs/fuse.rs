@@ -10,7 +10,7 @@ use reqwest;
 use reqwest::{Client, Url, Error};
 use time::Timespec;
 
-use crate::fleetfs::core::PATH_HEADER;
+use crate::fleetfs::core::{PATH_HEADER, OFFSET_HEADER, SIZE_HEADER};
 
 struct NodeClient {
     server_url: String,
@@ -74,6 +74,30 @@ impl NodeClient {
             rdev: 0,
             flags: 0
         });
+    }
+
+    pub fn read(self, path: &String, offset: u64, size: u32) -> Option<Vec<u8>> {
+        assert_ne!(path, "/");
+        let uri: Url = format!("{}", self.server_url).parse().unwrap();
+        let client = Client::new();
+
+        let response = client.get(uri)
+            .header(PATH_HEADER, path.as_str())
+            .header(OFFSET_HEADER, offset.to_string().as_str())
+            .header(SIZE_HEADER, size.to_string().as_str())
+            .send().ok();
+
+        if let Some(mut resp) = response {
+            let mut result = vec![];
+            match resp.copy_to(&mut result) {
+                Ok(_) => {},
+                Err(_) => return None,
+            }
+            return Some(result);
+        }
+        else {
+            return None;
+        }
     }
 
     pub fn readdir(self, path: &String) -> ResultReaddir {
@@ -209,9 +233,14 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn read(&self, _req: RequestInfo, _path: &Path, _fh: u64, _offset: u64, _size: u32) -> ResultData {
-        warn!("read() not implemented");
-        Err(libc::ENOSYS)
+    fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32) -> ResultData {
+        debug!("read() called with {:?}", path);
+        let client = NodeClient::new(&self.server_url);
+        let filename = path.to_str().unwrap().to_string();
+        match client.read(&filename, offset, size) {
+            None => Err(libc::EIO),
+            Some(data) => Ok(data),
+        }
     }
 
     fn write(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, data: Vec<u8>, _flags: u32) -> ResultWrite {
