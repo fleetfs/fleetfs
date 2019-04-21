@@ -121,6 +121,16 @@ impl NodeClient {
         return Ok(result);
     }
 
+    pub fn truncate(self, path: &String, length: u64) -> Option<Error> {
+        let client = Client::new();
+        let uri: Url = format!("{}/truncate/{}", self.server_url, length).parse().unwrap();
+        let response = client.post(uri)
+            .header(PATH_HEADER, path.as_str())
+            .send().err();
+
+        return response;
+    }
+
     pub fn write(self, path: &String, data: Vec<u8>, offset: u64) -> Option<Error> {
         let client = Client::new();
         let uri: Url = format!("{}/{}", self.server_url, offset).parse().unwrap();
@@ -178,9 +188,14 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn truncate(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _size: u64) -> ResultEmpty {
-        warn!("truncate() not implemented");
-        Err(libc::ENOSYS)
+    fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
+        debug!("truncate() called with {:?}", path);
+        let client = NodeClient::new(&self.server_url);
+        let filename = path.to_str().unwrap().to_string();
+        match client.truncate(&filename, size) {
+            None => Ok(()),
+            Some(_) => Err(libc::EIO),
+        }
     }
 
     fn utimens(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>) -> ResultEmpty {
@@ -327,6 +342,14 @@ impl FilesystemMT for FleetFUSE {
 
     fn create(&self, _req: RequestInfo, parent: &Path, name: &OsStr, _mode: u32, _flags: u32) -> ResultCreate {
         debug!("create() called with {:?} {:?}", parent, name);
+        // TODO: kind of a hack to create the file
+        let client = NodeClient::new(&self.server_url);
+        // TODO: handle parent correctly
+        let filename = name.to_str().unwrap().to_string();
+        match client.write(&filename, vec![], 0) {
+            None => {},
+            Some(_) => return Err(libc::EIO),
+        };
         // TODO
         Ok(CreatedEntry {
             ttl: Timespec { sec: 0, nsec: 0 },
