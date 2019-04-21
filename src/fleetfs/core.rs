@@ -192,7 +192,6 @@ impl DistributedFile {
                     Err(_) => panic!(),
                     Ok(size) => contents.truncate(size)
                 };
-                info!("read bytes: {:?}", contents);
 
                 Response::new(Body::from(contents))
             });
