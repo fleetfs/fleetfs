@@ -1,13 +1,13 @@
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
-use fuse_mt::{FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
+use fuse_mt::{FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr, DirectoryEntry, CreatedEntry};
 use libc;
 use log::debug;
 use log::warn;
 use reqwest;
-use reqwest::{Client, Url};
+use reqwest::{Client, Url, Error};
 use time::Timespec;
 
 use crate::fleetfs::core::PATH_HEADER;
@@ -57,10 +57,10 @@ impl NodeClient {
             return None;
         }
 
-        let resp: HashMap<String, String> = response.unwrap();
+        let resp: HashMap<String, u64> = response.unwrap();
 
         return Some(FileAttr {
-            size: resp.get("length").unwrap().parse().unwrap(),
+            size: *resp.get("length").unwrap(),
             blocks: 0,
             atime: Timespec { sec: 0, nsec: 0 },
             mtime: Timespec { sec: 0, nsec: 0 },
@@ -74,6 +74,38 @@ impl NodeClient {
             rdev: 0,
             flags: 0
         });
+    }
+
+    pub fn readdir(self, path: &String) -> ResultReaddir {
+        assert_eq!(path, "/");
+        let uri: Url = format!("{}", self.server_url).parse().unwrap();
+        let client = Client::new();
+
+        let response: Vec<String> = client.get(uri)
+            .header(PATH_HEADER, path.as_str())
+            .send().unwrap().json().unwrap();
+
+        let mut result = vec![];
+        for file in response {
+            result.push(DirectoryEntry {
+                name: OsString::from(file),
+                // TODO: support other file types
+                kind: FileType::RegularFile
+            });
+        }
+
+        return Ok(result);
+    }
+
+    pub fn write(self, path: &String, data: Vec<u8>, offset: u64) -> Option<Error> {
+        let client = Client::new();
+        let uri: Url = format!("{}/{}", self.server_url, offset).parse().unwrap();
+        let response = client.post(uri)
+            .body(data)
+            .header(PATH_HEADER, path.as_str())
+            .send().err();
+
+        return response;
     }
 }
 
@@ -102,10 +134,14 @@ impl FilesystemMT for FleetFUSE {
         debug!("getattr() called with {:?}", path);
         let client = NodeClient::new(&self.server_url);
         let filename = path.to_str().unwrap().to_string();
-        match client.getattr(&filename) {
-            None => return Err(libc::EIO),
+        // TODO: when server is down return EIO instead of ENOENT
+        let result = match client.getattr(&filename) {
+            None => Err(libc::ENOENT),
             Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
-        }
+        };
+
+        debug!("getattr() returned {:?}", &result);
+        return result;
     }
 
     fn chmod(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _mode: u32) -> ResultEmpty {
@@ -178,9 +214,15 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn write(&self, _req: RequestInfo, _path: &Path, _fh: u64, _offset: u64, _data: Vec<u8>, _flags: u32) -> ResultWrite {
-        warn!("write() not implemented");
-        Err(libc::ENOSYS)
+    fn write(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, data: Vec<u8>, _flags: u32) -> ResultWrite {
+        debug!("write() called with {:?}", path);
+        let client = NodeClient::new(&self.server_url);
+        let filename = path.to_str().unwrap().to_string();
+        let len = data.len() as u32;
+        match client.write(&filename, data, offset) {
+            None => Ok(len),
+            Some(_) => Err(libc::EIO),
+        }
     }
 
     fn flush(&self, _req: RequestInfo, _path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
@@ -188,9 +230,9 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn release(&self, _req: RequestInfo, _path: &Path, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool) -> ResultEmpty {
-        warn!("release() not implemented");
-        Err(libc::ENOSYS)
+    fn release(&self, _req: RequestInfo, path: &Path, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool) -> ResultEmpty {
+        debug!("release() called on {:?}", path);
+        Ok(())
     }
 
     fn fsync(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
@@ -203,14 +245,20 @@ impl FilesystemMT for FleetFUSE {
         Ok((0, 0))
     }
 
-    fn readdir(&self, _req: RequestInfo, _path: &Path, _fh: u64) -> ResultReaddir {
-        warn!("readdir() not implemented");
-        Err(libc::ENOSYS)
+    fn readdir(&self, _req: RequestInfo, path: &Path, _fh: u64) -> ResultReaddir {
+        debug!("readdir() called with {:?}", path);
+        let client = NodeClient::new(&self.server_url);
+        let filename = path.to_str().unwrap().to_string();
+        // TODO: when server is down return EIO
+        let result = client.readdir(&filename);
+        debug!("readdir() returned {:?}", &result);
+
+        return result;
     }
 
-    fn releasedir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {
-        warn!("releasedir() not implemented");
-        Err(libc::ENOSYS)
+    fn releasedir(&self, _req: RequestInfo, path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {
+        debug!("releasedir() called on {:?}", path);
+        Ok(())
     }
 
     fn fsyncdir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
@@ -248,9 +296,29 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn create(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _mode: u32, _flags: u32) -> ResultCreate {
-        warn!("create() not implemented");
-        Err(libc::ENOSYS)
+    fn create(&self, _req: RequestInfo, parent: &Path, name: &OsStr, _mode: u32, _flags: u32) -> ResultCreate {
+        debug!("create() called with {:?} {:?}", parent, name);
+        // TODO
+        Ok(CreatedEntry {
+            ttl: Timespec { sec: 0, nsec: 0 },
+            attr: FileAttr {
+                size: 0,
+                blocks: 0,
+                atime: Timespec { sec: 0, nsec: 0 },
+                mtime: Timespec { sec: 0, nsec: 0 },
+                ctime: Timespec { sec: 0, nsec: 0 },
+                crtime: Timespec { sec: 0, nsec: 0 },
+                kind: FileType::RegularFile,
+                perm: 0,
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                flags: 0
+            },
+            fh: 0,
+            flags: 0
+        })
     }
 }
 

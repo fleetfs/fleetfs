@@ -138,12 +138,12 @@ impl DistributedFile {
     }
 
     fn getattr(self, req: Request<Body>) -> BoxFuture {
-        info!("Getting metadata for file");
+        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        info!("Getting metadata for {:?}", &path);
+
         let response = req.into_body()
             .concat2()
             .map(move |_| {
-                let path = Path::new(&self.local_data_dir).join(&self.filename);
-
                 let metadata = fs::metadata(path).unwrap();
 
                 let mut map = HashMap::new();
