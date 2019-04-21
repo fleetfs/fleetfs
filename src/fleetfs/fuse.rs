@@ -14,14 +14,18 @@ use crate::fleetfs::core::{PATH_HEADER, OFFSET_HEADER, SIZE_HEADER};
 
 struct NodeClient {
     server_url: String,
-    client: Client
+    client: Client,
+    getattr_url: Url,
+    read_url: Url
 }
 
 impl NodeClient {
     pub fn new(server_url: &String) -> NodeClient {
         NodeClient {
             server_url: server_url.clone(),
-            client: Client::new()
+            client: Client::new(),
+            getattr_url: format!("{}/getattr", server_url).parse().unwrap(),
+            read_url: format!("{}/", server_url).parse().unwrap()
         }
     }
 
@@ -44,10 +48,8 @@ impl NodeClient {
             })
         }
 
-        let uri: Url = format!("{}/getattr", self.server_url).parse().unwrap();
-
         let response = match self.client
-            .get(uri)
+            .get(self.getattr_url.clone())
             .header(PATH_HEADER, filename.as_str())
             .send() {
             Ok(mut response) => response.json().ok(),
@@ -79,9 +81,7 @@ impl NodeClient {
 
     pub fn read(&self, path: &String, offset: u64, size: u32) -> Option<Vec<u8>> {
         assert_ne!(path, "/");
-        let uri: Url = format!("{}", self.server_url).parse().unwrap();
-
-        let response = self.client.get(uri)
+        let response = self.client.get(self.read_url.clone())
             .header(PATH_HEADER, path.as_str())
             .header(OFFSET_HEADER, offset.to_string().as_str())
             .header(SIZE_HEADER, size.to_string().as_str())
@@ -102,9 +102,7 @@ impl NodeClient {
 
     pub fn readdir(&self, path: &String) -> ResultReaddir {
         assert_eq!(path, "/");
-        let uri: Url = format!("{}", self.server_url).parse().unwrap();
-
-        let response: Vec<String> = self.client.get(uri)
+        let response: Vec<String> = self.client.get(self.read_url.clone())
             .header(PATH_HEADER, path.as_str())
             .send().unwrap().json().unwrap();
 
