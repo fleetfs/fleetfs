@@ -141,6 +141,16 @@ impl NodeClient {
 
         return response;
     }
+
+    pub fn unlink(self, path: &String) -> Option<Error> {
+        let client = Client::new();
+        let uri: Url = format!("{}", self.server_url).parse().unwrap();
+        let response = client.delete(uri)
+            .header(PATH_HEADER, path.as_str())
+            .send().err();
+
+        return response;
+    }
 }
 
 pub struct FleetFUSE {
@@ -218,9 +228,14 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn unlink(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
-        warn!("unlink() not implemented");
-        Err(libc::ENOSYS)
+    fn unlink(&self, _req: RequestInfo, _parent: &Path, name: &OsStr) -> ResultEmpty {
+        debug!("unlink() called with {:?}", name);
+        let client = NodeClient::new(&self.server_url);
+        let filename = name.to_str().unwrap().to_string();
+        match client.unlink(&filename) {
+            None => Ok(()),
+            Some(_) => Err(libc::EIO),
+        }
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
