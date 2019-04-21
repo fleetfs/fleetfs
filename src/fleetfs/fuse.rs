@@ -1,0 +1,256 @@
+use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::path::Path;
+
+use fuse_mt::{FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
+use libc;
+use log::debug;
+use log::warn;
+use reqwest;
+use reqwest::{Client, Url};
+use time::Timespec;
+
+use crate::fleetfs::core::PATH_HEADER;
+
+struct NodeClient {
+    server_url: String,
+}
+
+impl NodeClient {
+    pub fn new(server_url: &String) -> NodeClient {
+        NodeClient {
+            server_url: server_url.clone()
+        }
+    }
+
+    pub fn getattr(self, filename: &String) -> Option<FileAttr> {
+        if filename.len() == 1 {
+            return Some(FileAttr {
+                size: 0,
+                blocks: 0,
+                atime: Timespec { sec: 0, nsec: 0 },
+                mtime: Timespec { sec: 0, nsec: 0 },
+                ctime: Timespec { sec: 0, nsec: 0 },
+                crtime: Timespec { sec: 0, nsec: 0 },
+                kind: FileType::Directory,
+                perm: 0o755,
+                nlink: 2,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                flags: 0
+            })
+        }
+
+        let uri: Url = format!("{}/getattr", self.server_url).parse().unwrap();
+        let client = Client::new();
+
+        let response = match client
+            .get(uri)
+            .header(PATH_HEADER, filename.as_str())
+            .send() {
+            Ok(mut response) => response.json().ok(),
+            Err(_) => None,
+        };
+
+        if response.is_none() {
+            return None;
+        }
+
+        let resp: HashMap<String, String> = response.unwrap();
+
+        return Some(FileAttr {
+            size: resp.get("length").unwrap().parse().unwrap(),
+            blocks: 0,
+            atime: Timespec { sec: 0, nsec: 0 },
+            mtime: Timespec { sec: 0, nsec: 0 },
+            ctime: Timespec { sec: 0, nsec: 0 },
+            crtime: Timespec { sec: 0, nsec: 0 },
+            kind: FileType::RegularFile,
+            perm: 0o777,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+            flags: 0
+        });
+    }
+}
+
+pub struct FleetFUSE {
+    server_url: String
+}
+
+impl FleetFUSE {
+    pub fn new(server_url: String) -> FleetFUSE {
+        FleetFUSE {
+            server_url
+        }
+    }
+}
+
+impl FilesystemMT for FleetFUSE {
+    fn init(&self, _req: RequestInfo) -> ResultEmpty {
+        Ok(())
+    }
+
+    fn destroy(&self, _req: RequestInfo) {
+        // No-op
+    }
+
+    fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
+        debug!("getattr() called with {:?}", path);
+        let client = NodeClient::new(&self.server_url);
+        let filename = path.to_str().unwrap().to_string();
+        match client.getattr(&filename) {
+            None => return Err(libc::EIO),
+            Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
+        }
+    }
+
+    fn chmod(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _mode: u32) -> ResultEmpty {
+        warn!("chmod() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn chown(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _uid: Option<u32>, _gid: Option<u32>) -> ResultEmpty {
+        warn!("chown() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn truncate(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _size: u64) -> ResultEmpty {
+        warn!("truncate() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn utimens(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>) -> ResultEmpty {
+        warn!("utimens() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn readlink(&self, _req: RequestInfo, _path: &Path) -> ResultData {
+        warn!("readlink() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn mknod(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _mode: u32, _rdev: u32) -> ResultEntry {
+        warn!("mknod() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn mkdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _mode: u32) -> ResultEntry {
+        warn!("mkdir() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn unlink(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
+        warn!("unlink() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
+        warn!("rmdir() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn symlink(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _target: &Path) -> ResultEntry {
+        warn!("symlink() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn rename(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _newparent: &Path, _newname: &OsStr) -> ResultEmpty {
+        warn!("rename() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn link(&self, _req: RequestInfo, _path: &Path, _newparent: &Path, _newname: &OsStr) -> ResultEntry {
+        warn!("link() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn open(&self, _req: RequestInfo, _path: &Path, _flags: u32) -> ResultOpen {
+        warn!("open() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn read(&self, _req: RequestInfo, _path: &Path, _fh: u64, _offset: u64, _size: u32) -> ResultData {
+        warn!("read() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn write(&self, _req: RequestInfo, _path: &Path, _fh: u64, _offset: u64, _data: Vec<u8>, _flags: u32) -> ResultWrite {
+        warn!("write() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn flush(&self, _req: RequestInfo, _path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
+        warn!("flush() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn release(&self, _req: RequestInfo, _path: &Path, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool) -> ResultEmpty {
+        warn!("release() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn fsync(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
+        warn!("fsync() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn opendir(&self, _req: RequestInfo, path: &Path, _flags: u32) -> ResultOpen {
+        debug!("opendir() called on {:?}", path);
+        Ok((0, 0))
+    }
+
+    fn readdir(&self, _req: RequestInfo, _path: &Path, _fh: u64) -> ResultReaddir {
+        warn!("readdir() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn releasedir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {
+        warn!("releasedir() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn fsyncdir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
+        warn!("fsyncdir() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn statfs(&self, _req: RequestInfo, _path: &Path) -> ResultStatfs {
+        warn!("statfs() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn setxattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr, _value: &[u8], _flags: u32, _position: u32) -> ResultEmpty {
+        warn!("setxattr() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn getxattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr, _size: u32) -> ResultXattr {
+        warn!("getxattr() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn listxattr(&self, _req: RequestInfo, _path: &Path, _size: u32) -> ResultXattr {
+        warn!("listxattr() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn removexattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr) -> ResultEmpty {
+        warn!("removexattr() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn access(&self, _req: RequestInfo, _path: &Path, _mask: u32) -> ResultEmpty {
+        warn!("access() not implemented");
+        Err(libc::ENOSYS)
+    }
+
+    fn create(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _mode: u32, _flags: u32) -> ResultCreate {
+        warn!("create() not implemented");
+        Err(libc::ENOSYS)
+    }
+}
+
