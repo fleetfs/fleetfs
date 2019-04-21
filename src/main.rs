@@ -83,10 +83,11 @@ fn main() {
         println!("Connecting to server {} and mounting FUSE at {}", &server_url, &mount_point);
         let mut fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o")];
         if direct_io {
-            fuse_args.push(&OsStr::new("auto_unmount,direct_io"))
+            println!("Using Direct IO");
+            fuse_args.push(&OsStr::new("fsname=fleetfs,direct_io,auto_unmount"))
         }
         else {
-            fuse_args.push(&OsStr::new("auto_unmount"))
+            fuse_args.push(&OsStr::new("fsname=fleetfs,auto_unmount"))
         }
         let fs = FleetFUSE::new(server_url);
         fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mount_point, &fuse_args).unwrap();

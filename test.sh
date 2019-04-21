@@ -16,11 +16,11 @@ DIR2=$(mktemp --directory)
 cargo run -- --port 3300 --data-dir $DATA_DIR --peers http://localhost:3301 &
 cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers http://localhost:3300 &
 sleep 2
-python client/main.py --server-url http://localhost:3300 --mount-point $DIR &
+cargo run -- --server-url http://localhost:3300 --mount-point $DIR &
 FUSE_PID=$!
 # Mount the replica with direct IO, so that replication shows up immediately. Otherwise, some tests might fail
 # due to caching in the kernel
-python client/main.py --server-url http://localhost:3301 --mount-point $DIR2 --direct-io &
+cargo run -- --server-url http://localhost:3301 --mount-point $DIR2 --direct-io &
 sleep 2
 
 echo "mounting at $DIR"

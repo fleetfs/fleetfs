@@ -258,9 +258,10 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn open(&self, _req: RequestInfo, _path: &Path, _flags: u32) -> ResultOpen {
-        warn!("open() not implemented");
-        Err(libc::ENOSYS)
+    fn open(&self, _req: RequestInfo, path: &Path, _flags: u32) -> ResultOpen {
+        debug!("open() called for {:?}", path);
+        // TODO: something reasonable
+        Ok((0, 0))
     }
 
     fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32) -> ResultData {
@@ -284,9 +285,10 @@ impl FilesystemMT for FleetFUSE {
         }
     }
 
-    fn flush(&self, _req: RequestInfo, _path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
-        warn!("flush() not implemented");
-        Err(libc::ENOSYS)
+    fn flush(&self, _req: RequestInfo, path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
+        debug!("flush() called on {:?}", path);
+        // TODO: something reasonable
+        Ok(())
     }
 
     fn release(&self, _req: RequestInfo, path: &Path, _fh: u64, _flags: u32, _lock_owner: u64, _flush: bool) -> ResultEmpty {
