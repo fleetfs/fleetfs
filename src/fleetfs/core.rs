@@ -7,7 +7,9 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-use bytes::Buf;
+use futures::sync::mpsc::{channel, Sender, Receiver};
+
+use bytes::{Buf, BytesMut, BufMut};
 use futures::future;
 use futures::Stream;
 use hyper::{Body, Response, Server, StatusCode};
@@ -18,6 +20,17 @@ use hyper::service::service_fn;
 use log::info;
 use crate::fleetfs::client::PeerClient;
 use std::collections::HashMap;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{copy, ErrorKind};
+use tokio::prelude::*;
+
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
+use byteorder::LittleEndian;
+use byteorder::ByteOrder;
+use tokio_io::codec::Decoder;
+use tokio_io::_tokio_codec::Encoder;
+use tokio::codec::Framed;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
 pub const OFFSET_HEADER: &str = "X-FleetFS-Offset";
@@ -199,6 +212,40 @@ impl DistributedFile {
         Box::new(response)
     }
 
+    fn read_v2(self, offset: u64, size: u32) -> Vec<u8> {
+        assert_ne!(self.filename.len(), 0);
+
+        info!("[v2 API] Reading file: {}. data_dir={}", self.filename, self.local_data_dir);
+        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        let display = path.display();
+
+        let mut file = match File::open(&path) {
+            Err(why) => panic!("couldn't create {}: {}",
+                               display,
+                               why.description()),
+            Ok(file) => file,
+        };
+
+        match file.seek(SeekFrom::Start(offset)) {
+            Err(why) => {
+                panic!("couldn't seek to {} in {} because {}", offset, display,
+                       why.description())
+            },
+            Ok(_) => {}
+        }
+
+        let mut handle = file.take(size as u64);
+
+        let mut contents = vec![0; size as usize];
+        let bytes_read = handle.read(&mut contents);
+        match bytes_read {
+            Err(_) => panic!(),
+            Ok(size) => contents.truncate(size)
+        };
+
+        return contents;
+    }
+
     fn unlink(self, req: Request<Body>) -> BoxFuture {
         let forward: bool = req.headers().get(NO_FORWARD_HEADER).is_none();
         assert_ne!(self.filename.len(), 0);
@@ -259,17 +306,79 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
     Box::new(future::ok(response))
 }
 
+fn handler_v2(request: ReadRequest, data_dir: String, peers: &[String]) -> ReadResponse {
+    let file = DistributedFile::new(request.filename, data_dir, &peers);
+    let data = file.read_v2(request.offset, request.size);
+    ReadResponse {data}
+}
+
+struct ReadRequest {
+    offset: u64,
+    size: u32,
+    filename: String
+}
+
+struct ReadResponse {
+    data: Vec<u8>
+}
+
+struct ReadV2Codec {
+}
+
+impl Decoder for ReadV2Codec {
+    type Item = ReadRequest;
+    type Error = tokio::io::Error;
+
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<ReadRequest>, tokio::io::Error> {
+        if buf.len() < (8 + 4 + 2) {
+            return Ok(None);
+        }
+        let offset = LittleEndian::read_u64(&buf[..8]);
+        let size = LittleEndian::read_u32(&buf[8..12]);
+        let path_size = LittleEndian::read_u16(&buf[12..14]);
+        if buf.len() < (8 + 4 + 2 + path_size as usize) {
+            return Ok(None);
+        }
+        let filename = String::from_utf8_lossy(&buf[14..(14 + path_size as usize)]).trim_start_matches('/').to_string();
+
+        buf.split_to(8 + 4 + 2 + path_size as usize);
+
+        Ok(Some(ReadRequest {
+            offset,
+            size,
+            filename
+        }))
+    }
+}
+
+impl Encoder for ReadV2Codec {
+    type Item = ReadResponse;
+    type Error = tokio::io::Error;
+
+    fn encode(&mut self, response: ReadResponse, buf: &mut BytesMut) -> Result<(), Self::Error> {
+        let length = response.data.len();
+        buf.reserve(4 + response.data.len());
+
+        buf.put_u32_le(response.data.len() as u32);
+        buf.put(response.data);
+
+        Ok(())
+    }
+}
+
 pub struct Node {
     data_dir: String,
     port: u16,
+    port_v2: u16,
     peers: Vec<String>
 }
 
 impl Node {
-    pub fn new(data_dir: String, port: u16, peers: &[String]) -> Node {
+    pub fn new(data_dir: String, port: u16, port_v2: u16, peers: &[String]) -> Node {
         Node {
             data_dir,
             port,
+            port_v2,
             peers: Vec::from(peers)
         }
     }
@@ -283,16 +392,49 @@ impl Node {
 
         let addr = ([127, 0, 0, 1], self.port).into();
 
+        let data_dir = self.data_dir.clone();
+        let peers = self.peers.clone();
         let new_service = move || {
-            let data_dir2 = self.data_dir.clone();
-            let peers_copy = self.peers.clone();
-            service_fn(move |req| handler(req, data_dir2.clone(), &peers_copy))
+            let data_dir2 = data_dir.clone();
+            let peers2 = peers.clone();
+            service_fn(move |req| handler(req, data_dir2.clone(), &peers2))
         };
 
         let server = Server::bind(&addr)
             .serve(new_service)
             .map_err(|e| eprintln!("server error: {}", e));
 
-        hyper::rt::run(server);
+        // TCP based v2 API
+        let addr_v2 = ([127, 0, 0, 1], self.port_v2).into();
+        let listener = TcpListener::bind(&addr_v2)
+            .expect("unable to bind API v2 listener");
+
+        let data_dir = self.data_dir.clone();
+        let peers = self.peers.clone();
+        let server_v2 = listener.incoming()
+            .map_err(|e| eprintln!("accept connection failed = {:?}", e))
+            .for_each(move |socket| {
+                let framed_socket = Framed::new(socket, ReadV2Codec{});
+                let (writer, reader) = framed_socket.split();
+                let (mut tx, rx) = channel(0);
+                let mut writer = writer.sink_map_err(|_| ());
+                let sink = rx.forward(writer).map(|_| ());
+                tokio::spawn(sink);
+
+                let data_dir2 = data_dir.clone();
+                let peers2 = peers.clone();
+
+                let conn = reader.for_each(move |frame| {
+                    let data_dir = data_dir2.clone();
+                    let peers = peers2.clone();
+                    let response = handler_v2(frame, data_dir, &peers);
+                    let send = tx.start_send(response);
+                    send.map(|_| ()).map_err(|e| tokio::io::Error::from(ErrorKind::Other))
+                });
+
+                tokio::spawn(conn.map_err(|_| ()))
+            });
+
+        hyper::rt::run(server.join(server_v2).map(|_| ()));
     }
 }

@@ -1,31 +1,46 @@
+use core::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
+use std::sync::Mutex;
 
-use fuse_mt::{FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr, DirectoryEntry, CreatedEntry};
+use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
+use byteorder::ByteOrder;
+use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
+use futures::sync::mpsc::{channel, Receiver, Sender};
 use libc;
 use log::debug;
 use log::warn;
+use log::info;
 use reqwest;
-use reqwest::{Client, Url, Error};
+use reqwest::{Client, Error, Url};
 use time::Timespec;
 
-use crate::fleetfs::core::{PATH_HEADER, OFFSET_HEADER, SIZE_HEADER};
+use crate::fleetfs::core::{OFFSET_HEADER, PATH_HEADER, SIZE_HEADER};
 
 struct NodeClient {
     server_url: String,
     client: Client,
     getattr_url: Url,
-    read_url: Url
+    read_url: Url,
+    server_v2_ip_port: SocketAddr,
+    server_v2_connection: Mutex<Option<TcpStream>>
 }
 
 impl NodeClient {
-    pub fn new(server_url: &String) -> NodeClient {
+    pub fn new(server_url: &String, server_v2_ip_port: &SocketAddr) -> NodeClient {
         NodeClient {
             server_url: server_url.clone(),
             client: Client::new(),
             getattr_url: format!("{}/getattr", server_url).parse().unwrap(),
-            read_url: format!("{}/", server_url).parse().unwrap()
+            read_url: format!("{}/", server_url).parse().unwrap(),
+            server_v2_ip_port: server_v2_ip_port.clone(),
+            server_v2_connection: Mutex::new(None)
         }
     }
 
@@ -81,19 +96,34 @@ impl NodeClient {
 
     pub fn read(&self, path: &String, offset: u64, size: u32) -> Option<Vec<u8>> {
         assert_ne!(path, "/");
-        let response = self.client.get(self.read_url.clone())
-            .header(PATH_HEADER, path.as_str())
-            .header(OFFSET_HEADER, offset.to_string().as_str())
-            .header(SIZE_HEADER, size.to_string().as_str())
-            .send().ok();
+        let mut locked = self.server_v2_connection.lock().unwrap();
+        if locked.is_none() {
+            warn!("Creating new TCP connection");
+            locked.replace(TcpStream::connect(self.server_v2_ip_port).unwrap());
+        }
 
-        if let Some(mut resp) = response {
-            let mut result = vec![];
-            match resp.copy_to(&mut result) {
-                Ok(_) => {},
-                Err(_) => return None,
+        let mut taken = locked.take();
+        if let Some(ref mut stream) = taken {
+            let path_bytes = path.as_bytes();
+            let mut request = vec![0; 8 + 4 + 2 + path_bytes.len()];
+            LittleEndian::write_u64(&mut request[0..8], offset);
+            LittleEndian::write_u32(&mut request[8..12], size);
+            LittleEndian::write_u16(&mut request[12..14], path_bytes.len() as u16);
+            for i in 0..path_bytes.len() {
+                request[14 + i] = path_bytes[i];
             }
-            return Some(result);
+            stream.write_all(&request);
+
+            match stream.read_u32::<LittleEndian>() {
+                Ok(data_size) => {
+                    let mut buffer = vec![0; data_size as usize];
+                    stream.read_exact(&mut buffer);
+                    // If the connection is still working, store it back
+                    locked.replace(taken.unwrap());
+                    return Some(buffer);
+                },
+                Err(_) => return None
+            };
         }
         else {
             return None;
@@ -152,9 +182,9 @@ pub struct FleetFUSE {
 }
 
 impl FleetFUSE {
-    pub fn new(server_url: String) -> FleetFUSE {
+    pub fn new(server_url: String, server_ip_port: SocketAddr) -> FleetFUSE {
         FleetFUSE {
-            client: NodeClient::new(&server_url)
+            client: NodeClient::new(&server_url, &server_ip_port)
         }
     }
 }

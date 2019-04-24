@@ -15,10 +15,10 @@ DATA_DIR2=$(mktemp --directory)
 DIR=$(mktemp --directory)
 DIR2=$(mktemp --directory)
 cargo build --release
-cargo run --release -- --port 3300 --data-dir $DATA_DIR --peers http://localhost:3301 &
-cargo run --release -- --port 3301 --data-dir $DATA_DIR2 --peers http://localhost:3300 &
+cargo run --release -- --port 3300 --port-v2 4300 --data-dir $DATA_DIR --peers http://localhost:3301 &
+cargo run --release -- --port 3301 --port-v2 4301 --data-dir $DATA_DIR2 --peers http://localhost:3300 &
 sleep 2
-cargo run --release -- --server-url http://localhost:3300 --mount-point $DIR &
+cargo run --release -- --server-url http://localhost:3300 --server-ip-port 127.0.0.1:4300 --mount-point $DIR &
 sleep 2
 
 echo "mounting at $DIR"
