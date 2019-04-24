@@ -7,7 +7,7 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-use futures::sync::mpsc::{channel, Sender, Receiver};
+use futures::sync::mpsc::channel;
 
 use bytes::{Buf, BytesMut, BufMut};
 use futures::future;
@@ -20,12 +20,10 @@ use hyper::service::service_fn;
 use log::info;
 use crate::fleetfs::client::PeerClient;
 use std::collections::HashMap;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{copy, ErrorKind};
+use tokio::net::{TcpListener};
+use tokio::io::ErrorKind;
 use tokio::prelude::*;
 
-use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
 use byteorder::LittleEndian;
 use byteorder::ByteOrder;
 use tokio_io::codec::Decoder;
@@ -70,7 +68,7 @@ impl DistributedFile {
                                        why.description()),
                     Ok(file) => file,
                 };
-                file.set_len(new_length);
+                file.set_len(new_length).unwrap();
 
                 if forward {
                     for peer in self.peers {
@@ -277,7 +275,7 @@ impl DistributedFile {
 fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture {
     let mut response = Response::new(Body::empty());
 
-    let filename: String = req.headers()[PATH_HEADER].to_str().unwrap().trim_left_matches('/').to_string();
+    let filename: String = req.headers()[PATH_HEADER].to_str().unwrap().trim_start_matches('/').to_string();
 
     let file = DistributedFile::new(filename, data_dir, peers);
 
@@ -356,9 +354,7 @@ impl Encoder for ReadV2Codec {
     type Error = tokio::io::Error;
 
     fn encode(&mut self, response: ReadResponse, buf: &mut BytesMut) -> Result<(), Self::Error> {
-        let length = response.data.len();
         buf.reserve(4 + response.data.len());
-
         buf.put_u32_le(response.data.len() as u32);
         buf.put(response.data);
 
@@ -417,7 +413,7 @@ impl Node {
                 let framed_socket = Framed::new(socket, ReadV2Codec{});
                 let (writer, reader) = framed_socket.split();
                 let (mut tx, rx) = channel(0);
-                let mut writer = writer.sink_map_err(|_| ());
+                let writer = writer.sink_map_err(|_| ());
                 let sink = rx.forward(writer).map(|_| ());
                 tokio::spawn(sink);
 
@@ -429,7 +425,7 @@ impl Node {
                     let peers = peers2.clone();
                     let response = handler_v2(frame, data_dir, &peers);
                     let send = tx.start_send(response);
-                    send.map(|_| ()).map_err(|e| tokio::io::Error::from(ErrorKind::Other))
+                    send.map(|_| ()).map_err(|_| tokio::io::Error::from(ErrorKind::Other))
                 });
 
                 tokio::spawn(conn.map_err(|_| ()))

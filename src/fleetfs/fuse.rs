@@ -1,5 +1,3 @@
-use core::borrow::Borrow;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
@@ -7,21 +5,18 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::Mutex;
 
+use byteorder::ByteOrder;
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
-use byteorder::ByteOrder;
 use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
-use futures::sync::mpsc::{channel, Receiver, Sender};
 use libc;
 use log::debug;
 use log::warn;
-use log::info;
 use reqwest;
 use reqwest::{Client, Error, Url};
 use time::Timespec;
 
-use crate::fleetfs::core::{OFFSET_HEADER, PATH_HEADER, SIZE_HEADER};
+use crate::fleetfs::core::{PATH_HEADER};
 
 struct NodeClient {
     server_url: String,
@@ -112,12 +107,16 @@ impl NodeClient {
             for i in 0..path_bytes.len() {
                 request[14 + i] = path_bytes[i];
             }
-            stream.write_all(&request);
+            if stream.write_all(&request).ok().is_none() {
+                return None;
+            }
 
             match stream.read_u32::<LittleEndian>() {
                 Ok(data_size) => {
                     let mut buffer = vec![0; data_size as usize];
-                    stream.read_exact(&mut buffer);
+                    if stream.read_exact(&mut buffer).ok().is_none() {
+                        return None;
+                    }
                     // If the connection is still working, store it back
                     locked.replace(taken.unwrap());
                     return Some(buffer);
