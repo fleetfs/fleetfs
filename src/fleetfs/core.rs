@@ -131,6 +131,7 @@ impl DistributedFile {
     }
 
     fn list_dir(self, req: Request<Body>) -> BoxFuture {
+        assert_eq!(self.filename.len(), 0);
         info!("Listing directory");
         let response = req.into_body()
             .concat2()
@@ -161,50 +162,6 @@ impl DistributedFile {
                 map.insert("length", metadata.len());
 
                 Response::new(Body::from(serde_json::to_string(&map).unwrap()))
-            });
-
-        Box::new(response)
-    }
-
-    fn read(self, req: Request<Body>) -> BoxFuture {
-        if self.filename.len() == 0 {
-            return self.list_dir(req);
-        }
-
-        let offset: u64 = req.headers().get(OFFSET_HEADER).unwrap().to_str().unwrap().parse().unwrap();
-        let size: u64 = req.headers().get(SIZE_HEADER).unwrap().to_str().unwrap().parse().unwrap();
-        info!("Reading file");
-        let response = req.into_body()
-            .concat2()
-            .map(move |_| {
-                let path = Path::new(&self.local_data_dir).join(&self.filename);
-                let display = path.display();
-
-                let mut file = match File::open(&path) {
-                    Err(why) => panic!("couldn't create {}: {}",
-                                       display,
-                                       why.description()),
-                    Ok(file) => file,
-                };
-
-                match file.seek(SeekFrom::Start(offset)) {
-                    Err(why) => {
-                        panic!("couldn't seek to {} in {} because {}", offset, display,
-                               why.description())
-                    },
-                    Ok(_) => {}
-                }
-
-                let mut handle = file.take(size);
-
-                let mut contents = vec![0; size as usize];
-                let bytes_read = handle.read(&mut contents);
-                match bytes_read {
-                    Err(_) => panic!(),
-                    Ok(size) => contents.truncate(size)
-                };
-
-                Response::new(Body::from(contents))
             });
 
         Box::new(response)
@@ -285,7 +242,7 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
-            return file.read(req);
+            return file.list_dir(req);
         },
         (&Method::GET, "/getattr") => {
             return file.getattr(req);
