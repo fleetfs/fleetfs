@@ -92,7 +92,7 @@ fn main() {
 
     if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
-        Node::new(data_dir, port, port_v2, &peers).run();
+        Node::new(data_dir, port, port_v2, peers).run();
     }
     else {
         println!("Connecting to server {} and mounting FUSE at {}", &server_url, &mount_point);

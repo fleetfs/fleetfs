@@ -261,8 +261,8 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
     Box::new(future::ok(response))
 }
 
-fn handler_v2(request: ReadRequest, data_dir: String, peers: &[String]) -> ReadResponse {
-    let file = DistributedFile::new(request.filename, data_dir, &peers);
+fn handler_v2(request: ReadRequest, context: &LocalContext) -> ReadResponse {
+    let file = DistributedFile::new(request.filename, context.data_dir.clone(), &context.peers);
     let data = file.read_v2(request.offset, request.size);
     ReadResponse {data}
 }
@@ -319,25 +319,38 @@ impl Encoder for ReadV2Codec {
     }
 }
 
-pub struct Node {
+#[derive(Clone)]
+struct LocalContext {
     data_dir: String,
-    port: u16,
-    port_v2: u16,
     peers: Vec<String>
 }
 
-impl Node {
-    pub fn new(data_dir: String, port: u16, port_v2: u16, peers: &[String]) -> Node {
-        Node {
+impl LocalContext {
+    pub fn new(data_dir: String, peers: Vec<String>) -> LocalContext {
+        LocalContext {
             data_dir,
+            peers
+        }
+    }
+}
+
+pub struct Node {
+    context: LocalContext,
+    port: u16,
+    port_v2: u16
+}
+
+impl Node {
+    pub fn new(data_dir: String, port: u16, port_v2: u16, peers: Vec<String>) -> Node {
+        Node {
+            context: LocalContext::new(data_dir, peers),
             port,
-            port_v2,
-            peers: Vec::from(peers)
+            port_v2
         }
     }
 
     pub fn run(self) {
-        match fs::create_dir_all(&self.data_dir) {
+        match fs::create_dir_all(&self.context.data_dir) {
             Err(why) => panic!("Couldn't create storage dir: {}", why.description()),
             Ok(_) => ()
 
@@ -345,12 +358,10 @@ impl Node {
 
         let addr = ([127, 0, 0, 1], self.port).into();
 
-        let data_dir = self.data_dir.clone();
-        let peers = self.peers.clone();
+        let context = self.context.clone();
         let new_service = move || {
-            let data_dir2 = data_dir.clone();
-            let peers2 = peers.clone();
-            service_fn(move |req| handler(req, data_dir2.clone(), &peers2))
+            let cloned = context.clone();
+            service_fn(move |req| handler(req, cloned.data_dir.clone(), &cloned.peers))
         };
 
         let server = Server::bind(&addr)
@@ -362,8 +373,7 @@ impl Node {
         let listener = TcpListener::bind(&addr_v2)
             .expect("unable to bind API v2 listener");
 
-        let data_dir = self.data_dir.clone();
-        let peers = self.peers.clone();
+        let context = self.context.clone();
         let server_v2 = listener.incoming()
             .map_err(|e| eprintln!("accept connection failed = {:?}", e))
             .for_each(move |socket| {
@@ -374,13 +384,9 @@ impl Node {
                 let sink = rx.forward(writer).map(|_| ());
                 tokio::spawn(sink);
 
-                let data_dir2 = data_dir.clone();
-                let peers2 = peers.clone();
-
+                let cloned = context.clone();
                 let conn = reader.for_each(move |frame| {
-                    let data_dir = data_dir2.clone();
-                    let peers = peers2.clone();
-                    let response = handler_v2(frame, data_dir, &peers);
+                    let response = handler_v2(frame, &cloned);
                     let send = tx.start_send(response);
                     send.map(|_| ()).map_err(|_| tokio::io::Error::from(ErrorKind::Other))
                 });
