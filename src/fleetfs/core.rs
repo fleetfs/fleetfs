@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{Seek, Read};
+use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
@@ -23,6 +23,8 @@ use std::collections::HashMap;
 use tokio::net::{TcpListener};
 use tokio::io::ErrorKind;
 use tokio::prelude::*;
+
+use std::os::unix::prelude::FileExt;
 
 use byteorder::LittleEndian;
 use byteorder::ByteOrder;
@@ -171,38 +173,18 @@ impl DistributedFile {
         Box::new(response)
     }
 
-    fn read_v2(self, offset: u64, size: u32) -> Vec<u8> {
+    fn read_v2(self, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
         info!("[v2 API] Reading file: {}. data_dir={}", self.filename, self.local_data_dir);
         let path = Path::new(&self.local_data_dir).join(&self.filename);
-        let display = path.display();
-
-        let mut file = match File::open(&path) {
-            Err(why) => panic!("couldn't create {}: {}",
-                               display,
-                               why.description()),
-            Ok(file) => file,
-        };
-
-        match file.seek(SeekFrom::Start(offset)) {
-            Err(why) => {
-                panic!("couldn't seek to {} in {} because {}", offset, display,
-                       why.description())
-            },
-            Ok(_) => {}
-        }
-
-        let mut handle = file.take(size as u64);
+        let file = File::open(&path)?;
 
         let mut contents = vec![0; size as usize];
-        let bytes_read = handle.read(&mut contents);
-        match bytes_read {
-            Err(_) => panic!(),
-            Ok(size) => contents.truncate(size)
-        };
+        let bytes_read = file.read_at(&mut contents, offset)?;
+        contents.truncate(bytes_read);
 
-        return contents;
+        return Ok(contents);
     }
 
     fn unlink(self, req: Request<Body>) -> BoxFuture {
@@ -268,7 +250,7 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
 fn handler_v2(request: ReadRequest, context: &LocalContext) -> ReadResponse {
     let file = DistributedFile::new(request.filename, context.data_dir.clone(), &context.peers);
     let data = file.read_v2(request.offset, request.size);
-    ReadResponse {data}
+    ReadResponse {data: data.unwrap()}
 }
 
 struct ReadRequest {
