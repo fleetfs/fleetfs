@@ -39,9 +39,9 @@ impl NodeClient {
         }
     }
 
-    pub fn getattr(&self, filename: &String) -> Option<FileAttr> {
+    pub fn getattr(&self, filename: &String) -> Result<Option<FileAttr>, reqwest::Error> {
         if filename.len() == 1 {
-            return Some(FileAttr {
+            return Ok(Some(FileAttr {
                 size: 0,
                 blocks: 0,
                 atime: Timespec { sec: 0, nsec: 0 },
@@ -55,38 +55,37 @@ impl NodeClient {
                 gid: 0,
                 rdev: 0,
                 flags: 0
-            })
+            }));
         }
 
-        let response = match self.client
+        let mut response = self.client
             .get(self.getattr_url.clone())
             .header(PATH_HEADER, filename.as_str())
-            .send() {
-            Ok(mut response) => response.json().ok(),
-            Err(_) => None,
-        };
+            .send()?;
+        let resp: HashMap<String, u64> = response.json()?;
 
-        if response.is_none() {
-            return None;
+        let exists = *resp.get("exists").expect("Server returned bad response: exists field missing");
+        if exists != 0 {
+            return Ok(Some(FileAttr {
+                size: *resp.get("length").expect("Server returned a corrupted response: length field missing"),
+                blocks: 0,
+                atime: Timespec { sec: 0, nsec: 0 },
+                mtime: Timespec { sec: 0, nsec: 0 },
+                ctime: Timespec { sec: 0, nsec: 0 },
+                crtime: Timespec { sec: 0, nsec: 0 },
+                kind: FileType::RegularFile,
+                perm: 0o777,
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                flags: 0
+            }));
+        }
+        else {
+            return Ok(None);
         }
 
-        let resp: HashMap<String, u64> = response.unwrap();
-
-        return Some(FileAttr {
-            size: *resp.get("length").unwrap(),
-            blocks: 0,
-            atime: Timespec { sec: 0, nsec: 0 },
-            mtime: Timespec { sec: 0, nsec: 0 },
-            ctime: Timespec { sec: 0, nsec: 0 },
-            crtime: Timespec { sec: 0, nsec: 0 },
-            kind: FileType::RegularFile,
-            perm: 0o777,
-            nlink: 1,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-            flags: 0
-        });
     }
 
     pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
@@ -113,7 +112,7 @@ impl NodeClient {
         let data_size = stream.read_u32::<LittleEndian>()?;
         let mut buffer = vec![0; data_size as usize];
         stream.read_exact(&mut buffer)?;
-        
+
         // If the connection is still working, store it back
         locked.replace(stream);
 
@@ -191,8 +190,7 @@ impl FilesystemMT for FleetFUSE {
     fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
         debug!("getattr() called with {:?}", path);
         let filename = path.to_str().unwrap().to_string();
-        // TODO: when server is down return EIO instead of ENOENT
-        let result = match self.client.getattr(&filename) {
+        let result = match self.client.getattr(&filename).map_err(|_| libc::EIO)? {
             None => Err(libc::ENOENT),
             Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
         };

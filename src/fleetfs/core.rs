@@ -156,10 +156,14 @@ impl DistributedFile {
         let response = req.into_body()
             .concat2()
             .map(move |_| {
-                let metadata = fs::metadata(path).unwrap();
-
                 let mut map = HashMap::new();
-                map.insert("length", metadata.len());
+                if let Some(metadata) = fs::metadata(path).ok() {
+                    map.insert("exists", 1);
+                    map.insert("length", metadata.len());
+                }
+                else {
+                    map.insert("exists", 0);
+                }
 
                 Response::new(Body::from(serde_json::to_string(&map).unwrap()))
             });
