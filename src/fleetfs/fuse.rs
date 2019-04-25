@@ -13,7 +13,7 @@ use libc;
 use log::debug;
 use log::warn;
 use reqwest;
-use reqwest::{Client, Error, Url};
+use reqwest::{Client, Url};
 use time::Timespec;
 
 use crate::fleetfs::core::{PATH_HEADER};
@@ -137,32 +137,26 @@ impl NodeClient {
         return Ok(result);
     }
 
-    pub fn truncate(&self, path: &String, length: u64) -> Option<Error> {
+    pub fn truncate(&self, path: &String, length: u64) -> Result<(), reqwest::Error> {
         let uri: Url = format!("{}/truncate/{}", self.server_url, length).parse().unwrap();
-        let response = self.client.post(uri)
+        return self.client.post(uri)
             .header(PATH_HEADER, path.as_str())
-            .send().err();
-
-        return response;
+            .send().map(|_| ());
     }
 
-    pub fn write(&self, path: &String, data: Vec<u8>, offset: u64) -> Option<Error> {
+    pub fn write(&self, path: &String, data: Vec<u8>, offset: u64) -> Result<(), reqwest::Error> {
         let uri: Url = format!("{}/{}", self.server_url, offset).parse().unwrap();
-        let response = self.client.post(uri)
+        return self.client.post(uri)
             .body(data)
             .header(PATH_HEADER, path.as_str())
-            .send().err();
-
-        return response;
+            .send().map(|_| ());
     }
 
-    pub fn unlink(&self, path: &String) -> Option<Error> {
+    pub fn unlink(&self, path: &String) -> Result<(), reqwest::Error> {
         let uri: Url = format!("{}", self.server_url).parse().unwrap();
-        let response = self.client.delete(uri)
+        return self.client.delete(uri)
             .header(PATH_HEADER, path.as_str())
-            .send().err();
-
-        return response;
+            .send().map(|_| ());
     }
 }
 
@@ -212,10 +206,7 @@ impl FilesystemMT for FleetFUSE {
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
         let filename = path.to_str().unwrap().to_string();
-        match self.client.truncate(&filename, size) {
-            None => Ok(()),
-            Some(_) => Err(libc::EIO),
-        }
+        self.client.truncate(&filename, size).map_err(|_| libc::EIO)
     }
 
     fn utimens(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>) -> ResultEmpty {
@@ -241,10 +232,7 @@ impl FilesystemMT for FleetFUSE {
     fn unlink(&self, _req: RequestInfo, _parent: &Path, name: &OsStr) -> ResultEmpty {
         debug!("unlink() called with {:?}", name);
         let filename = name.to_str().unwrap().to_string();
-        match self.client.unlink(&filename) {
-            None => Ok(()),
-            Some(_) => Err(libc::EIO),
-        }
+        self.client.unlink(&filename).map_err(|_| libc::EIO)
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
@@ -284,8 +272,8 @@ impl FilesystemMT for FleetFUSE {
         let filename = path.to_str().unwrap().to_string();
         let len = data.len() as u32;
         match self.client.write(&filename, data, offset) {
-            None => Ok(len),
-            Some(_) => Err(libc::EIO),
+            Ok(_) => Ok(len),
+            Err(_) => Err(libc::EIO),
         }
     }
 
@@ -366,8 +354,8 @@ impl FilesystemMT for FleetFUSE {
         // TODO: handle parent correctly
         let filename = name.to_str().unwrap().to_string();
         match self.client.write(&filename, vec![], 0) {
-            None => {},
-            Some(_) => return Err(libc::EIO),
+            Ok(_) => {},
+            Err(_) => return Err(libc::EIO),
         };
         // TODO
         Ok(CreatedEntry {
