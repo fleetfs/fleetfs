@@ -89,44 +89,35 @@ impl NodeClient {
         });
     }
 
-    pub fn read(&self, path: &String, offset: u64, size: u32) -> Option<Vec<u8>> {
+    pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
         assert_ne!(path, "/");
-        let mut locked = self.server_v2_connection.lock().unwrap();
+        let mut locked = self.server_v2_connection.lock().expect("lock acquisition failed");
         if locked.is_none() {
             warn!("Creating new TCP connection");
-            locked.replace(TcpStream::connect(self.server_v2_ip_port).unwrap());
+            let stream = TcpStream::connect(self.server_v2_ip_port)?;
+            locked.replace(stream);
         }
 
-        let mut taken = locked.take();
-        if let Some(ref mut stream) = taken {
-            let path_bytes = path.as_bytes();
-            let mut request = vec![0; 8 + 4 + 2 + path_bytes.len()];
-            LittleEndian::write_u64(&mut request[0..8], offset);
-            LittleEndian::write_u32(&mut request[8..12], size);
-            LittleEndian::write_u16(&mut request[12..14], path_bytes.len() as u16);
-            for i in 0..path_bytes.len() {
-                request[14 + i] = path_bytes[i];
-            }
-            if stream.write_all(&request).ok().is_none() {
-                return None;
-            }
+        let mut stream = locked.take().expect("connected stream is None");
 
-            match stream.read_u32::<LittleEndian>() {
-                Ok(data_size) => {
-                    let mut buffer = vec![0; data_size as usize];
-                    if stream.read_exact(&mut buffer).ok().is_none() {
-                        return None;
-                    }
-                    // If the connection is still working, store it back
-                    locked.replace(taken.unwrap());
-                    return Some(buffer);
-                },
-                Err(_) => return None
-            };
+        let path_bytes = path.as_bytes();
+        let mut request = vec![0; 8 + 4 + 2 + path_bytes.len()];
+        LittleEndian::write_u64(&mut request[0..8], offset);
+        LittleEndian::write_u32(&mut request[8..12], size);
+        LittleEndian::write_u16(&mut request[12..14], path_bytes.len() as u16);
+        for i in 0..path_bytes.len() {
+            request[14 + i] = path_bytes[i];
         }
-        else {
-            return None;
-        }
+        stream.write_all(&request)?;
+
+        let data_size = stream.read_u32::<LittleEndian>()?;
+        let mut buffer = vec![0; data_size as usize];
+        stream.read_exact(&mut buffer)?;
+        
+        // If the connection is still working, store it back
+        locked.replace(stream);
+
+        return Ok(buffer);
     }
 
     pub fn readdir(&self, path: &String) -> ResultReaddir {
@@ -287,10 +278,7 @@ impl FilesystemMT for FleetFUSE {
     fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32) -> ResultData {
         debug!("read() called on {:?} with offset={} and size={}", path, offset, size);
         let filename = path.to_str().unwrap().to_string();
-        match self.client.read(&filename, offset, size) {
-            None => Err(libc::EIO),
-            Some(data) => Ok(data),
-        }
+        return self.client.read(&filename, offset, size).map_err(|_| libc::EIO);
     }
 
     fn write(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, data: Vec<u8>, _flags: u32) -> ResultWrite {
