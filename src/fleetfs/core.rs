@@ -7,8 +7,6 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-use futures::sync::mpsc::channel;
-
 use bytes::{Buf, BytesMut, BufMut};
 use futures::future;
 use futures::Stream;
@@ -21,7 +19,6 @@ use log::info;
 use crate::fleetfs::client::PeerClient;
 use std::collections::HashMap;
 use tokio::net::{TcpListener};
-use tokio::io::ErrorKind;
 use tokio::prelude::*;
 
 use std::os::unix::prelude::FileExt;
@@ -365,19 +362,14 @@ impl Node {
             .for_each(move |socket| {
                 let framed_socket = Framed::new(socket, ReadV2Codec{});
                 let (writer, reader) = framed_socket.split();
-                let (mut tx, rx) = channel(0);
-                let writer = writer.sink_map_err(|_| ());
-                let sink = rx.forward(writer).map(|_| ());
-                tokio::spawn(sink);
 
                 let cloned = context.clone();
-                let conn = reader.for_each(move |frame| {
+                let conn = reader.fold(writer, move |writer, frame| {
                     let response = handler_v2(frame, &cloned);
-                    let send = tx.start_send(response);
-                    send.map(|_| ()).map_err(|_| tokio::io::Error::from(ErrorKind::Other))
+                    writer.send(response)
                 });
 
-                tokio::spawn(conn.map_err(|_| ()))
+                tokio::spawn(conn.map(|_| ()).map_err(|_| ()))
             });
 
         hyper::rt::run(server.join(server_v2).map(|_| ()));
