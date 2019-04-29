@@ -245,7 +245,7 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
     match request.request_type() {
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
-            let file = DistributedFile::new(read_request.filename().unwrap().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(read_request.filename().to_string(), context.data_dir.clone(), &context.peers);
             let data = file.read_v2(read_request.offset(), read_request.read_size());
             let data_offset = builder.create_vector_direct(&data.unwrap());
             let mut response_builder = ReadResponseBuilder::new(&mut builder);

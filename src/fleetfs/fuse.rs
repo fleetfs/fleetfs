@@ -121,7 +121,7 @@ impl NodeClient {
         stream.read_exact(&mut buffer)?;
         let response = flatbuffers::get_root::<GenericResponse>(&buffer);
 
-        let data = response.response_as_read_response().unwrap().data().unwrap().to_vec();
+        let data = response.response_as_read_response().unwrap().data().to_vec();
 
         // If the connection is still working, store it back
         locked.replace(stream);

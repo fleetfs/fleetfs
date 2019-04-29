@@ -9,7 +9,7 @@ table GenericRequest {
 table ReadRequest {
   offset: ulong;
   read_size: uint;
-  filename: string;
+  filename: string (required);
 }
 
 root_type GenericRequest;
@@ -24,7 +24,7 @@ table ErrorResponse {
 }
 
 table ReadResponse {
-  data: [ubyte];
+  data: [ubyte] (required);
 }
 
 union ResponseType { ErrorResponse, ReadResponse }
