@@ -242,25 +242,28 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
 
 fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatBufferBuilder<'b> {
     let mut builder = FlatBufferBuilder::new();
+    let response_type;
+    let response_offset;
+
     match request.request_type() {
         RequestType::ReadRequest => {
+            response_type = ResponseType::ReadResponse;
             let read_request = request.request_as_read_request().unwrap();
             let file = DistributedFile::new(read_request.filename().to_string(), context.data_dir.clone(), &context.peers);
             let data = file.read_v2(read_request.offset(), read_request.read_size());
             let data_offset = builder.create_vector_direct(&data.unwrap());
             let mut response_builder = ReadResponseBuilder::new(&mut builder);
             response_builder.add_data(data_offset);
-            let response_offset = response_builder.finish();
-
-            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-            generic_response_builder.add_response_type(ResponseType::ReadResponse);
-            generic_response_builder.add_response(response_offset.as_union_value());
-            let final_response_offset = generic_response_builder.finish();
-            builder.finish_size_prefixed(final_response_offset, None);
+            response_offset = response_builder.finish().as_union_value();
         },
-        _ => unreachable!()
+        RequestType::NONE => unreachable!()
     }
 
+    let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+    generic_response_builder.add_response_type(response_type);
+    generic_response_builder.add_response(response_offset);
+    let final_response_offset = generic_response_builder.finish();
+    builder.finish_size_prefixed(final_response_offset, None);
     return builder;
 }
 
