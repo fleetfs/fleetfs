@@ -1,4 +1,5 @@
 pub mod core;
+pub mod tcp_client;
 pub mod client;
 pub mod fuse;
 

@@ -1,14 +1,10 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr};
 use std::path::Path;
-use std::sync::Mutex;
 
 use crate::fleetfs::generated::*;
 
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
 use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
 use libc;
 use log::debug;
@@ -19,14 +15,14 @@ use time::Timespec;
 
 use crate::fleetfs::core::{PATH_HEADER};
 use flatbuffers::FlatBufferBuilder;
+use crate::fleetfs::tcp_client::TcpClient;
 
 struct NodeClient {
     server_url: String,
     client: Client,
+    tcp_client: TcpClient,
     getattr_url: Url,
-    read_url: Url,
-    server_v2_ip_port: SocketAddr,
-    server_v2_connection: Mutex<Option<TcpStream>>
+    read_url: Url
 }
 
 impl NodeClient {
@@ -34,10 +30,9 @@ impl NodeClient {
         NodeClient {
             server_url: server_url.clone(),
             client: Client::new(),
+            tcp_client: TcpClient::new(server_v2_ip_port.clone()),
             getattr_url: format!("{}/getattr", server_url).parse().unwrap(),
-            read_url: format!("{}/", server_url).parse().unwrap(),
-            server_v2_ip_port: server_v2_ip_port.clone(),
-            server_v2_connection: Mutex::new(None)
+            read_url: format!("{}/", server_url).parse().unwrap()
         }
     }
 
@@ -92,14 +87,6 @@ impl NodeClient {
 
     pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
         assert_ne!(path, "/");
-        let mut locked = self.server_v2_connection.lock().expect("lock acquisition failed");
-        if locked.is_none() {
-            warn!("Creating new TCP connection");
-            let stream = TcpStream::connect(self.server_v2_ip_port)?;
-            locked.replace(stream);
-        }
-
-        let mut stream = locked.take().expect("connected stream is None");
 
         let mut builder = FlatBufferBuilder::new();
         let builder_path = builder.create_string(path.as_str());
@@ -114,17 +101,9 @@ impl NodeClient {
         let finish_offset = generic_request_builder.finish();
         builder.finish_size_prefixed(finish_offset, None);
 
-        stream.write_all(builder.finished_data())?;
-
-        let data_size = stream.read_u32::<LittleEndian>()?;
-        let mut buffer = vec![0; data_size as usize];
-        stream.read_exact(&mut buffer)?;
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
         let response = flatbuffers::get_root::<GenericResponse>(&buffer);
-
         let data = response.response_as_read_response().unwrap().data().to_vec();
-
-        // If the connection is still working, store it back
-        locked.replace(stream);
 
         return Ok(data);
     }
