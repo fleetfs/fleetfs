@@ -6,10 +6,13 @@ use std::io::Write;
 
 fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
-    Command::new("flatc")
+    let handle = Command::new("flatc")
         .args(&["--rust", "-o", out.to_str().unwrap(), "flatbuffers/messages.fbs"])
         .spawn()
         .expect("flatc failed");
+
+    let output = handle.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
 
     // HACK: workaround for issue #18810/#18849
     // See: https://hclarke.ca/generated-code-in-rust.html
