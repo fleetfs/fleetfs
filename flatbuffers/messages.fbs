@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType { ReadRequest }
+union RequestType { ReadRequest, GetattrRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -9,6 +9,10 @@ table GenericRequest {
 table ReadRequest {
   offset: ulong;
   read_size: uint;
+  filename: string (required);
+}
+
+table GetattrRequest {
   filename: string (required);
 }
 
@@ -27,7 +31,32 @@ table ReadResponse {
   data: [ubyte] (required);
 }
 
-union ResponseType { ErrorResponse, ReadResponse }
+struct Timestamp {
+  seconds: long;
+  nanos: int;
+}
+
+enum FileType: ubyte {
+  DefaultValueNotAType,
+  File,
+  Directory
+}
+
+table FileMetadataResponse {
+  size_bytes: ulong;
+  size_blocks: ulong;
+  last_access_time: Timestamp (required);
+  last_modified_time: Timestamp (required);
+  last_metadata_modified_time: Timestamp (required);
+  kind: FileType;
+  mode: ushort;
+  hard_links: uint;
+  user_id: uint;
+  group_id: uint;
+  device_id: uint;
+}
+
+union ResponseType { ErrorResponse, ReadResponse, FileMetadataResponse }
 
 table GenericResponse {
   response: ResponseType;

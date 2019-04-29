@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::path::Path;
 
-use crate::fleetfs::generated::*;
-
-use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use fuse_mt;
+use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
 use libc;
 use log::debug;
 use log::warn;
@@ -13,15 +12,22 @@ use reqwest;
 use reqwest::{Client, Url};
 use time::Timespec;
 
-use crate::fleetfs::core::{PATH_HEADER};
-use flatbuffers::FlatBufferBuilder;
+use crate::fleetfs::core::PATH_HEADER;
+use crate::fleetfs::generated::*;
 use crate::fleetfs::tcp_client::TcpClient;
+
+fn finalize_request(builder: &mut FlatBufferBuilder, request_type: RequestType, finish_offset: WIPOffset<UnionWIPOffset>) {
+    let mut generic_request_builder = GenericRequestBuilder::new(builder);
+    generic_request_builder.add_request_type(request_type);
+    generic_request_builder.add_request(finish_offset);
+    let finish_offset = generic_request_builder.finish();
+    builder.finish_size_prefixed(finish_offset, None);
+}
 
 struct NodeClient {
     server_url: String,
     client: Client,
     tcp_client: TcpClient,
-    getattr_url: Url,
     read_url: Url
 }
 
@@ -31,12 +37,11 @@ impl NodeClient {
             server_url: server_url.clone(),
             client: Client::new(),
             tcp_client: TcpClient::new(server_v2_ip_port.clone()),
-            getattr_url: format!("{}/getattr", server_url).parse().unwrap(),
             read_url: format!("{}/", server_url).parse().unwrap()
         }
     }
 
-    pub fn getattr(&self, filename: &String) -> Result<Option<FileAttr>, reqwest::Error> {
+    pub fn getattr(&self, filename: &String) -> Result<Option<FileAttr>, std::io::Error> {
         if filename.len() == 1 {
             return Ok(Some(FileAttr {
                 size: 0,
@@ -45,7 +50,7 @@ impl NodeClient {
                 mtime: Timespec { sec: 0, nsec: 0 },
                 ctime: Timespec { sec: 0, nsec: 0 },
                 crtime: Timespec { sec: 0, nsec: 0 },
-                kind: FileType::Directory,
+                kind: fuse_mt::FileType::Directory,
                 perm: 0o755,
                 nlink: 2,
                 uid: 0,
@@ -55,34 +60,49 @@ impl NodeClient {
             }));
         }
 
-        let mut response = self.client
-            .get(self.getattr_url.clone())
-            .header(PATH_HEADER, filename.as_str())
-            .send()?;
-        let resp: HashMap<String, u64> = response.json()?;
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(filename.as_str());
+        let mut request_builder = GetattrRequestBuilder::new(&mut builder);
+        request_builder.add_filename(builder_path);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
 
-        let exists = *resp.get("exists").expect("Server returned bad response: exists field missing");
-        if exists != 0 {
-            return Ok(Some(FileAttr {
-                size: *resp.get("length").expect("Server returned a corrupted response: length field missing"),
-                blocks: 0,
-                atime: Timespec { sec: 0, nsec: 0 },
-                mtime: Timespec { sec: 0, nsec: 0 },
-                ctime: Timespec { sec: 0, nsec: 0 },
-                crtime: Timespec { sec: 0, nsec: 0 },
-                kind: FileType::RegularFile,
-                perm: 0o777,
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-                flags: 0
-            }));
-        }
-        else {
-            return Ok(None);
-        }
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        match response.response_type() {
+            ResponseType::ErrorResponse => {
+                let error = response.response_as_error_response().unwrap();
+                // TODO
+                assert_eq!(error.error_code(), ErrorCode::DoesNotExist);
+                return Ok(None);
+            },
+            ResponseType::FileMetadataResponse => {
+                let metadata = response.response_as_file_metadata_response().unwrap();
 
+                let kind = match metadata.kind() {
+                    FileType::File => fuse_mt::FileType::RegularFile,
+                    FileType::Directory => fuse_mt::FileType::Directory,
+                    FileType::DefaultValueNotAType => unreachable!()
+                };
+
+                return Ok(Some(FileAttr {
+                    size: metadata.size_bytes(),
+                    blocks: metadata.size_blocks(),
+                    atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+                    mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+                    ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+                    crtime: Timespec { sec: 0, nsec: 0 },
+                    kind,
+                    perm: metadata.mode(),
+                    nlink: metadata.hard_links(),
+                    uid: metadata.user_id(),
+                    gid: metadata.group_id(),
+                    rdev: metadata.device_id(),
+                    flags: 0
+                }));
+            },
+            _ => unimplemented!()
+        }
     }
 
     pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
@@ -94,12 +114,8 @@ impl NodeClient {
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
         request_builder.add_filename(builder_path);
-        let finish_offset = request_builder.finish();
-        let mut generic_request_builder = GenericRequestBuilder::new(&mut builder);
-        generic_request_builder.add_request_type(RequestType::ReadRequest);
-        generic_request_builder.add_request(finish_offset.as_union_value());
-        let finish_offset = generic_request_builder.finish();
-        builder.finish_size_prefixed(finish_offset, None);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
         let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
         let response = flatbuffers::get_root::<GenericResponse>(&buffer);
@@ -119,7 +135,7 @@ impl NodeClient {
             result.push(DirectoryEntry {
                 name: OsString::from(file),
                 // TODO: support other file types
-                kind: FileType::RegularFile
+                kind: fuse_mt::FileType::RegularFile
             });
         }
 
@@ -356,7 +372,7 @@ impl FilesystemMT for FleetFUSE {
                 mtime: Timespec { sec: 0, nsec: 0 },
                 ctime: Timespec { sec: 0, nsec: 0 },
                 crtime: Timespec { sec: 0, nsec: 0 },
-                kind: FileType::RegularFile,
+                kind: fuse_mt::FileType::RegularFile,
                 perm: 0,
                 nlink: 1,
                 uid: 0,
