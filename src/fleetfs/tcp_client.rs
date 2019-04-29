@@ -7,6 +7,7 @@ use byteorder::ReadBytesExt;
 
 pub struct TcpClient {
     server: SocketAddr,
+    // TODO: should probably have a connection pool here
     connection: Mutex<Option<TcpStream>>
 }
 
