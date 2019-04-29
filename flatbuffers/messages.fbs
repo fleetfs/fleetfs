@@ -1,0 +1,34 @@
+namespace generated;
+
+union RequestType { ReadRequest }
+
+table GenericRequest {
+  request: RequestType;
+}
+
+table ReadRequest {
+  offset: ulong;
+  read_size: uint;
+  filename: string;
+}
+
+root_type GenericRequest;
+
+enum ErrorCode: byte {
+  DefaultValueNotAnError = 0,
+  DoesNotExist
+}
+
+table ErrorResponse {
+  error_code: ErrorCode;
+}
+
+table ReadResponse {
+  data: [ubyte];
+}
+
+union ResponseType { ErrorResponse, ReadResponse }
+
+table GenericResponse {
+  response: ResponseType;
+}

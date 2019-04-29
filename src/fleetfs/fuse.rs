@@ -5,7 +5,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::Mutex;
 
-use byteorder::ByteOrder;
+use crate::fleetfs::generated::*;
+
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, FileType, RequestInfo, ResultCreate, ResultData, ResultEmpty, ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr};
@@ -17,6 +18,7 @@ use reqwest::{Client, Url};
 use time::Timespec;
 
 use crate::fleetfs::core::{PATH_HEADER};
+use flatbuffers::FlatBufferBuilder;
 
 struct NodeClient {
     server_url: String,
@@ -99,24 +101,32 @@ impl NodeClient {
 
         let mut stream = locked.take().expect("connected stream is None");
 
-        let path_bytes = path.as_bytes();
-        let mut request = vec![0; 8 + 4 + 2 + path_bytes.len()];
-        LittleEndian::write_u64(&mut request[0..8], offset);
-        LittleEndian::write_u32(&mut request[8..12], size);
-        LittleEndian::write_u16(&mut request[12..14], path_bytes.len() as u16);
-        for i in 0..path_bytes.len() {
-            request[14 + i] = path_bytes[i];
-        }
-        stream.write_all(&request)?;
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let mut request_builder = ReadRequestBuilder::new(&mut builder);
+        request_builder.add_offset(offset);
+        request_builder.add_read_size(size);
+        request_builder.add_filename(builder_path);
+        let finish_offset = request_builder.finish();
+        let mut generic_request_builder = GenericRequestBuilder::new(&mut builder);
+        generic_request_builder.add_request_type(RequestType::ReadRequest);
+        generic_request_builder.add_request(finish_offset.as_union_value());
+        let finish_offset = generic_request_builder.finish();
+        builder.finish_size_prefixed(finish_offset, None);
+
+        stream.write_all(builder.finished_data())?;
 
         let data_size = stream.read_u32::<LittleEndian>()?;
         let mut buffer = vec![0; data_size as usize];
         stream.read_exact(&mut buffer)?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+
+        let data = response.response_as_read_response().unwrap().data().unwrap().to_vec();
 
         // If the connection is still working, store it back
         locked.replace(stream);
 
-        return Ok(buffer);
+        return Ok(data);
     }
 
     pub fn readdir(&self, path: &String) -> ResultReaddir {

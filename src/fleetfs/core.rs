@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -5,9 +6,11 @@ use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::os::unix::prelude::FileExt;
 use std::path::Path;
 
-use bytes::{Buf, BytesMut, BufMut};
+use bytes::{Buf};
+use flatbuffers::FlatBufferBuilder;
 use futures::future;
 use futures::Stream;
 use hyper::{Body, Response, Server, StatusCode};
@@ -16,22 +19,14 @@ use hyper::Request;
 use hyper::rt::Future;
 use hyper::service::service_fn;
 use log::info;
-use crate::fleetfs::client::PeerClient;
-use std::collections::HashMap;
-use tokio::net::{TcpListener};
+use tokio::codec::length_delimited;
+use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use std::os::unix::prelude::FileExt;
-
-use byteorder::LittleEndian;
-use byteorder::ByteOrder;
-use tokio_io::codec::Decoder;
-use tokio_io::_tokio_codec::Encoder;
-use tokio::codec::Framed;
+use crate::fleetfs::client::PeerClient;
+use crate::fleetfs::generated::*;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
-pub const OFFSET_HEADER: &str = "X-FleetFS-Offset";
-pub const SIZE_HEADER: &str = "X-FleetFS-Size";
 pub const NO_FORWARD_HEADER: &str = "X-FleetFS-No-Forward";
 
 
@@ -46,7 +41,8 @@ struct DistributedFile {
 impl DistributedFile {
     fn new(filename: String, local_data_dir: String, peers: &[String]) -> DistributedFile {
         DistributedFile {
-            filename,
+            // XXX: hack
+            filename: filename.trim_start_matches('/').to_string(),
             local_data_dir,
             peers: peers.into_iter().map(|peer| PeerClient::new(peer)).collect()
         }
@@ -244,62 +240,28 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
     Box::new(future::ok(response))
 }
 
-fn handler_v2(request: ReadRequest, context: &LocalContext) -> ReadResponse {
-    let file = DistributedFile::new(request.filename, context.data_dir.clone(), &context.peers);
-    let data = file.read_v2(request.offset, request.size);
-    ReadResponse {data: data.unwrap()}
-}
+fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatBufferBuilder<'b> {
+    let mut builder = FlatBufferBuilder::new();
+    match request.request_type() {
+        RequestType::ReadRequest => {
+            let read_request = request.request_as_read_request().unwrap();
+            let file = DistributedFile::new(read_request.filename().unwrap().to_string(), context.data_dir.clone(), &context.peers);
+            let data = file.read_v2(read_request.offset(), read_request.read_size());
+            let data_offset = builder.create_vector_direct(&data.unwrap());
+            let mut response_builder = ReadResponseBuilder::new(&mut builder);
+            response_builder.add_data(data_offset);
+            let response_offset = response_builder.finish();
 
-struct ReadRequest {
-    offset: u64,
-    size: u32,
-    filename: String
-}
-
-struct ReadResponse {
-    data: Vec<u8>
-}
-
-struct ReadV2Codec {
-}
-
-impl Decoder for ReadV2Codec {
-    type Item = ReadRequest;
-    type Error = tokio::io::Error;
-
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<ReadRequest>, tokio::io::Error> {
-        if buf.len() < (8 + 4 + 2) {
-            return Ok(None);
-        }
-        let offset = LittleEndian::read_u64(&buf[..8]);
-        let size = LittleEndian::read_u32(&buf[8..12]);
-        let path_size = LittleEndian::read_u16(&buf[12..14]);
-        if buf.len() < (8 + 4 + 2 + path_size as usize) {
-            return Ok(None);
-        }
-        let filename = String::from_utf8_lossy(&buf[14..(14 + path_size as usize)]).trim_start_matches('/').to_string();
-
-        buf.split_to(8 + 4 + 2 + path_size as usize);
-
-        Ok(Some(ReadRequest {
-            offset,
-            size,
-            filename
-        }))
+            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+            generic_response_builder.add_response_type(ResponseType::ReadResponse);
+            generic_response_builder.add_response(response_offset.as_union_value());
+            let final_response_offset = generic_response_builder.finish();
+            builder.finish_size_prefixed(final_response_offset, None);
+        },
+        _ => unreachable!()
     }
-}
 
-impl Encoder for ReadV2Codec {
-    type Item = ReadResponse;
-    type Error = tokio::io::Error;
-
-    fn encode(&mut self, response: ReadResponse, buf: &mut BytesMut) -> Result<(), Self::Error> {
-        buf.reserve(4 + response.data.len());
-        buf.put_u32_le(response.data.len() as u32);
-        buf.put(response.data);
-
-        Ok(())
-    }
+    return builder;
 }
 
 #[derive(Clone)]
@@ -314,6 +276,16 @@ impl LocalContext {
             data_dir,
             peers
         }
+    }
+}
+
+struct WritableFlatBuffer<'a> {
+    buffer: FlatBufferBuilder<'a>
+}
+
+impl <'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.finished_data()
     }
 }
 
@@ -360,13 +332,17 @@ impl Node {
         let server_v2 = listener.incoming()
             .map_err(|e| eprintln!("accept connection failed = {:?}", e))
             .for_each(move |socket| {
-                let framed_socket = Framed::new(socket, ReadV2Codec{});
-                let (writer, reader) = framed_socket.split();
+                let (reader, writer) = socket.split();
+                let reader = length_delimited::Builder::new()
+                    .little_endian()
+                    .new_read(reader);
 
                 let cloned = context.clone();
                 let conn = reader.fold(writer, move |writer, frame| {
-                    let response = handler_v2(frame, &cloned);
-                    writer.send(response)
+                    let request = get_root_as_generic_request(&frame);
+                    let response_builder = handler_v2(request, &cloned);
+                    let writable = WritableFlatBuffer {buffer: response_builder};
+                    tokio::io::write_all(writer, writable).map(|(writer, _)| writer)
                 });
 
                 tokio::spawn(conn.map(|_| ()).map_err(|_| ()))
