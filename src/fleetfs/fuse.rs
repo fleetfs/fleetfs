@@ -24,11 +24,18 @@ fn finalize_request(builder: &mut FlatBufferBuilder, request_type: RequestType, 
     builder.finish_size_prefixed(finish_offset, None);
 }
 
+fn file_type_to_fuse_type(file_type: FileType) -> fuse_mt::FileType {
+    match file_type {
+        FileType::File => fuse_mt::FileType::RegularFile,
+        FileType::Directory => fuse_mt::FileType::Directory,
+        FileType::DefaultValueNotAType => unreachable!()
+    }
+}
+
 struct NodeClient {
     server_url: String,
     client: Client,
-    tcp_client: TcpClient,
-    read_url: Url
+    tcp_client: TcpClient
 }
 
 impl NodeClient {
@@ -36,8 +43,7 @@ impl NodeClient {
         NodeClient {
             server_url: server_url.clone(),
             client: Client::new(),
-            tcp_client: TcpClient::new(server_v2_ip_port.clone()),
-            read_url: format!("{}/", server_url).parse().unwrap()
+            tcp_client: TcpClient::new(server_v2_ip_port.clone())
         }
     }
 
@@ -172,17 +178,23 @@ impl NodeClient {
     }
 
     pub fn readdir(&self, path: &String) -> ResultReaddir {
-        assert_eq!(path, "/");
-        let response: Vec<String> = self.client.get(self.read_url.clone())
-            .header(PATH_HEADER, path.as_str())
-            .send().unwrap().json().unwrap();
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ReaddirRequest, finish_offset);
 
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| libc::EIO)?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
         let mut result = vec![];
-        for file in response {
+        let listing_response = response.response_as_directory_listing_response().unwrap();
+        let entries = listing_response.entries();
+        for i in 0..entries.len() {
+            let entry = entries.get(i);
             result.push(DirectoryEntry {
-                name: OsString::from(file),
-                // TODO: support other file types
-                kind: fuse_mt::FileType::RegularFile
+                name: OsString::from(entry.filename()),
+                kind: file_type_to_fuse_type(entry.kind())
             });
         }
 

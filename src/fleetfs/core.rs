@@ -125,25 +125,6 @@ impl DistributedFile {
         Box::new(response)
     }
 
-    fn list_dir(self, req: Request<Body>) -> BoxFuture {
-        assert_eq!(self.filename.len(), 0);
-        info!("Listing directory");
-        let response = req.into_body()
-            .concat2()
-            .map(move |_| {
-                let mut entries = vec![];
-                for entry in fs::read_dir(Path::new(&self.local_data_dir).join(self.filename)).unwrap() {
-                    let filename = entry.unwrap().path().clone().to_str().unwrap().to_string();
-                    // TODO: there must be a better way to strip the data_dir substring off the left side
-                    entries.push(filename.split_at(self.local_data_dir.len() + 1).1.to_string());
-                }
-
-                Response::new(Body::from(serde_json::to_string(&entries).unwrap()))
-            });
-
-        Box::new(response)
-    }
-
     fn mkdir(self, _mode: u16) -> Result<(), std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
@@ -152,6 +133,37 @@ impl DistributedFile {
         // TODO set the mode
 
         return Ok(());
+    }
+
+    fn readdir(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+        let path = Path::new(&self.local_data_dir).join(&self.filename);
+
+        let mut entries = vec![];
+        for entry in fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            let filename = entry.file_name().clone().to_str().unwrap().to_string();
+            let file_type = if entry.file_type().unwrap().is_file() {
+                FileType::File
+            }
+            else if entry.file_type().unwrap().is_dir() {
+                FileType::Directory
+            }
+            else {
+                unimplemented!()
+            };
+            let filename = buffer.create_string(&filename);
+            let directory_entry = DirectoryEntry::create(buffer, &DirectoryEntryArgs {filename: Some(filename), kind: file_type});
+            entries.push(directory_entry);
+        }
+        buffer.start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
+        for &directory_entry in entries.iter() {
+            buffer.push(directory_entry);
+        }
+        let entries = buffer.end_vector(entries.len());
+        let mut builder = DirectoryListingResponseBuilder::new(buffer);
+        builder.add_entries(entries);
+
+        return Ok(builder.finish().as_union_value());
     }
 
     fn getattr_v2(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
@@ -242,9 +254,6 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture 
     }
 
     match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => {
-            return file.list_dir(req);
-        },
         (&Method::DELETE, "/") => {
             return file.unlink(req);
         },
@@ -274,6 +283,27 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             let mut response_builder = ReadResponseBuilder::new(&mut builder);
             response_builder.add_data(data_offset);
             response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::ReaddirRequest => {
+            let readdir_request = request.request_as_readdir_request().unwrap();
+            let file = DistributedFile::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            match file.readdir(&mut builder) {
+                Ok(offset) => {
+                    response_type = ResponseType::DirectoryListingResponse;
+                    response_offset = offset;
+                },
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        response_type = ResponseType::ErrorResponse;
+                        let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
+                        response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+                    }
+                    else {
+                        // TODO
+                        unimplemented!();
+                    }
+                }
+            }
         },
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();

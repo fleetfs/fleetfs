@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType { ReadRequest, GetattrRequest, MkdirRequest }
+union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -19,6 +19,10 @@ table GetattrRequest {
 table MkdirRequest {
   filename: string (required);
   mode: ushort;
+}
+
+table ReaddirRequest {
+  path: string (required);
 }
 
 root_type GenericRequest;
@@ -47,6 +51,15 @@ enum FileType: ubyte {
   Directory
 }
 
+table DirectoryEntry {
+  filename: string (required);
+  kind: FileType;
+}
+
+table DirectoryListingResponse {
+  entries: [DirectoryEntry] (required);
+}
+
 table FileMetadataResponse {
   size_bytes: ulong;
   size_blocks: ulong;
@@ -61,7 +74,7 @@ table FileMetadataResponse {
   device_id: uint;
 }
 
-union ResponseType { ErrorResponse, ReadResponse, FileMetadataResponse }
+union ResponseType { ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse }
 
 table GenericResponse {
   response: ResponseType;
