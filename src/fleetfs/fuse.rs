@@ -421,9 +421,8 @@ impl FilesystemMT for FleetFUSE {
     fn create(&self, _req: RequestInfo, parent: &Path, name: &OsStr, _mode: u32, _flags: u32) -> ResultCreate {
         debug!("create() called with {:?} {:?}", parent, name);
         // TODO: kind of a hack to create the file
-        // TODO: handle parent correctly
-        let filename = name.to_str().unwrap().to_string();
-        match self.client.write(&filename, vec![], 0) {
+        let path = Path::new(parent).join(name);
+        match self.client.write(&path.to_str().unwrap().to_string(), vec![], 0) {
             Ok(_) => {},
             Err(_) => return Err(libc::EIO),
         };
