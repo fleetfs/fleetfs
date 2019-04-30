@@ -8,17 +8,26 @@ use log::info;
 use tokio;
 
 use crate::fleetfs::core::{BoxFuture, PATH_HEADER, NO_FORWARD_HEADER};
+// TODO: should move this somewhere else
+use crate::fleetfs::fuse::NodeClient;
+use std::net::SocketAddr;
 
 
 pub struct PeerClient {
     server_url: String,
+    node_client: NodeClient
 }
 
 impl PeerClient {
-    pub fn new(server_url: &String) -> PeerClient {
+    pub fn new(server_url: &String, server_ip_and_port: SocketAddr) -> PeerClient {
         PeerClient {
-            server_url: server_url.clone()
+            server_url: server_url.clone(),
+            node_client: NodeClient::new(server_url, &server_ip_and_port)
         }
+    }
+
+    pub fn rename(&self, path: &String, new_path: &String) {
+        self.node_client.rename(path, new_path, false).unwrap();
     }
 
     pub fn truncate(self, filename: &String, new_length: u64) {

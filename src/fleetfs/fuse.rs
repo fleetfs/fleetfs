@@ -32,7 +32,7 @@ fn file_type_to_fuse_type(file_type: FileType) -> fuse_mt::FileType {
     }
 }
 
-struct NodeClient {
+pub struct NodeClient {
     server_url: String,
     client: Client,
     tcp_client: TcpClient
@@ -156,6 +156,26 @@ impl NodeClient {
             },
             _ => unimplemented!()
         }
+    }
+
+    pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(path, "/");
+
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let builder_new_path = builder.create_string(new_path.as_str());
+        let mut request_builder = RenameRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_new_path(builder_new_path);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
     }
 
     pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
@@ -315,9 +335,10 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn rename(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _newparent: &Path, _newname: &OsStr) -> ResultEmpty {
-        warn!("rename() not implemented");
-        Err(libc::ENOSYS)
+    fn rename(&self, _req: RequestInfo, parent: &Path, name: &OsStr, new_parent: &Path, new_name: &OsStr) -> ResultEmpty {
+        let path = Path::new(parent).join(name);
+        let new_path = Path::new(new_parent).join(new_name);
+        return self.client.rename(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|_| libc::EIO);
     }
 
     fn link(&self, _req: RequestInfo, _path: &Path, _newparent: &Path, _newname: &OsStr) -> ResultEntry {

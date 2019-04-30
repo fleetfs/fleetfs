@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest }
+union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -25,6 +25,12 @@ table ReaddirRequest {
   path: string (required);
 }
 
+table RenameRequest {
+  path: string (required);
+  new_path: string (required);
+  forward: bool = true;
+}
+
 root_type GenericRequest;
 
 enum ErrorCode: byte {
@@ -38,6 +44,9 @@ table ErrorResponse {
 
 table ReadResponse {
   data: [ubyte] (required);
+}
+
+table EmptyResponse {
 }
 
 struct Timestamp {
@@ -74,7 +83,7 @@ table FileMetadataResponse {
   device_id: uint;
 }
 
-union ResponseType { ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse }
+union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse }
 
 table GenericResponse {
   response: ResponseType;

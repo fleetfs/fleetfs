@@ -6,7 +6,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bytes::{Buf};
 use flatbuffers::{FlatBufferBuilder, WIPOffset, UnionWIPOffset};
@@ -25,6 +25,7 @@ use tokio::prelude::*;
 use crate::fleetfs::client::PeerClient;
 use crate::fleetfs::generated::*;
 use std::os::linux::fs::MetadataExt;
+use std::net::SocketAddr;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
 pub const NO_FORWARD_HEADER: &str = "X-FleetFS-No-Forward";
@@ -39,13 +40,17 @@ struct DistributedFile {
 }
 
 impl DistributedFile {
-    fn new(filename: String, local_data_dir: String, peers: &[String]) -> DistributedFile {
+    fn new(filename: String, local_data_dir: String, peers: &[String], peers_v2: &Vec<SocketAddr>) -> DistributedFile {
         DistributedFile {
             // XXX: hack
             filename: filename.trim_start_matches('/').to_string(),
             local_data_dir,
-            peers: peers.into_iter().map(|peer| PeerClient::new(peer)).collect()
+            peers: peers_v2.iter().zip(peers.into_iter()).map(|(peer_v2, peer)| PeerClient::new(peer, *peer_v2)).collect()
         }
+    }
+
+    fn to_local_path(&self, path: &String) -> PathBuf {
+        Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
     fn truncate(self, req: Request<Body>) -> BoxFuture {
@@ -200,6 +205,21 @@ impl DistributedFile {
         return Ok(builder.finish().as_union_value());
     }
 
+    fn rename(self, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(self.filename.len(), 0);
+
+        info!("Renaming file: {} to {}", self.filename, new_path);
+        let local_path = self.to_local_path(&self.filename);
+        let local_new_path = self.to_local_path(new_path);
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.rename(&self.filename, new_path);
+            }
+        }
+        return fs::rename(local_path, local_new_path);
+    }
+
     fn read_v2(self, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
@@ -242,12 +262,12 @@ impl DistributedFile {
 
 }
 
-fn handler(req: Request<Body>, data_dir: String, peers: &[String]) -> BoxFuture {
+fn handler(req: Request<Body>, data_dir: String, peers: &[String], peers_v2: &Vec<SocketAddr>) -> BoxFuture {
     let mut response = Response::new(Body::empty());
 
     let filename: String = req.headers()[PATH_HEADER].to_str().unwrap().trim_start_matches('/').to_string();
 
-    let file = DistributedFile::new(filename, data_dir, peers);
+    let file = DistributedFile::new(filename, data_dir, peers, peers_v2);
 
     if req.method() == Method::POST && req.uri().path().starts_with("/truncate") {
         return file.truncate(req);
@@ -277,16 +297,25 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
         RequestType::ReadRequest => {
             response_type = ResponseType::ReadResponse;
             let read_request = request.request_as_read_request().unwrap();
-            let file = DistributedFile::new(read_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(read_request.filename().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             let data = file.read_v2(read_request.offset(), read_request.read_size());
             let data_offset = builder.create_vector_direct(&data.unwrap());
             let mut response_builder = ReadResponseBuilder::new(&mut builder);
             response_builder.add_data(data_offset);
             response_offset = response_builder.finish().as_union_value();
         },
+        RequestType::RenameRequest => {
+            response_type = ResponseType::EmptyResponse;
+            let rename_request = request.request_as_rename_request().unwrap();
+            let file = DistributedFile::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            file.rename(&rename_request.new_path().to_string(), rename_request.forward()).unwrap();
+            let response_builder = EmptyResponseBuilder::new(&mut builder);
+            response_offset = response_builder.finish().as_union_value();
+        },
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = DistributedFile::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             match file.readdir(&mut builder) {
                 Ok(offset) => {
                     response_type = ResponseType::DirectoryListingResponse;
@@ -307,7 +336,7 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
         },
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = DistributedFile::new(getattr_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(getattr_request.filename().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             match file.getattr_v2(&mut builder) {
                 Ok(offset) => {
                     response_type = ResponseType::FileMetadataResponse;
@@ -328,10 +357,10 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
         },
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             match file.mkdir(mkdir_request.mode()) {
                 Ok(_) => {
-                    let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+                    let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
                     match file.getattr_v2(&mut builder) {
                         Ok(offset) => {
                             response_type = ResponseType::FileMetadataResponse;
@@ -377,14 +406,16 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
 #[derive(Clone)]
 struct LocalContext {
     data_dir: String,
-    peers: Vec<String>
+    peers: Vec<String>,
+    peers_v2: Vec<SocketAddr>
 }
 
 impl LocalContext {
-    pub fn new(data_dir: String, peers: Vec<String>) -> LocalContext {
+    pub fn new(data_dir: String, peers: Vec<String>, peers_v2: Vec<SocketAddr>) -> LocalContext {
         LocalContext {
             data_dir,
-            peers
+            peers,
+            peers_v2
         }
     }
 }
@@ -406,9 +437,9 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(data_dir: String, port: u16, port_v2: u16, peers: Vec<String>) -> Node {
+    pub fn new(data_dir: String, port: u16, port_v2: u16, peers: Vec<String>, peers_v2: Vec<SocketAddr>) -> Node {
         Node {
-            context: LocalContext::new(data_dir, peers),
+            context: LocalContext::new(data_dir, peers, peers_v2),
             port,
             port_v2
         }
@@ -426,7 +457,7 @@ impl Node {
         let context = self.context.clone();
         let new_service = move || {
             let cloned = context.clone();
-            service_fn(move |req| handler(req, cloned.data_dir.clone(), &cloned.peers))
+            service_fn(move |req| handler(req, cloned.data_dir.clone(), &cloned.peers, &cloned.peers_v2))
         };
 
         let server = Server::bind(&addr)

@@ -38,6 +38,12 @@ fn main() {
             .default_value("")
             .help("Comma separated list of peer URLs")
             .takes_value(true))
+        .arg(Arg::with_name("peers-v2")
+            .long("peers-v2")
+            .value_name("PEERS-V2")
+            .default_value("")
+            .help("Comma separated list of peer IP:PORT")
+            .takes_value(true))
         .arg(Arg::with_name("server-url")
             .long("server-url")
             .value_name("SERVER_URL")
@@ -79,6 +85,12 @@ fn main() {
         .map(|x| x.to_string())
         .filter(|x| x.len() > 0)
         .collect();
+    let peers_v2: Vec<SocketAddr> = matches.value_of("peers-v2").unwrap_or_default()
+        .split(",")
+        .map(|x| x.to_string())
+        .filter(|x| x.len() > 0)
+        .map(|x| x.parse().unwrap())
+        .collect();
 
     let log_level = match verbosity {
         0 => LevelFilter::Error,
@@ -92,7 +104,7 @@ fn main() {
 
     if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
-        Node::new(data_dir, port, port_v2, peers).run();
+        Node::new(data_dir, port, port_v2, peers, peers_v2).run();
     }
     else {
         println!("Connecting to server {} and mounting FUSE at {}", &server_url, &mount_point);

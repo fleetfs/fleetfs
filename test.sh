@@ -14,8 +14,8 @@ DATA_DIR2=$(mktemp --directory)
 DIR=$(mktemp --directory)
 DIR2=$(mktemp --directory)
 cargo build
-cargo run -- --port 3300 --port-v2 4300 --data-dir $DATA_DIR --peers http://localhost:3301 &
-cargo run -- --port 3301 --port-v2 4301 --data-dir $DATA_DIR2 --peers http://localhost:3300 &
+cargo run -- --port 3300 --port-v2 4300 --data-dir $DATA_DIR --peers http://localhost:3301 --peers-v2 127.0.0.1:4301 &
+cargo run -- --port 3301 --port-v2 4301 --data-dir $DATA_DIR2 --peers http://localhost:3300 --peers-v2 127.0.0.1:4300 &
 sleep 2
 cargo run -- --server-url http://localhost:3300 --server-ip-port 127.0.0.1:4300 --mount-point $DIR &
 FUSE_PID=$!
@@ -97,11 +97,26 @@ else
     exit
 fi
 
+echo 5 > ${DIR}/5.txt
+mv ${DIR}/5.txt ${DIR}/new_5.txt
+if [[ $(cat ${DIR}/new_5.txt) = "5" ]]; then
+    echo -e "$GREEN OK 5 $NC"
+else
+    echo -e "$RED FAILED on mv 5.txt $NC"
+    exit
+fi
+if [[ $(cat ${DIR2}/new_5.txt) = "5" ]]; then
+    echo -e "$GREEN OK 5 replica $NC"
+else
+    echo -e "$RED FAILED on mv 5.txt replica $NC"
+    exit
+fi
+
 kill $FUSE_PID
 sleep 2
 
 if rmdir ${DIR}; then
-    echo -e "$GREEN OK 5 $NC"
+    echo -e "$GREEN OK END $NC"
 else
     echo -e "$RED FAILED cleaning up mount point $NC"
     exit
