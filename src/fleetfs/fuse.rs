@@ -41,6 +41,53 @@ impl NodeClient {
         }
     }
 
+    pub fn mkdir(&self, filename: &String, mode: u16) -> Result<Option<FileAttr>, std::io::Error> {
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(filename.as_str());
+        let mut request_builder = MkdirRequestBuilder::new(&mut builder);
+        request_builder.add_filename(builder_path);
+        request_builder.add_mode(mode);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        match response.response_type() {
+            ResponseType::ErrorResponse => {
+                let error = response.response_as_error_response().unwrap();
+                // TODO
+                assert_eq!(error.error_code(), ErrorCode::DoesNotExist);
+                return Ok(None);
+            },
+            ResponseType::FileMetadataResponse => {
+                let metadata = response.response_as_file_metadata_response().unwrap();
+
+                let kind = match metadata.kind() {
+                    FileType::File => fuse_mt::FileType::RegularFile,
+                    FileType::Directory => fuse_mt::FileType::Directory,
+                    FileType::DefaultValueNotAType => unreachable!()
+                };
+
+                return Ok(Some(FileAttr {
+                    size: metadata.size_bytes(),
+                    blocks: metadata.size_blocks(),
+                    atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+                    mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+                    ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+                    crtime: Timespec { sec: 0, nsec: 0 },
+                    kind,
+                    perm: metadata.mode(),
+                    nlink: metadata.hard_links(),
+                    uid: metadata.user_id(),
+                    gid: metadata.group_id(),
+                    rdev: metadata.device_id(),
+                    flags: 0
+                }));
+            },
+            _ => unimplemented!()
+        }
+    }
+
     pub fn getattr(&self, filename: &String) -> Result<Option<FileAttr>, std::io::Error> {
         if filename.len() == 1 {
             return Ok(Some(FileAttr {
@@ -229,9 +276,15 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn mkdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _mode: u32) -> ResultEntry {
-        warn!("mkdir() not implemented");
-        Err(libc::ENOSYS)
+    fn mkdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
+        debug!("mkdir() called with {:?} {:?}", parent, name);
+        let path = Path::new(parent).join(name);
+        let result = match self.client.mkdir(&path.to_str().unwrap().to_string(), mode as u16).map_err(|_| libc::EIO)? {
+            None => Err(libc::ENOENT),
+            Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
+        };
+
+        return result;
     }
 
     fn unlink(&self, _req: RequestInfo, _parent: &Path, name: &OsStr) -> ResultEmpty {

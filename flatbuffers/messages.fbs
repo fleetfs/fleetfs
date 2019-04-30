@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType { ReadRequest, GetattrRequest }
+union RequestType { ReadRequest, GetattrRequest, MkdirRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -14,6 +14,11 @@ table ReadRequest {
 
 table GetattrRequest {
   filename: string (required);
+}
+
+table MkdirRequest {
+  filename: string (required);
+  mode: ushort;
 }
 
 root_type GenericRequest;

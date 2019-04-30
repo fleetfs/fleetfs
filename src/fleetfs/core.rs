@@ -144,6 +144,16 @@ impl DistributedFile {
         Box::new(response)
     }
 
+    fn mkdir(self, _mode: u16) -> Result<(), std::io::Error> {
+        assert_ne!(self.filename.len(), 0);
+
+        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        fs::create_dir(path)?;
+        // TODO set the mode
+
+        return Ok(());
+    }
+
     fn getattr_v2(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
@@ -272,6 +282,43 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
                 Ok(offset) => {
                     response_type = ResponseType::FileMetadataResponse;
                     response_offset = offset;
+                },
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        response_type = ResponseType::ErrorResponse;
+                        let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
+                        response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+                    }
+                    else {
+                        // TODO
+                        unimplemented!();
+                    }
+                }
+            }
+        },
+        RequestType::MkdirRequest => {
+            let mkdir_request = request.request_as_mkdir_request().unwrap();
+            let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+            match file.mkdir(mkdir_request.mode()) {
+                Ok(_) => {
+                    let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+                    match file.getattr_v2(&mut builder) {
+                        Ok(offset) => {
+                            response_type = ResponseType::FileMetadataResponse;
+                            response_offset = offset;
+                        },
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::NotFound {
+                                response_type = ResponseType::ErrorResponse;
+                                let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
+                                response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+                            }
+                            else {
+                                // TODO
+                                unimplemented!();
+                            }
+                        }
+                    }
                 },
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::NotFound {
