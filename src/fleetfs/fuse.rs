@@ -346,10 +346,11 @@ impl FilesystemMT for FleetFUSE {
         return result;
     }
 
-    fn unlink(&self, _req: RequestInfo, _parent: &Path, name: &OsStr) -> ResultEmpty {
-        debug!("unlink() called with {:?}", name);
-        let filename = name.to_str().unwrap().to_string();
-        self.client.unlink(&filename).map_err(|_| libc::EIO)
+    fn unlink(&self, _req: RequestInfo, parent: &Path, name: &OsStr) -> ResultEmpty {
+        debug!("unlink() called with {:?} {:?}", parent, name);
+        let path = Path::new(parent).join(name);
+        let path = path.to_str().unwrap().to_string();
+        self.client.unlink(&path).map_err(|_| libc::EIO)
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
