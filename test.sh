@@ -112,6 +112,20 @@ else
     exit
 fi
 
+touch -d "jan 3 2000" ${DIR}/new_5.txt
+if [[ $(stat -c'%x' ${DIR}/new_5.txt) == 2000-01* ]]; then
+    echo -e "$GREEN OK 6 $NC"
+else
+    echo -e "$RED FAILED on touch new_5.txt $NC"
+    exit
+fi
+if [[ $(stat -c'%x' ${DIR2}/new_5.txt) == 2000-01* ]]; then
+    echo -e "$GREEN OK 6 replica $NC"
+else
+    echo -e "$RED FAILED on touch new_5.txt replica $NC"
+    exit
+fi
+
 kill $FUSE_PID
 sleep 2
 

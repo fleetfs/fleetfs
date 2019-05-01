@@ -26,6 +26,7 @@ use crate::fleetfs::client::PeerClient;
 use crate::fleetfs::generated::*;
 use std::os::linux::fs::MetadataExt;
 use std::net::SocketAddr;
+use filetime::FileTime;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
 pub const NO_FORWARD_HEADER: &str = "X-FleetFS-No-Forward";
@@ -205,6 +206,21 @@ impl DistributedFile {
         return Ok(builder.finish().as_union_value());
     }
 
+    fn utimens(self, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(self.filename.len(), 0);
+
+        let local_path = self.to_local_path(&self.filename);
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.utimens(&self.filename, atime_secs, atime_nanos, mtime_secs, mtime_nanos);
+            }
+        }
+        return filetime::set_file_times(local_path,
+                                        FileTime::from_unix_time(atime_secs, atime_nanos as u32),
+                                        FileTime::from_unix_time(mtime_secs, mtime_nanos as u32));
+    }
+
     fn rename(self, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
@@ -310,6 +326,19 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             let file = DistributedFile::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             // TODO handle errors
             file.rename(&rename_request.new_path().to_string(), rename_request.forward()).unwrap();
+            let response_builder = EmptyResponseBuilder::new(&mut builder);
+            response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::UtimensRequest => {
+            response_type = ResponseType::EmptyResponse;
+            let utimens_request = request.request_as_utimens_request().unwrap();
+            let file = DistributedFile::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            file.utimens(utimens_request.atime().map(|x| x.seconds()).unwrap_or(0),
+                        utimens_request.atime().map(|x| x.nanos()).unwrap_or(0),
+                         utimens_request.mtime().map(|x| x.seconds()).unwrap_or(0),
+                         utimens_request.mtime().map(|x| x.nanos()).unwrap_or(0),
+                         utimens_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
             response_offset = response_builder.finish().as_union_value();
         },

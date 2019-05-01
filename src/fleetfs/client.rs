@@ -30,6 +30,10 @@ impl PeerClient {
         self.node_client.rename(path, new_path, false).unwrap();
     }
 
+    pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32) {
+        self.node_client.utimens(path, atime_secs, atime_nanos, mtime_secs, mtime_nanos, false).unwrap();
+    }
+
     pub fn truncate(self, filename: &String, new_length: u64) {
         let client = Client::new();
         let uri: hyper::Uri = format!("{}/truncate/{}", self.server_url, new_length).parse().unwrap();

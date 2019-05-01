@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest }
+union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest, UtimensRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -23,6 +23,13 @@ table MkdirRequest {
 
 table ReaddirRequest {
   path: string (required);
+}
+
+table UtimensRequest {
+  path: string (required);
+  atime: Timestamp;
+  mtime: Timestamp;
+  forward: bool = true;
 }
 
 table RenameRequest {

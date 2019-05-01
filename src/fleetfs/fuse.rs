@@ -158,6 +158,28 @@ impl NodeClient {
         }
     }
 
+    pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(path, "/");
+
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let mut request_builder = UtimensRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        let atime = Timestamp::new(atime_secs, atime_nanos);
+        request_builder.add_atime(&atime);
+        let mtime = Timestamp::new(mtime_secs, mtime_nanos);
+        request_builder.add_mtime(&mtime);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
+    }
+
     pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(path, "/");
 
@@ -293,9 +315,14 @@ impl FilesystemMT for FleetFUSE {
         self.client.truncate(&filename, size).map_err(|_| libc::EIO)
     }
 
-    fn utimens(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>) -> ResultEmpty {
-        warn!("utimens() not implemented");
-        Err(libc::ENOSYS)
+    fn utimens(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, atime: Option<Timespec>, mtime: Option<Timespec>) -> ResultEmpty {
+        debug!("utimens() called with {:?}, {:?}, {:?}", path, atime, mtime);
+        return self.client.utimens(&path.to_str().unwrap().to_string(),
+                                   atime.map(|x| x.sec).unwrap_or(0),
+                                   atime.map(|x| x.nsec).unwrap_or(0),
+                                   mtime.map(|x| x.sec).unwrap_or(0),
+                                   mtime.map(|x| x.nsec).unwrap_or(0),
+                                   true).map_err(|_| libc::EIO);
     }
 
     fn readlink(&self, _req: RequestInfo, _path: &Path) -> ResultData {
