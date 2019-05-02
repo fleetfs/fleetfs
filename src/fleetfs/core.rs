@@ -244,6 +244,50 @@ impl DistributedFile {
         }
     }
 
+    fn hardlink(self, new_path: &String, buffer: &mut FlatBufferBuilder, forward: bool) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+        assert_ne!(self.filename.len(), 0);
+
+        info!("Hardlinking file: {} to {}", self.filename, new_path);
+        let local_path = self.to_local_path(&self.filename);
+        let local_new_path = self.to_local_path(new_path);
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.hardlink(&self.filename, new_path);
+            }
+        }
+        // TODO error handling
+        fs::hard_link(&local_path, &local_new_path).expect("hardlink failed");
+        let metadata = fs::metadata(local_new_path)?;
+
+        let mut builder = FileMetadataResponseBuilder::new(buffer);
+        builder.add_size_bytes(metadata.len());
+        builder.add_size_blocks(metadata.st_blocks());
+        let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
+        builder.add_last_access_time(&atime);
+        let mtime = Timestamp::new(metadata.st_mtime(), metadata.st_mtime_nsec() as i32);
+        builder.add_last_modified_time(&mtime);
+        let ctime = Timestamp::new(metadata.st_ctime(), metadata.st_ctime_nsec() as i32);
+        builder.add_last_metadata_modified_time(&ctime);
+        if metadata.is_file() {
+            builder.add_kind(FileType::File);
+        }
+        else if metadata.is_dir() {
+            builder.add_kind(FileType::Directory);
+        }
+        else {
+            unimplemented!();
+        }
+        // TODO: permissions
+        builder.add_mode(metadata.st_mode() as u16);
+        builder.add_hard_links(metadata.st_nlink() as u32);
+        builder.add_user_id(metadata.st_uid());
+        builder.add_group_id(metadata.st_gid());
+        builder.add_device_id(metadata.st_rdev() as u32);
+
+        return Ok(builder.finish().as_union_value());
+    }
+
     fn rename(self, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
@@ -342,6 +386,14 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             let mut response_builder = ReadResponseBuilder::new(&mut builder);
             response_builder.add_data(data_offset);
             response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::HardlinkRequest => {
+            let hardlink_request = request.request_as_hardlink_request().unwrap();
+            let file = DistributedFile::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            let offset = file.hardlink(&hardlink_request.new_path().to_string(), &mut builder, hardlink_request.forward()).unwrap();
+            response_type = ResponseType::FileMetadataResponse;
+            response_offset = offset;
         },
         RequestType::RenameRequest => {
             response_type = ResponseType::EmptyResponse;

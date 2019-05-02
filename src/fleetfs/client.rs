@@ -26,6 +26,10 @@ impl PeerClient {
         }
     }
 
+    pub fn hardlink(&self, path: &String, new_path: &String) {
+        self.node_client.hardlink(path, new_path, false).unwrap();
+    }
+
     pub fn rename(&self, path: &String, new_path: &String) {
         self.node_client.rename(path, new_path, false).unwrap();
     }

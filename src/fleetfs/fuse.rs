@@ -199,6 +199,57 @@ impl NodeClient {
         return Ok(());
     }
 
+    pub fn hardlink(&self, path: &String, new_path: &String, forward: bool) -> Result<Option<FileAttr>, std::io::Error> {
+        assert_ne!(path, "/");
+
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let builder_new_path = builder.create_string(new_path.as_str());
+        let mut request_builder = HardlinkRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_new_path(builder_new_path);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        match response.response_type() {
+            ResponseType::ErrorResponse => {
+                let error = response.response_as_error_response().unwrap();
+                // TODO
+                assert_eq!(error.error_code(), ErrorCode::DoesNotExist);
+                return Ok(None);
+            },
+            ResponseType::FileMetadataResponse => {
+                let metadata = response.response_as_file_metadata_response().unwrap();
+
+                let kind = match metadata.kind() {
+                    FileType::File => fuse_mt::FileType::RegularFile,
+                    FileType::Directory => fuse_mt::FileType::Directory,
+                    FileType::DefaultValueNotAType => unreachable!()
+                };
+
+                return Ok(Some(FileAttr {
+                    size: metadata.size_bytes(),
+                    blocks: metadata.size_blocks(),
+                    atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+                    mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+                    ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+                    crtime: Timespec { sec: 0, nsec: 0 },
+                    kind,
+                    perm: metadata.mode(),
+                    nlink: metadata.hard_links(),
+                    uid: metadata.user_id(),
+                    gid: metadata.group_id(),
+                    rdev: metadata.device_id(),
+                    flags: 0
+                }));
+            },
+            _ => unimplemented!()
+        }
+    }
+
     pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(path, "/");
 
@@ -388,9 +439,13 @@ impl FilesystemMT for FleetFUSE {
         return self.client.rename(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|_| libc::EIO);
     }
 
-    fn link(&self, _req: RequestInfo, _path: &Path, _newparent: &Path, _newname: &OsStr) -> ResultEntry {
-        warn!("link() not implemented");
-        Err(libc::ENOSYS)
+    fn link(&self, _req: RequestInfo, path: &Path, new_parent: &Path, new_name: &OsStr) -> ResultEntry {
+        debug!("link() called for {:?}, {:?}, {:?}", path, new_parent, new_name);
+        let new_path = Path::new(new_parent).join(new_name);
+        let result = self.client.hardlink(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|_| libc::EIO)?;
+
+        debug!("getattr() returned {:?}", &result);
+        return Ok((Timespec {sec: 0, nsec: 0}, result.unwrap()));
     }
 
     fn open(&self, _req: RequestInfo, path: &Path, _flags: u32) -> ResultOpen {
