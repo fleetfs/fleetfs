@@ -8,12 +8,10 @@ use std::io::Write;
 use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 
-use bytes::{Buf};
 use flatbuffers::{FlatBufferBuilder, WIPOffset, UnionWIPOffset};
 use futures::future;
 use futures::Stream;
 use hyper::{Body, Response, Server, StatusCode};
-use hyper::Method;
 use hyper::Request;
 use hyper::rt::Future;
 use hyper::service::service_fn;
@@ -68,52 +66,21 @@ impl DistributedFile {
         return file.set_len(new_length);
     }
 
-    fn write(self, req: Request<Body>) -> BoxFuture {
-        let offset: u64 = req.uri().path()[1..].parse().unwrap();
-        let forward: bool = req.headers().get(NO_FORWARD_HEADER).is_none();
-        let response = req.into_body()
-            .concat2()
-            .map(move |chunk| {
-                let bytes = chunk.bytes();
-                let path = Path::new(&self.local_data_dir).join(&self.filename);
-                let display = path.display();
+    fn write(self, offset: u64, data: &[u8], forward: bool) -> Result<u32, std::io::Error> {
+        let local_path = self.to_local_path(&self.filename);
+        let mut file = OpenOptions::new().write(true).create(true).open(&local_path)?;
 
-                let mut file = match OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .open(&path) {
-                    Err(why) => panic!("couldn't create {}: {}",
-                                       display,
-                                       why.description()),
-                    Ok(file) => file,
-                };
+        file.seek(SeekFrom::Start(offset))?;
 
-                match file.seek(SeekFrom::Start(offset)) {
-                    Err(why) => {
-                        panic!("couldn't seek to {} in {} because {}", offset, display,
-                               why.description())
-                    },
-                    Ok(_) => {}
-                }
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.write(&self.filename, offset, data);
+            }
+        }
 
-                match file.write_all(bytes) {
-                    Err(why) => {
-                        panic!("couldn't write to {}: {}", display,
-                               why.description())
-                    },
-                    Ok(_) => info!("successfully wrote to {}", display),
-                }
-
-                if forward {
-                    for peer in self.peers {
-                        peer.write(format!("/{}", &self.filename), offset, bytes);
-                    }
-                }
-
-                Response::new(Body::from("done"))
-            });
-
-        Box::new(response)
+        file.write_all(data)?;
+        return Ok(data.len() as u32);
     }
 
     fn mkdir(self, _mode: u16) -> Result<(), std::io::Error> {
@@ -325,12 +292,7 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String], peers_v2: &Ve
 
     let filename: String = req.headers()[PATH_HEADER].to_str().unwrap().trim_start_matches('/').to_string();
 
-    let file = DistributedFile::new(filename, data_dir, peers, peers_v2);
-
     match (req.method(), req.uri().path()) {
-        (&Method::POST, _) => {
-            return file.write(req);
-        },
         _ => {
             *response.status_mut() = StatusCode::NOT_FOUND;
         },
@@ -397,6 +359,16 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             // TODO handle errors
             file.unlink(unlink_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
+            response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::WriteRequest => {
+            response_type = ResponseType::WrittenResponse;
+            let write_request = request.request_as_write_request().unwrap();
+            let file = DistributedFile::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            let written = file.write(write_request.offset(), write_request.data(), write_request.forward()).unwrap();
+            let mut response_builder = WrittenResponseBuilder::new(&mut builder);
+            response_builder.add_bytes_written(written);
             response_offset = response_builder.finish().as_union_value();
         },
         RequestType::UtimensRequest => {

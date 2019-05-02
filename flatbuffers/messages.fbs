@@ -1,7 +1,8 @@
 namespace generated;
 
-union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
-                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest }
+union RequestType {ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
+                   UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
+                   WriteRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -23,6 +24,13 @@ table MkdirRequest {
 // TODO: rename to path
   filename: string (required);
   mode: ushort;
+}
+
+table WriteRequest {
+  path: string (required);
+  offset: ulong;
+  data: [ubyte] (required);
+  forward: bool = true;
 }
 
 table UnlinkRequest {
@@ -103,6 +111,10 @@ table DirectoryListingResponse {
   entries: [DirectoryEntry] (required);
 }
 
+table WrittenResponse {
+  bytes_written: uint;
+}
+
 table FileMetadataResponse {
   size_bytes: ulong;
   size_blocks: ulong;
@@ -117,7 +129,7 @@ table FileMetadataResponse {
   device_id: uint;
 }
 
-union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse }
+union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse, WrittenResponse }
 
 table GenericResponse {
   response: ResponseType;

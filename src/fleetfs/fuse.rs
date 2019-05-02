@@ -9,10 +9,9 @@ use libc;
 use log::debug;
 use log::warn;
 use reqwest;
-use reqwest::{Client, Url};
+use reqwest::{Client};
 use time::Timespec;
 
-use crate::fleetfs::core::PATH_HEADER;
 use crate::fleetfs::generated::*;
 use crate::fleetfs::tcp_client::TcpClient;
 
@@ -332,12 +331,21 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn write(&self, path: &String, data: Vec<u8>, offset: u64) -> Result<(), reqwest::Error> {
-        let uri: Url = format!("{}/{}", self.server_url, offset).parse().unwrap();
-        return self.client.post(uri)
-            .body(data)
-            .header(PATH_HEADER, path.as_str())
-            .send().map(|_| ());
+    pub fn write(&self, path: &String, data: &[u8], offset: u64, forward: bool) -> Result<u32, std::io::Error> {
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let data_offset = builder.create_vector_direct(data);
+        let mut request_builder = WriteRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_offset(offset);
+        request_builder.add_data(data_offset);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::WriteRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        return Ok(response.response_as_written_response().unwrap().bytes_written());
     }
 
     pub fn unlink(&self, path: &String, forward: bool) -> Result<(), std::io::Error> {
@@ -485,7 +493,7 @@ impl FilesystemMT for FleetFUSE {
         debug!("write() called with {:?}", path);
         let filename = path.to_str().unwrap().to_string();
         let len = data.len() as u32;
-        match self.client.write(&filename, data, offset) {
+        match self.client.write(&filename, &data, offset, true) {
             Ok(_) => Ok(len),
             Err(_) => Err(libc::EIO),
         }
@@ -566,7 +574,7 @@ impl FilesystemMT for FleetFUSE {
         debug!("create() called with {:?} {:?}", parent, name);
         // TODO: kind of a hack to create the file
         let path = Path::new(parent).join(name);
-        match self.client.write(&path.to_str().unwrap().to_string(), vec![], 0) {
+        match self.client.write(&path.to_str().unwrap().to_string(), &vec![], 0, true) {
             Ok(_) => {},
             Err(_) => return Err(libc::EIO),
         };
