@@ -313,11 +313,23 @@ impl NodeClient {
         return Ok(result);
     }
 
-    pub fn truncate(&self, path: &String, length: u64) -> Result<(), reqwest::Error> {
-        let uri: Url = format!("{}/truncate/{}", self.server_url, length).parse().unwrap();
-        return self.client.post(uri)
-            .header(PATH_HEADER, path.as_str())
-            .send().map(|_| ());
+    pub fn truncate(&self, path: &String, length: u64, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(path, "/");
+
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let mut request_builder = TruncateRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_new_length(length);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
     }
 
     pub fn write(&self, path: &String, data: Vec<u8>, offset: u64) -> Result<(), reqwest::Error> {
@@ -382,7 +394,7 @@ impl FilesystemMT for FleetFUSE {
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
         let filename = path.to_str().unwrap().to_string();
-        self.client.truncate(&filename, size).map_err(|_| libc::EIO)
+        self.client.truncate(&filename, size, true).map_err(|_| libc::EIO)
     }
 
     fn utimens(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, atime: Option<Timespec>, mtime: Option<Timespec>) -> ResultEmpty {

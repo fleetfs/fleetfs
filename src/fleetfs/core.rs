@@ -56,33 +56,16 @@ impl DistributedFile {
         Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
-    fn truncate(self, req: Request<Body>) -> BoxFuture {
-        let new_length: u64 = req.uri().path()["/truncate/".len()..].parse().unwrap();
-        let forward: bool = req.headers().get(NO_FORWARD_HEADER).is_none();
-        let response = req.into_body()
-            .concat2()
-            .map(move |_| {
-                let path = Path::new(&self.local_data_dir).join(&self.filename);
-                let display = path.display();
-
-                let file = match File::create(&path) {
-                    Err(why) => panic!("couldn't create {}: {}",
-                                       display,
-                                       why.description()),
-                    Ok(file) => file,
-                };
-                file.set_len(new_length).unwrap();
-
-                if forward {
-                    for peer in self.peers {
-                        peer.truncate(&self.filename, new_length);
-                    }
-                }
-
-                Response::new(Body::from("done"))
-            });
-
-        Box::new(response)
+    fn truncate(self, new_length: u64, forward: bool) -> Result<(), std::io::Error> {
+        let local_path = self.to_local_path(&self.filename);
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.truncate(&self.filename, new_length);
+            }
+        }
+        let file = File::create(&local_path).expect("Couldn't create file");
+        return file.set_len(new_length);
     }
 
     fn write(self, req: Request<Body>) -> BoxFuture {
@@ -139,6 +122,7 @@ impl DistributedFile {
         let path = Path::new(&self.local_data_dir).join(&self.filename);
         fs::create_dir(path)?;
         // TODO set the mode
+        // TODO replicate this request and add tests
 
         return Ok(());
     }
@@ -355,10 +339,6 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String], peers_v2: &Ve
 
     let file = DistributedFile::new(filename, data_dir, peers, peers_v2);
 
-    if req.method() == Method::POST && req.uri().path().starts_with("/truncate") {
-        return file.truncate(req);
-    }
-
     match (req.method(), req.uri().path()) {
         (&Method::DELETE, "/") => {
             return file.unlink(req);
@@ -413,6 +393,15 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             let file = DistributedFile::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             // TODO handle errors
             file.chmod(chmod_request.mode(), chmod_request.forward()).unwrap();
+            let response_builder = EmptyResponseBuilder::new(&mut builder);
+            response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::TruncateRequest => {
+            response_type = ResponseType::EmptyResponse;
+            let truncate_request = request.request_as_truncate_request().unwrap();
+            let file = DistributedFile::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            file.truncate(truncate_request.new_length(), truncate_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
             response_offset = response_builder.finish().as_union_value();
         },

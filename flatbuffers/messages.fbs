@@ -1,6 +1,7 @@
 namespace generated;
 
-union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest, UtimensRequest, ChmodRequest, HardlinkRequest }
+union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
+                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -9,16 +10,25 @@ table GenericRequest {
 table ReadRequest {
   offset: ulong;
   read_size: uint;
+// TODO: rename to path
   filename: string (required);
 }
 
 table GetattrRequest {
+// TODO: rename to path
   filename: string (required);
 }
 
 table MkdirRequest {
+// TODO: rename to path
   filename: string (required);
   mode: ushort;
+}
+
+table TruncateRequest {
+  path: string (required);
+  new_length: ulong;
+  forward: bool = true;
 }
 
 table ReaddirRequest {
