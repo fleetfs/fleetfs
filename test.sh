@@ -14,14 +14,14 @@ DATA_DIR2=$(mktemp --directory)
 DIR=$(mktemp --directory)
 DIR2=$(mktemp --directory)
 cargo build
-cargo run -- --port 3300 --port-v2 4300 --data-dir $DATA_DIR --peers http://localhost:3301 --peers-v2 127.0.0.1:4301 &
-cargo run -- --port 3301 --port-v2 4301 --data-dir $DATA_DIR2 --peers http://localhost:3300 --peers-v2 127.0.0.1:4300 &
+cargo run -- --port 3300 --data-dir $DATA_DIR --peers 127.0.0.1:3301 &
+cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers 127.0.0.1:3300 &
 sleep 2
-cargo run -- --server-url http://localhost:3300 --server-ip-port 127.0.0.1:4300 --mount-point $DIR &
+cargo run -- --server-ip-port 127.0.0.1:3300 --mount-point $DIR &
 FUSE_PID=$!
 # Mount the replica with direct IO, so that replication shows up immediately. Otherwise, some tests might fail
 # due to caching in the kernel
-cargo run -- --server-url http://localhost:3301 --server-ip-port 127.0.0.1:4301 --mount-point $DIR2 --direct-io &
+cargo run -- --server-ip-port 127.0.0.1:3301 --mount-point $DIR2 --direct-io &
 sleep 2
 
 echo "mounting at $DIR"

@@ -20,12 +20,6 @@ fn main() {
             .default_value("3000")
             .help("Set server port")
             .takes_value(true))
-        .arg(Arg::with_name("port-v2")
-            .long("port-v2")
-            .value_name("PORT")
-            .default_value("4000")
-            .help("Set server port for v2 API")
-            .takes_value(true))
         .arg(Arg::with_name("data-dir")
             .long("data-dir")
             .value_name("DIR")
@@ -36,24 +30,12 @@ fn main() {
             .long("peers")
             .value_name("PEERS")
             .default_value("")
-            .help("Comma separated list of peer URLs")
-            .takes_value(true))
-        .arg(Arg::with_name("peers-v2")
-            .long("peers-v2")
-            .value_name("PEERS-V2")
-            .default_value("")
             .help("Comma separated list of peer IP:PORT")
             .takes_value(true))
-        .arg(Arg::with_name("server-url")
-            .long("server-url")
-            .value_name("SERVER_URL")
-            .default_value("http://localhost:3000")
-            .help("Act as a client, and connect to given URL")
-            .takes_value(true))
-        .arg(Arg::with_name("server-v2-ip-port")
+        .arg(Arg::with_name("server-ip-port")
             .long("server-ip-port")
             .value_name("IP_PORT")
-            .default_value("127.0.0.1:4000")
+            .default_value("127.0.0.1:3000")
             .help("Act as a client, and connect to given server")
             .takes_value(true))
         .arg(Arg::with_name("mount-point")
@@ -73,19 +55,12 @@ fn main() {
         .get_matches();
 
     let port: u16 = matches.value_of("port").unwrap_or_default().parse().unwrap();
-    let port_v2: u16 = matches.value_of("port-v2").unwrap_or_default().parse().unwrap();
     let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
-    let server_url: String = matches.value_of("server-url").unwrap_or_default().to_string();
-    let server_ip_port: SocketAddr = matches.value_of("server-v2-ip-port").unwrap_or_default().parse().unwrap();
+    let server_ip_port: SocketAddr = matches.value_of("server-ip-port").unwrap_or_default().parse().unwrap();
     let mount_point: String = matches.value_of("mount-point").unwrap_or_default().to_string();
     let direct_io: bool = matches.is_present("direct-io");
     let verbosity: u64 = matches.occurrences_of("v");
-    let peers: Vec<String> = matches.value_of("peers").unwrap_or_default()
-        .split(",")
-        .map(|x| x.to_string())
-        .filter(|x| x.len() > 0)
-        .collect();
-    let peers_v2: Vec<SocketAddr> = matches.value_of("peers-v2").unwrap_or_default()
+    let peers: Vec<SocketAddr> = matches.value_of("peers").unwrap_or_default()
         .split(",")
         .map(|x| x.to_string())
         .filter(|x| x.len() > 0)
@@ -104,10 +79,10 @@ fn main() {
 
     if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
-        Node::new(data_dir, port, port_v2, peers, peers_v2).run();
+        Node::new(data_dir, port, peers).run();
     }
     else {
-        println!("Connecting to server {} and mounting FUSE at {}", &server_url, &mount_point);
+        println!("Connecting to server {} and mounting FUSE at {}", &server_ip_port, &mount_point);
         let mut fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o")];
         if direct_io {
             println!("Using Direct IO");
@@ -116,7 +91,7 @@ fn main() {
         else {
             fuse_args.push(&OsStr::new("fsname=fleetfs,auto_unmount"))
         }
-        let fs = FleetFUSE::new(server_url, server_ip_port);
+        let fs = FleetFUSE::new(server_ip_port);
         fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mount_point, &fuse_args).unwrap();
     }
 }

@@ -4,15 +4,13 @@ use std::net::SocketAddr;
 
 
 pub struct PeerClient {
-    server_url: String,
     node_client: NodeClient
 }
 
 impl PeerClient {
-    pub fn new(server_url: &String, server_ip_and_port: SocketAddr) -> PeerClient {
+    pub fn new(server_ip_and_port: SocketAddr) -> PeerClient {
         PeerClient {
-            server_url: server_url.clone(),
-            node_client: NodeClient::new(server_url, &server_ip_and_port)
+            node_client: NodeClient::new(&server_ip_and_port)
         }
     }
 

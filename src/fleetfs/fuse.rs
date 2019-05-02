@@ -8,8 +8,6 @@ use fuse_mt::{CreatedEntry, DirectoryEntry, FileAttr, FilesystemMT, RequestInfo,
 use libc;
 use log::debug;
 use log::warn;
-use reqwest;
-use reqwest::{Client};
 use time::Timespec;
 
 use crate::fleetfs::generated::*;
@@ -32,17 +30,13 @@ fn file_type_to_fuse_type(file_type: FileType) -> fuse_mt::FileType {
 }
 
 pub struct NodeClient {
-    server_url: String,
-    client: Client,
     tcp_client: TcpClient
 }
 
 impl NodeClient {
-    pub fn new(server_url: &String, server_v2_ip_port: &SocketAddr) -> NodeClient {
+    pub fn new(server_ip_port: &SocketAddr) -> NodeClient {
         NodeClient {
-            server_url: server_url.clone(),
-            client: Client::new(),
-            tcp_client: TcpClient::new(server_v2_ip_port.clone())
+            tcp_client: TcpClient::new(server_ip_port.clone())
         }
     }
 
@@ -370,9 +364,9 @@ pub struct FleetFUSE {
 }
 
 impl FleetFUSE {
-    pub fn new(server_url: String, server_ip_port: SocketAddr) -> FleetFUSE {
+    pub fn new(server_ip_port: SocketAddr) -> FleetFUSE {
         FleetFUSE {
-            client: NodeClient::new(&server_url, &server_ip_port)
+            client: NodeClient::new(&server_ip_port)
         }
     }
 }
