@@ -18,6 +18,7 @@ use hyper::Request;
 use hyper::rt::Future;
 use hyper::service::service_fn;
 use log::info;
+use log::warn;
 use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
@@ -27,7 +28,7 @@ use crate::fleetfs::generated::*;
 use std::os::linux::fs::MetadataExt;
 use std::net::SocketAddr;
 use filetime::FileTime;
-use std::os::raw::c_char;
+use std::ffi::CString;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
 pub const NO_FORWARD_HEADER: &str = "X-FleetFS-No-Forward";
@@ -232,14 +233,16 @@ impl DistributedFile {
                 peer.chmod(&self.filename, mode);
             }
         }
+        let c_path = CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
         let exit_code;
         unsafe {
-            exit_code = libc::chmod(local_path.to_str().unwrap().as_bytes().as_ptr() as *const c_char, mode)
+            exit_code = libc::chmod(c_path.as_ptr(), mode)
         }
         if exit_code == libc::EXIT_SUCCESS {
             return Ok(());
         }
         else {
+            warn!("chmod failed on {:?}, {} with error {:?}", local_path, mode, exit_code);
             return Err(std::io::Error::from(std::io::ErrorKind::Other));
         }
     }
