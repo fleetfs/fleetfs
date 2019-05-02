@@ -16,18 +16,18 @@ use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::client::PeerClient;
 use crate::generated::*;
 use std::os::linux::fs::MetadataExt;
 use std::net::SocketAddr;
 use filetime::FileTime;
 use std::ffi::CString;
+use crate::client::NodeClient;
 
 
 struct DistributedFile {
     filename: String,
     local_data_dir: String,
-    peers: Vec<PeerClient>
+    peers: Vec<NodeClient>
 }
 
 impl DistributedFile {
@@ -36,7 +36,7 @@ impl DistributedFile {
             // XXX: hack
             filename: filename.trim_start_matches('/').to_string(),
             local_data_dir,
-            peers: peers.iter().map(|&peer| PeerClient::new(peer)).collect()
+            peers: peers.iter().map(|peer| NodeClient::new(peer)).collect()
         }
     }
 
@@ -49,7 +49,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.truncate(&self.filename, new_length);
+                peer.truncate(&self.filename, new_length, false).unwrap();
             }
         }
         let file = File::create(&local_path).expect("Couldn't create file");
@@ -65,7 +65,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.write(&self.filename, offset, data);
+                peer.write(&self.filename, data, offset,false).unwrap();
             }
         }
 
@@ -156,7 +156,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.utimens(&self.filename, atime_secs, atime_nanos, mtime_secs, mtime_nanos);
+                peer.utimens(&self.filename, atime_secs, atime_nanos, mtime_secs, mtime_nanos, false).unwrap();
             }
         }
         return filetime::set_file_times(local_path,
@@ -171,7 +171,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.chmod(&self.filename, mode);
+                peer.chmod(&self.filename, mode, false).unwrap();
             }
         }
         let c_path = CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
@@ -197,7 +197,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.hardlink(&self.filename, new_path);
+                peer.hardlink(&self.filename, new_path, false).unwrap();
             }
         }
         // TODO error handling
@@ -241,7 +241,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.rename(&self.filename, new_path);
+                peer.rename(&self.filename, new_path, false).unwrap();
             }
         }
         return fs::rename(local_path, local_new_path);
@@ -269,7 +269,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.unlink(&self.filename);
+                peer.unlink(&self.filename, false).unwrap();
             }
         }
         return fs::remove_file(local_path);
