@@ -21,9 +21,9 @@ table GetattrRequest {
 }
 
 table MkdirRequest {
-// TODO: rename to path
-  filename: string (required);
+  path: string (required);
   mode: ushort;
+  forward: bool = true;
 }
 
 table WriteRequest {

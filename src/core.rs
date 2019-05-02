@@ -73,13 +73,19 @@ impl DistributedFile {
         return Ok(data.len() as u32);
     }
 
-    fn mkdir(self, _mode: u16) -> Result<(), std::io::Error> {
+    fn mkdir(self, _mode: u16, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.filename);
         fs::create_dir(path)?;
+
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.mkdir(&self.filename, _mode, false).unwrap();
+            }
+        }
         // TODO set the mode
-        // TODO replicate this request and add tests
 
         return Ok(());
     }
@@ -404,10 +410,10 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers);
-            match file.mkdir(mkdir_request.mode()) {
+            let file = DistributedFile::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            match file.mkdir(mkdir_request.mode(), mkdir_request.forward()) {
                 Ok(_) => {
-                    let file = DistributedFile::new(mkdir_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+                    let file = DistributedFile::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
                     match file.getattr(&mut builder) {
                         Ok(offset) => {
                             response_type = ResponseType::FileMetadataResponse;

@@ -83,7 +83,7 @@ impl FilesystemMT for FleetFUSE {
     fn mkdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
         debug!("mkdir() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
-        let result = match self.client.mkdir(&path.to_str().unwrap().to_string(), mode as u16).map_err(|_| libc::EIO)? {
+        let result = match self.client.mkdir(&path.to_str().unwrap().to_string(), mode as u16, true).map_err(|_| libc::EIO)? {
             None => Err(libc::ENOENT),
             Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
         };

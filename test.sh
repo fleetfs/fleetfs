@@ -154,6 +154,21 @@ else
     exit
 fi
 
+mkdir ${DIR}/sub
+echo s > ${DIR}/sub/s.txt
+if [[ $(cat ${DIR}/sub/s.txt) = "s" ]]; then
+    echo -e "$GREEN OK 9 $NC"
+else
+    echo -e "$RED FAILED on s.txt $NC"
+    exit
+fi
+if [[ $(cat ${DIR2}/sub/s.txt) = "s" ]]; then
+    echo -e "$GREEN OK 9 replica $NC"
+else
+    echo -e "$RED FAILED on s.txt replica $NC"
+    exit
+fi
+
 kill $FUSE_PID
 sleep 2
 

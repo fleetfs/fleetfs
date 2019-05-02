@@ -35,12 +35,13 @@ impl NodeClient {
         }
     }
 
-    pub fn mkdir(&self, filename: &String, mode: u16) -> Result<Option<FileAttr>, std::io::Error> {
+    pub fn mkdir(&self, path: &String, mode: u16, forward: bool) -> Result<Option<FileAttr>, std::io::Error> {
         let mut builder = FlatBufferBuilder::new();
-        let builder_path = builder.create_string(filename.as_str());
+        let builder_path = builder.create_string(path.as_str());
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
-        request_builder.add_filename(builder_path);
+        request_builder.add_path(builder_path);
         request_builder.add_mode(mode);
+        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);
 
