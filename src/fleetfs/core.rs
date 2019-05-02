@@ -27,6 +27,7 @@ use crate::fleetfs::generated::*;
 use std::os::linux::fs::MetadataExt;
 use std::net::SocketAddr;
 use filetime::FileTime;
+use std::os::raw::c_char;
 
 pub const PATH_HEADER: &str = "X-FleetFS-Path";
 pub const NO_FORWARD_HEADER: &str = "X-FleetFS-No-Forward";
@@ -221,6 +222,28 @@ impl DistributedFile {
                                         FileTime::from_unix_time(mtime_secs, mtime_nanos as u32));
     }
 
+    fn chmod(self, mode: u32, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(self.filename.len(), 0);
+
+        let local_path = self.to_local_path(&self.filename);
+        if forward {
+            for peer in self.peers {
+                // TODO make this async
+                peer.chmod(&self.filename, mode);
+            }
+        }
+        let exit_code;
+        unsafe {
+            exit_code = libc::chmod(local_path.to_str().unwrap().as_bytes().as_ptr() as *const c_char, mode)
+        }
+        if exit_code == libc::EXIT_SUCCESS {
+            return Ok(());
+        }
+        else {
+            return Err(std::io::Error::from(std::io::ErrorKind::Other));
+        }
+    }
+
     fn rename(self, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
@@ -326,6 +349,15 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             let file = DistributedFile::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             // TODO handle errors
             file.rename(&rename_request.new_path().to_string(), rename_request.forward()).unwrap();
+            let response_builder = EmptyResponseBuilder::new(&mut builder);
+            response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::ChmodRequest => {
+            response_type = ResponseType::EmptyResponse;
+            let chmod_request = request.request_as_chmod_request().unwrap();
+            let file = DistributedFile::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            file.chmod(chmod_request.mode(), chmod_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
             response_offset = response_builder.finish().as_union_value();
         },

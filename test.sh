@@ -126,6 +126,20 @@ else
     exit
 fi
 
+chmod 747 ${DIR}/new_5.txt
+if [[ $(stat -c'%a' ${DIR}/new_5.txt) == "747" ]]; then
+    echo -e "$GREEN OK 7 $NC"
+else
+    echo -e "$RED FAILED on chmod new_5.txt $NC"
+    exit
+fi
+if [[ $(stat -c'%a' ${DIR2}/new_5.txt) == "747" ]]; then
+    echo -e "$GREEN OK 7 replica $NC"
+else
+    echo -e "$RED FAILED on chmod new_5.txt replica $NC"
+    exit
+fi
+
 kill $FUSE_PID
 sleep 2
 

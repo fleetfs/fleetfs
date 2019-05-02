@@ -180,6 +180,25 @@ impl NodeClient {
         return Ok(());
     }
 
+    pub fn chmod(&self, path: &String, mode: u32, forward: bool) -> Result<(), std::io::Error> {
+        assert_ne!(path, "/");
+
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let mut request_builder = ChmodRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_mode(mode);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
+    }
+
     pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(path, "/");
 
@@ -299,9 +318,9 @@ impl FilesystemMT for FleetFUSE {
         return result;
     }
 
-    fn chmod(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _mode: u32) -> ResultEmpty {
-        warn!("chmod() not implemented");
-        Err(libc::ENOSYS)
+    fn chmod(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, mode: u32) -> ResultEmpty {
+        debug!("chmod() called with {:?}, {:?}", path, mode);
+        return self.client.chmod(&path.to_str().unwrap().to_string(), mode, true).map_err(|_| libc::EIO);
     }
 
     fn chown(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _uid: Option<u32>, _gid: Option<u32>) -> ResultEmpty {
