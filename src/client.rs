@@ -1,5 +1,5 @@
 // TODO: should move this somewhere else
-use crate::fleetfs::fuse::NodeClient;
+use crate::fuse::NodeClient;
 use std::net::SocketAddr;
 
 

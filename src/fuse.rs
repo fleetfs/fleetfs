@@ -10,8 +10,8 @@ use log::debug;
 use log::warn;
 use time::Timespec;
 
-use crate::fleetfs::generated::*;
-use crate::fleetfs::tcp_client::TcpClient;
+use crate::generated::*;
+use crate::tcp_client::TcpClient;
 
 fn finalize_request(builder: &mut FlatBufferBuilder, request_type: RequestType, finish_offset: WIPOffset<UnionWIPOffset>) {
     let mut generic_request_builder = GenericRequestBuilder::new(builder);

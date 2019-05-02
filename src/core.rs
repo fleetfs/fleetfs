@@ -16,8 +16,8 @@ use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::fleetfs::client::PeerClient;
-use crate::fleetfs::generated::*;
+use crate::client::PeerClient;
+use crate::generated::*;
 use std::os::linux::fs::MetadataExt;
 use std::net::SocketAddr;
 use filetime::FileTime;

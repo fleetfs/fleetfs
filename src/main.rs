@@ -2,13 +2,18 @@ use clap::crate_version;
 use clap::App;
 use clap::Arg;
 
-use crate::fleetfs::core::Node;
+use crate::core::Node;
 use log::LevelFilter;
-use crate::fleetfs::fuse::FleetFUSE;
+use crate::fuse::FleetFUSE;
 use std::ffi::OsStr;
 use std::net::SocketAddr;
 
-mod fleetfs;
+pub mod core;
+pub mod tcp_client;
+pub mod client;
+pub mod fuse;
+
+include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
 
 fn main() {
     let matches = App::new("FleetFS")
