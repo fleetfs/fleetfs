@@ -7,7 +7,7 @@ use log::info;
 
 use tokio;
 
-use crate::fleetfs::core::{BoxFuture, PATH_HEADER, NO_FORWARD_HEADER};
+use crate::fleetfs::core::{PATH_HEADER, NO_FORWARD_HEADER};
 // TODO: should move this somewhere else
 use crate::fleetfs::fuse::NodeClient;
 use std::net::SocketAddr;
@@ -67,26 +67,7 @@ impl PeerClient {
         tokio::spawn(task);
     }
 
-    pub fn unlink(self, filename: String) -> BoxFuture {
-        let client = Client::new();
-        let uri: hyper::Uri = format!("{}/", self.server_url).parse().unwrap();
-        let mut req = Request::new(Body::from(""));
-        req.headers_mut().insert(PATH_HEADER, HeaderValue::from_str(filename.as_str()).unwrap());
-        req.headers_mut().insert(NO_FORWARD_HEADER, HeaderValue::from_static("true"));
-        *req.method_mut() = Method::DELETE;
-        *req.uri_mut() = uri.clone();
-
-        let task = client
-            .request(req)
-            .map(|res| {
-                info!("unlink() response: {}", res.status());
-                res
-            })
-            .map_err(|err| {
-                info!("unlink() error: {}", err);
-                err
-            });
-
-        return Box::new(task);
+    pub fn unlink(self, filename: &String) {
+        self.node_client.unlink(filename, false).unwrap();
     }
 }

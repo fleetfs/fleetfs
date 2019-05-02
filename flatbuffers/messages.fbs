@@ -1,7 +1,7 @@
 namespace generated;
 
 union RequestType { ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
-                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest }
+                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest }
 
 table GenericRequest {
   request: RequestType;
@@ -23,6 +23,11 @@ table MkdirRequest {
 // TODO: rename to path
   filename: string (required);
   mode: ushort;
+}
+
+table UnlinkRequest {
+  path: string (required);
+  forward: bool = true;
 }
 
 table TruncateRequest {

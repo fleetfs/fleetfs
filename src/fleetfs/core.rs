@@ -304,30 +304,18 @@ impl DistributedFile {
         return Ok(contents);
     }
 
-    fn unlink(self, req: Request<Body>) -> BoxFuture {
-        let forward: bool = req.headers().get(NO_FORWARD_HEADER).is_none();
+    fn unlink(self, forward: bool) -> Result<(), std::io::Error> {
         assert_ne!(self.filename.len(), 0);
 
         info!("Deleting file");
-        let path = Path::new(&self.local_data_dir).join(&self.filename);
-        let response = req.into_body()
-            .concat2()
-            .map(move |_| {
-                fs::remove_file(path)
-                    .expect("Something went wrong reading the file");
-
-                Response::new(Body::from("success"))
-            });
-
-        let mut result: BoxFuture = Box::new(response);
+        let local_path = self.to_local_path(&self.filename);
         if forward {
             for peer in self.peers {
-                let peer_request = peer.unlink(format!("{}", &self.filename));
-                result = Box::new(result.join(peer_request).map(|(r, _)| r));
+                // TODO make this async
+                peer.unlink(&self.filename);
             }
         }
-
-        return result;
+        return fs::remove_file(local_path);
     }
 
 }
@@ -340,9 +328,6 @@ fn handler(req: Request<Body>, data_dir: String, peers: &[String], peers_v2: &Ve
     let file = DistributedFile::new(filename, data_dir, peers, peers_v2);
 
     match (req.method(), req.uri().path()) {
-        (&Method::DELETE, "/") => {
-            return file.unlink(req);
-        },
         (&Method::POST, _) => {
             return file.write(req);
         },
@@ -402,6 +387,15 @@ fn handler_v2<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> Fl
             let file = DistributedFile::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
             // TODO handle errors
             file.truncate(truncate_request.new_length(), truncate_request.forward()).unwrap();
+            let response_builder = EmptyResponseBuilder::new(&mut builder);
+            response_offset = response_builder.finish().as_union_value();
+        },
+        RequestType::UnlinkRequest => {
+            response_type = ResponseType::EmptyResponse;
+            let unlink_request = request.request_as_unlink_request().unwrap();
+            let file = DistributedFile::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &context.peers_v2);
+            // TODO handle errors
+            file.unlink(unlink_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
             response_offset = response_builder.finish().as_union_value();
         },

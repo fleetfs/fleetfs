@@ -340,11 +340,20 @@ impl NodeClient {
             .send().map(|_| ());
     }
 
-    pub fn unlink(&self, path: &String) -> Result<(), reqwest::Error> {
-        let uri: Url = format!("{}", self.server_url).parse().unwrap();
-        return self.client.delete(uri)
-            .header(PATH_HEADER, path.as_str())
-            .send().map(|_| ());
+    pub fn unlink(&self, path: &String, forward: bool) -> Result<(), std::io::Error> {
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path.as_str());
+        let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_forward(forward);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
+
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
     }
 }
 
@@ -432,7 +441,7 @@ impl FilesystemMT for FleetFUSE {
         debug!("unlink() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
         let path = path.to_str().unwrap().to_string();
-        self.client.unlink(&path).map_err(|_| libc::EIO)
+        self.client.unlink(&path, true).map_err(|_| libc::EIO)
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
