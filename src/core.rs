@@ -23,6 +23,8 @@ use filetime::FileTime;
 use std::ffi::CString;
 use crate::client::NodeClient;
 
+type ResultResponse = Result<(ResponseType, WIPOffset<UnionWIPOffset>), std::io::Error>;
+
 
 // Handles one request/response
 struct DistributedFileResponder<'a: 'b, 'b>  {
@@ -93,7 +95,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return Ok(());
     }
 
-    fn readdir(self) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+    fn readdir(self) -> ResultResponse {
         let path = Path::new(&self.local_data_dir).join(&self.path);
 
         let mut entries = vec![];
@@ -121,10 +123,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         let mut builder = DirectoryListingResponseBuilder::new(self.response_buffer);
         builder.add_entries(entries);
 
-        return Ok(builder.finish().as_union_value());
+        return Ok((ResponseType::DirectoryListingResponse, builder.finish().as_union_value()));
     }
 
-    fn getattr(self) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+    fn getattr(self) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
@@ -154,7 +156,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_group_id(metadata.st_gid());
         builder.add_device_id(metadata.st_rdev() as u32);
 
-        return Ok(builder.finish().as_union_value());
+        return Ok((ResponseType::FileMetadataResponse, builder.finish().as_union_value()));
     }
 
     fn utimens(self, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
@@ -254,7 +256,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return fs::rename(local_path, local_new_path);
     }
 
-    fn read(self, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
+    fn read(self, offset: u64, size: u32) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Reading file: {}. data_dir={}", self.path, self.local_data_dir);
@@ -265,7 +267,12 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         let bytes_read = file.read_at(&mut contents, offset)?;
         contents.truncate(bytes_read);
 
-        return Ok(contents);
+        let data_offset = self.response_buffer.create_vector_direct(&contents);
+        let mut response_builder = ReadResponseBuilder::new(self.response_buffer);
+        response_builder.add_data(data_offset);
+        let response_offset = response_builder.finish().as_union_value();
+
+        return Ok((ResponseType::ReadResponse, response_offset));
     }
 
     fn unlink(self, forward: bool) -> Result<(), std::io::Error> {
@@ -286,76 +293,68 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
 
 fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatBufferBuilder<'b> {
     let mut builder = FlatBufferBuilder::new();
-    let response_type;
-    let response_offset;
+    let response;
 
     match request.request_type() {
         RequestType::ReadRequest => {
-            response_type = ResponseType::ReadResponse;
             let read_request = request.request_as_read_request().unwrap();
             let file = DistributedFileResponder::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            let data = file.read(read_request.offset(), read_request.read_size());
-            let data_offset = builder.create_vector_direct(&data.unwrap());
-            let mut response_builder = ReadResponseBuilder::new(&mut builder);
-            response_builder.add_data(data_offset);
-            response_offset = response_builder.finish().as_union_value();
+            response = file.read(read_request.offset(), read_request.read_size());
         },
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
             let file = DistributedFileResponder::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             let offset = file.hardlink(&hardlink_request.new_path().to_string(), hardlink_request.forward()).unwrap();
-            response_type = ResponseType::FileMetadataResponse;
-            response_offset = offset;
+            response = Ok((ResponseType::FileMetadataResponse, offset));
         },
         RequestType::RenameRequest => {
-            response_type = ResponseType::EmptyResponse;
             let rename_request = request.request_as_rename_request().unwrap();
             let file = DistributedFileResponder::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.rename(&rename_request.new_path().to_string(), rename_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
-            response_offset = response_builder.finish().as_union_value();
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::EmptyResponse, offset));
         },
         RequestType::ChmodRequest => {
-            response_type = ResponseType::EmptyResponse;
             let chmod_request = request.request_as_chmod_request().unwrap();
             let file = DistributedFileResponder::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.chmod(chmod_request.mode(), chmod_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
-            response_offset = response_builder.finish().as_union_value();
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::EmptyResponse, offset));
         },
         RequestType::TruncateRequest => {
-            response_type = ResponseType::EmptyResponse;
             let truncate_request = request.request_as_truncate_request().unwrap();
             let file = DistributedFileResponder::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.truncate(truncate_request.new_length(), truncate_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
-            response_offset = response_builder.finish().as_union_value();
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::EmptyResponse, offset));
         },
         RequestType::UnlinkRequest => {
-            response_type = ResponseType::EmptyResponse;
             let unlink_request = request.request_as_unlink_request().unwrap();
             let file = DistributedFileResponder::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.unlink(unlink_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
-            response_offset = response_builder.finish().as_union_value();
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::EmptyResponse, offset));
         },
         RequestType::WriteRequest => {
-            response_type = ResponseType::WrittenResponse;
             let write_request = request.request_as_write_request().unwrap();
             let file = DistributedFileResponder::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             let written = file.write(write_request.offset(), write_request.data(), write_request.forward()).unwrap();
             let mut response_builder = WrittenResponseBuilder::new(&mut builder);
             response_builder.add_bytes_written(written);
-            response_offset = response_builder.finish().as_union_value();
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::WrittenResponse, offset));
         },
         RequestType::UtimensRequest => {
-            response_type = ResponseType::EmptyResponse;
             let utimens_request = request.request_as_utimens_request().unwrap();
             let file = DistributedFileResponder::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
@@ -365,95 +364,60 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
                          utimens_request.mtime().map(|x| x.nanos()).unwrap_or(0),
                          utimens_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
-            response_offset = response_builder.finish().as_union_value();
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::EmptyResponse, offset));
         },
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
             let file = DistributedFileResponder::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            match file.readdir() {
-                Ok(offset) => {
-                    response_type = ResponseType::DirectoryListingResponse;
-                    response_offset = offset;
-                },
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        response_type = ResponseType::ErrorResponse;
-                        let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
-                        response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-                    }
-                    else {
-                        // TODO
-                        unimplemented!();
-                    }
-                }
-            }
+            response = file.readdir();
         },
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
             let file = DistributedFileResponder::new(getattr_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            match file.getattr() {
-                Ok(offset) => {
-                    response_type = ResponseType::FileMetadataResponse;
-                    response_offset = offset;
-                },
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        response_type = ResponseType::ErrorResponse;
-                        let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
-                        response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-                    }
-                    else {
-                        // TODO
-                        unimplemented!();
-                    }
-                }
-            }
+            response = file.getattr();
         },
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
             let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            match file.mkdir(mkdir_request.mode(), mkdir_request.forward()) {
-                Ok(_) => {
-                    let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-                    match file.getattr() {
-                        Ok(offset) => {
-                            response_type = ResponseType::FileMetadataResponse;
-                            response_offset = offset;
-                        },
-                        Err(e) => {
-                            if e.kind() == std::io::ErrorKind::NotFound {
-                                response_type = ResponseType::ErrorResponse;
-                                let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
-                                response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-                            }
-                            else {
-                                // TODO
-                                unimplemented!();
-                            }
-                        }
-                    }
-                },
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        response_type = ResponseType::ErrorResponse;
-                        let args = ErrorResponseArgs {error_code: ErrorCode::DoesNotExist};
-                        response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-                    }
-                    else {
-                        // TODO
-                        unimplemented!();
-                    }
-                }
-            }
+            response = file.mkdir(mkdir_request.mode(), mkdir_request.forward()).map(|_| {
+                let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+                // TODO: probably possible to hit a distributed race here
+                file.getattr().expect("getattr failed on newly created file")
+            });
         },
         RequestType::NONE => unreachable!()
     }
 
-    let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-    generic_response_builder.add_response_type(response_type);
-    generic_response_builder.add_response(response_offset);
-    let final_response_offset = generic_response_builder.finish();
-    builder.finish_size_prefixed(final_response_offset, None);
+    match response {
+        Ok((response_type, response_offset)) => {
+            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+            generic_response_builder.add_response_type(response_type);
+            generic_response_builder.add_response(response_offset);
+
+            let final_response_offset = generic_response_builder.finish();
+            builder.finish_size_prefixed(final_response_offset, None);
+        },
+        Err(e) => {
+            // Reset builder in case a partial response was written
+            builder.reset();
+            let error_code;
+            if e.kind() == std::io::ErrorKind::NotFound {
+                error_code = ErrorCode::DoesNotExist;
+            }
+            else {
+                error_code = ErrorCode::Uncategorized;
+            }
+            let args = ErrorResponseArgs {error_code};
+            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+            generic_response_builder.add_response_type(ResponseType::ErrorResponse);
+            generic_response_builder.add_response(response_offset);
+
+            let final_response_offset = generic_response_builder.finish();
+            builder.finish_size_prefixed(final_response_offset, None);
+        }
+    }
     return builder;
 }
 
