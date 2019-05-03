@@ -24,19 +24,22 @@ use std::ffi::CString;
 use crate::client::NodeClient;
 
 
-struct DistributedFile {
+// Handles one request/response
+struct DistributedFileResponder<'a: 'b, 'b>  {
     path: String,
     local_data_dir: String,
-    peers: Vec<NodeClient>
+    peers: Vec<NodeClient>,
+    response_buffer: &'b mut FlatBufferBuilder<'a>
 }
 
-impl DistributedFile {
-    fn new(path: String, local_data_dir: String, peers: &Vec<SocketAddr>) -> DistributedFile {
-        DistributedFile {
+impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
+    fn new(path: String, local_data_dir: String, peers: &Vec<SocketAddr>, builder: &'b mut FlatBufferBuilder<'a>) -> DistributedFileResponder<'a, 'b> {
+        DistributedFileResponder {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
             local_data_dir,
-            peers: peers.iter().map(|peer| NodeClient::new(peer)).collect()
+            peers: peers.iter().map(|peer| NodeClient::new(peer)).collect(),
+            response_buffer: builder
         }
     }
 
@@ -90,7 +93,7 @@ impl DistributedFile {
         return Ok(());
     }
 
-    fn readdir(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+    fn readdir(self) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
         let path = Path::new(&self.local_data_dir).join(&self.path);
 
         let mut entries = vec![];
@@ -106,28 +109,28 @@ impl DistributedFile {
             else {
                 unimplemented!()
             };
-            let path = buffer.create_string(&filename);
-            let directory_entry = DirectoryEntry::create(buffer, &DirectoryEntryArgs {path: Some(path), kind: file_type});
+            let path = self.response_buffer.create_string(&filename);
+            let directory_entry = DirectoryEntry::create(self.response_buffer, &DirectoryEntryArgs {path: Some(path), kind: file_type});
             entries.push(directory_entry);
         }
-        buffer.start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
+        self.response_buffer.start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
         for &directory_entry in entries.iter() {
-            buffer.push(directory_entry);
+            self.response_buffer.push(directory_entry);
         }
-        let entries = buffer.end_vector(entries.len());
-        let mut builder = DirectoryListingResponseBuilder::new(buffer);
+        let entries = self.response_buffer.end_vector(entries.len());
+        let mut builder = DirectoryListingResponseBuilder::new(self.response_buffer);
         builder.add_entries(entries);
 
         return Ok(builder.finish().as_union_value());
     }
 
-    fn getattr(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+    fn getattr(self) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
         let metadata = fs::metadata(path)?;
 
-        let mut builder = FileMetadataResponseBuilder::new(buffer);
+        let mut builder = FileMetadataResponseBuilder::new(self.response_buffer);
         builder.add_size_bytes(metadata.len());
         builder.add_size_blocks(metadata.st_blocks());
         let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
@@ -193,7 +196,7 @@ impl DistributedFile {
         }
     }
 
-    fn hardlink(self, new_path: &String, buffer: &mut FlatBufferBuilder, forward: bool) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+    fn hardlink(self, new_path: &String, forward: bool) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
         assert_ne!(self.path.len(), 0);
 
         info!("Hardlinking file: {} to {}", self.path, new_path);
@@ -209,7 +212,7 @@ impl DistributedFile {
         fs::hard_link(&local_path, &local_new_path).expect("hardlink failed");
         let metadata = fs::metadata(local_new_path)?;
 
-        let mut builder = FileMetadataResponseBuilder::new(buffer);
+        let mut builder = FileMetadataResponseBuilder::new(self.response_buffer);
         builder.add_size_bytes(metadata.len());
         builder.add_size_blocks(metadata.st_blocks());
         let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
@@ -290,7 +293,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::ReadRequest => {
             response_type = ResponseType::ReadResponse;
             let read_request = request.request_as_read_request().unwrap();
-            let file = DistributedFile::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             let data = file.read(read_request.offset(), read_request.read_size());
             let data_offset = builder.create_vector_direct(&data.unwrap());
             let mut response_builder = ReadResponseBuilder::new(&mut builder);
@@ -299,16 +302,16 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let file = DistributedFile::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
-            let offset = file.hardlink(&hardlink_request.new_path().to_string(), &mut builder, hardlink_request.forward()).unwrap();
+            let offset = file.hardlink(&hardlink_request.new_path().to_string(), hardlink_request.forward()).unwrap();
             response_type = ResponseType::FileMetadataResponse;
             response_offset = offset;
         },
         RequestType::RenameRequest => {
             response_type = ResponseType::EmptyResponse;
             let rename_request = request.request_as_rename_request().unwrap();
-            let file = DistributedFile::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.rename(&rename_request.new_path().to_string(), rename_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
@@ -317,7 +320,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::ChmodRequest => {
             response_type = ResponseType::EmptyResponse;
             let chmod_request = request.request_as_chmod_request().unwrap();
-            let file = DistributedFile::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.chmod(chmod_request.mode(), chmod_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
@@ -326,7 +329,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::TruncateRequest => {
             response_type = ResponseType::EmptyResponse;
             let truncate_request = request.request_as_truncate_request().unwrap();
-            let file = DistributedFile::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.truncate(truncate_request.new_length(), truncate_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
@@ -335,7 +338,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::UnlinkRequest => {
             response_type = ResponseType::EmptyResponse;
             let unlink_request = request.request_as_unlink_request().unwrap();
-            let file = DistributedFile::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.unlink(unlink_request.forward()).unwrap();
             let response_builder = EmptyResponseBuilder::new(&mut builder);
@@ -344,7 +347,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::WriteRequest => {
             response_type = ResponseType::WrittenResponse;
             let write_request = request.request_as_write_request().unwrap();
-            let file = DistributedFile::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             let written = file.write(write_request.offset(), write_request.data(), write_request.forward()).unwrap();
             let mut response_builder = WrittenResponseBuilder::new(&mut builder);
@@ -354,7 +357,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::UtimensRequest => {
             response_type = ResponseType::EmptyResponse;
             let utimens_request = request.request_as_utimens_request().unwrap();
-            let file = DistributedFile::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             // TODO handle errors
             file.utimens(utimens_request.atime().map(|x| x.seconds()).unwrap_or(0),
                         utimens_request.atime().map(|x| x.nanos()).unwrap_or(0),
@@ -366,8 +369,8 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = DistributedFile::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
-            match file.readdir(&mut builder) {
+            let file = DistributedFileResponder::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            match file.readdir() {
                 Ok(offset) => {
                     response_type = ResponseType::DirectoryListingResponse;
                     response_offset = offset;
@@ -387,8 +390,8 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = DistributedFile::new(getattr_request.path().to_string(), context.data_dir.clone(), &context.peers);
-            match file.getattr(&mut builder) {
+            let file = DistributedFileResponder::new(getattr_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            match file.getattr() {
                 Ok(offset) => {
                     response_type = ResponseType::FileMetadataResponse;
                     response_offset = offset;
@@ -408,11 +411,11 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = DistributedFile::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
             match file.mkdir(mkdir_request.mode(), mkdir_request.forward()) {
                 Ok(_) => {
-                    let file = DistributedFile::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers);
-                    match file.getattr(&mut builder) {
+                    let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+                    match file.getattr() {
                         Ok(offset) => {
                             response_type = ResponseType::FileMetadataResponse;
                             response_offset = offset;
