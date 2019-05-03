@@ -145,7 +145,6 @@ impl DistributedFile {
         else {
             unimplemented!();
         }
-        // TODO: permissions
         builder.add_mode(metadata.st_mode() as u16);
         builder.add_hard_links(metadata.st_nlink() as u32);
         builder.add_user_id(metadata.st_uid());
@@ -228,7 +227,6 @@ impl DistributedFile {
         else {
             unimplemented!();
         }
-        // TODO: permissions
         builder.add_mode(metadata.st_mode() as u16);
         builder.add_hard_links(metadata.st_nlink() as u32);
         builder.add_user_id(metadata.st_uid());
