@@ -25,6 +25,12 @@ use crate::client::NodeClient;
 
 type ResultResponse = Result<(ResponseType, WIPOffset<UnionWIPOffset>), std::io::Error>;
 
+fn empty_response(buffer: &mut FlatBufferBuilder) -> ResultResponse {
+    let response_builder = EmptyResponseBuilder::new(buffer);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((ResponseType::EmptyResponse, offset));
+}
+
 
 // Handles one request/response
 struct DistributedFileResponder<'a: 'b, 'b>  {
@@ -49,7 +55,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
-    fn truncate(self, new_length: u64, forward: bool) -> Result<(), std::io::Error> {
+    fn truncate(self, new_length: u64, forward: bool) -> ResultResponse {
         let local_path = self.to_local_path(&self.path);
         if forward {
             for peer in self.peers {
@@ -58,10 +64,12 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             }
         }
         let file = File::create(&local_path).expect("Couldn't create file");
-        return file.set_len(new_length);
+        file.set_len(new_length)?;
+
+        return empty_response(self.response_buffer);
     }
 
-    fn write(self, offset: u64, data: &[u8], forward: bool) -> Result<u32, std::io::Error> {
+    fn write(self, offset: u64, data: &[u8], forward: bool) -> ResultResponse {
         let local_path = self.to_local_path(&self.path);
         let mut file = OpenOptions::new().write(true).create(true).open(&local_path)?;
 
@@ -75,7 +83,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         }
 
         file.write_all(data)?;
-        return Ok(data.len() as u32);
+        let mut response_builder = WrittenResponseBuilder::new(self.response_buffer);
+        response_builder.add_bytes_written(data.len() as u32);
+        let offset = response_builder.finish().as_union_value();
+        return Ok((ResponseType::WrittenResponse, offset));
     }
 
     fn mkdir(self, _mode: u16, forward: bool) -> Result<(), std::io::Error> {
@@ -159,7 +170,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return Ok((ResponseType::FileMetadataResponse, builder.finish().as_union_value()));
     }
 
-    fn utimens(self, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
+    fn utimens(self, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
@@ -169,12 +180,14 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
                 peer.utimens(&self.path, atime_secs, atime_nanos, mtime_secs, mtime_nanos, false).unwrap();
             }
         }
-        return filetime::set_file_times(local_path,
-                                        FileTime::from_unix_time(atime_secs, atime_nanos as u32),
-                                        FileTime::from_unix_time(mtime_secs, mtime_nanos as u32));
+        filetime::set_file_times(local_path,
+                                 FileTime::from_unix_time(atime_secs, atime_nanos as u32),
+                                 FileTime::from_unix_time(mtime_secs, mtime_nanos as u32))?;
+
+        return empty_response(self.response_buffer);
     }
 
-    fn chmod(self, mode: u32, forward: bool) -> Result<(), std::io::Error> {
+    fn chmod(self, mode: u32, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
@@ -190,7 +203,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             exit_code = libc::chmod(c_path.as_ptr(), mode)
         }
         if exit_code == libc::EXIT_SUCCESS {
-            return Ok(());
+            return empty_response(self.response_buffer);
         }
         else {
             warn!("chmod failed on {:?}, {} with error {:?}", local_path, mode, exit_code);
@@ -198,7 +211,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         }
     }
 
-    fn hardlink(self, new_path: &String, forward: bool) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
+    fn hardlink(self, new_path: &String, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Hardlinking file: {} to {}", self.path, new_path);
@@ -238,10 +251,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_group_id(metadata.st_gid());
         builder.add_device_id(metadata.st_rdev() as u32);
 
-        return Ok(builder.finish().as_union_value());
+        return Ok((ResponseType::FileMetadataResponse, builder.finish().as_union_value()));
     }
 
-    fn rename(self, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
+    fn rename(self, new_path: &String, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Renaming file: {} to {}", self.path, new_path);
@@ -253,7 +266,9 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
                 peer.rename(&self.path, new_path, false).unwrap();
             }
         }
-        return fs::rename(local_path, local_new_path);
+        fs::rename(local_path, local_new_path)?;
+
+        return empty_response(self.response_buffer);
     }
 
     fn read(self, offset: u64, size: u32) -> ResultResponse {
@@ -275,7 +290,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return Ok((ResponseType::ReadResponse, response_offset));
     }
 
-    fn unlink(self, forward: bool) -> Result<(), std::io::Error> {
+    fn unlink(self, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Deleting file");
@@ -286,7 +301,9 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
                 peer.unlink(&self.path, false).unwrap();
             }
         }
-        return fs::remove_file(local_path);
+        fs::remove_file(local_path)?;
+
+        return empty_response(self.response_buffer);
     }
 
 }
@@ -304,68 +321,41 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
             let file = DistributedFileResponder::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            let offset = file.hardlink(&hardlink_request.new_path().to_string(), hardlink_request.forward()).unwrap();
-            response = Ok((ResponseType::FileMetadataResponse, offset));
+            response = file.hardlink(&hardlink_request.new_path().to_string(), hardlink_request.forward());
         },
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
             let file = DistributedFileResponder::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            file.rename(&rename_request.new_path().to_string(), rename_request.forward()).unwrap();
-            let response_builder = EmptyResponseBuilder::new(&mut builder);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::EmptyResponse, offset));
+            response = file.rename(&rename_request.new_path().to_string(), rename_request.forward());
         },
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
             let file = DistributedFileResponder::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            file.chmod(chmod_request.mode(), chmod_request.forward()).unwrap();
-            let response_builder = EmptyResponseBuilder::new(&mut builder);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::EmptyResponse, offset));
+            response = file.chmod(chmod_request.mode(), chmod_request.forward());
         },
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
             let file = DistributedFileResponder::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            file.truncate(truncate_request.new_length(), truncate_request.forward()).unwrap();
-            let response_builder = EmptyResponseBuilder::new(&mut builder);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::EmptyResponse, offset));
+            response = file.truncate(truncate_request.new_length(), truncate_request.forward());
         },
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
             let file = DistributedFileResponder::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            file.unlink(unlink_request.forward()).unwrap();
-            let response_builder = EmptyResponseBuilder::new(&mut builder);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::EmptyResponse, offset));
+            response = file.unlink(unlink_request.forward());
         },
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
             let file = DistributedFileResponder::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            let written = file.write(write_request.offset(), write_request.data(), write_request.forward()).unwrap();
-            let mut response_builder = WrittenResponseBuilder::new(&mut builder);
-            response_builder.add_bytes_written(written);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::WrittenResponse, offset));
+            response = file.write(write_request.offset(), write_request.data(), write_request.forward());
         },
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
             let file = DistributedFileResponder::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
-            // TODO handle errors
-            file.utimens(utimens_request.atime().map(|x| x.seconds()).unwrap_or(0),
+            response = file.utimens(utimens_request.atime().map(|x| x.seconds()).unwrap_or(0),
                         utimens_request.atime().map(|x| x.nanos()).unwrap_or(0),
                          utimens_request.mtime().map(|x| x.seconds()).unwrap_or(0),
                          utimens_request.mtime().map(|x| x.nanos()).unwrap_or(0),
-                         utimens_request.forward()).unwrap();
-            let response_builder = EmptyResponseBuilder::new(&mut builder);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::EmptyResponse, offset));
+                         utimens_request.forward());
         },
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
