@@ -11,13 +11,11 @@ table GenericRequest {
 table ReadRequest {
   offset: ulong;
   read_size: uint;
-// TODO: rename to path
-  filename: string (required);
+  path: string (required);
 }
 
 table GetattrRequest {
-// TODO: rename to path
-  filename: string (required);
+  path: string (required);
 }
 
 table MkdirRequest {
@@ -103,7 +101,7 @@ enum FileType: ubyte {
 }
 
 table DirectoryEntry {
-  filename: string (required);
+  path: string (required);
   kind: FileType;
 }
 

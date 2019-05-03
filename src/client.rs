@@ -83,8 +83,8 @@ impl NodeClient {
         }
     }
 
-    pub fn getattr(&self, filename: &String) -> Result<Option<FileAttr>, std::io::Error> {
-        if filename.len() == 1 {
+    pub fn getattr(&self, path: &String) -> Result<Option<FileAttr>, std::io::Error> {
+        if path.len() == 1 {
             return Ok(Some(FileAttr {
                 size: 0,
                 blocks: 0,
@@ -103,9 +103,9 @@ impl NodeClient {
         }
 
         let mut builder = FlatBufferBuilder::new();
-        let builder_path = builder.create_string(filename.as_str());
+        let builder_path = builder.create_string(path.as_str());
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
-        request_builder.add_filename(builder_path);
+        request_builder.add_path(builder_path);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
 
@@ -267,7 +267,7 @@ impl NodeClient {
         let mut request_builder = ReadRequestBuilder::new(&mut builder);
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
-        request_builder.add_filename(builder_path);
+        request_builder.add_path(builder_path);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
@@ -294,7 +294,7 @@ impl NodeClient {
         for i in 0..entries.len() {
             let entry = entries.get(i);
             result.push(DirectoryEntry {
-                name: OsString::from(entry.filename()),
+                name: OsString::from(entry.path()),
                 kind: file_type_to_fuse_type(entry.kind())
             });
         }

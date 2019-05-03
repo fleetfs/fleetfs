@@ -34,8 +34,8 @@ impl FilesystemMT for FleetFUSE {
 
     fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
         debug!("getattr() called with {:?}", path);
-        let filename = path.to_str().unwrap().to_string();
-        let result = match self.client.getattr(&filename).map_err(|_| libc::EIO)? {
+        let path = path.to_str().unwrap().to_string();
+        let result = match self.client.getattr(&path).map_err(|_| libc::EIO)? {
             None => Err(libc::ENOENT),
             Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
         };
@@ -56,8 +56,8 @@ impl FilesystemMT for FleetFUSE {
 
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
-        let filename = path.to_str().unwrap().to_string();
-        self.client.truncate(&filename, size, true).map_err(|_| libc::EIO)
+        let path = path.to_str().unwrap().to_string();
+        self.client.truncate(&path, size, true).map_err(|_| libc::EIO)
     }
 
     fn utimens(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, atime: Option<Timespec>, mtime: Option<Timespec>) -> ResultEmpty {
@@ -131,15 +131,15 @@ impl FilesystemMT for FleetFUSE {
 
     fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32) -> ResultData {
         debug!("read() called on {:?} with offset={} and size={}", path, offset, size);
-        let filename = path.to_str().unwrap().to_string();
-        return self.client.read(&filename, offset, size).map_err(|_| libc::EIO);
+        let path = path.to_str().unwrap().to_string();
+        return self.client.read(&path, offset, size).map_err(|_| libc::EIO);
     }
 
     fn write(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, data: Vec<u8>, _flags: u32) -> ResultWrite {
         debug!("write() called with {:?}", path);
-        let filename = path.to_str().unwrap().to_string();
+        let path = path.to_str().unwrap().to_string();
         let len = data.len() as u32;
-        match self.client.write(&filename, &data, offset, true) {
+        match self.client.write(&path, &data, offset, true) {
             Ok(_) => Ok(len),
             Err(_) => Err(libc::EIO),
         }
@@ -168,9 +168,9 @@ impl FilesystemMT for FleetFUSE {
 
     fn readdir(&self, _req: RequestInfo, path: &Path, _fh: u64) -> ResultReaddir {
         debug!("readdir() called with {:?}", path);
-        let filename = path.to_str().unwrap().to_string();
+        let path = path.to_str().unwrap().to_string();
         // TODO: when server is down return EIO
-        let result = self.client.readdir(&filename);
+        let result = self.client.readdir(&path);
         debug!("readdir() returned {:?}", &result);
 
         return result;

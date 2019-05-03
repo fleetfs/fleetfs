@@ -25,16 +25,16 @@ use crate::client::NodeClient;
 
 
 struct DistributedFile {
-    filename: String,
+    path: String,
     local_data_dir: String,
     peers: Vec<NodeClient>
 }
 
 impl DistributedFile {
-    fn new(filename: String, local_data_dir: String, peers: &Vec<SocketAddr>) -> DistributedFile {
+    fn new(path: String, local_data_dir: String, peers: &Vec<SocketAddr>) -> DistributedFile {
         DistributedFile {
             // XXX: hack
-            filename: filename.trim_start_matches('/').to_string(),
+            path: path.trim_start_matches('/').to_string(),
             local_data_dir,
             peers: peers.iter().map(|peer| NodeClient::new(peer)).collect()
         }
@@ -45,11 +45,11 @@ impl DistributedFile {
     }
 
     fn truncate(self, new_length: u64, forward: bool) -> Result<(), std::io::Error> {
-        let local_path = self.to_local_path(&self.filename);
+        let local_path = self.to_local_path(&self.path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.truncate(&self.filename, new_length, false).unwrap();
+                peer.truncate(&self.path, new_length, false).unwrap();
             }
         }
         let file = File::create(&local_path).expect("Couldn't create file");
@@ -57,7 +57,7 @@ impl DistributedFile {
     }
 
     fn write(self, offset: u64, data: &[u8], forward: bool) -> Result<u32, std::io::Error> {
-        let local_path = self.to_local_path(&self.filename);
+        let local_path = self.to_local_path(&self.path);
         let mut file = OpenOptions::new().write(true).create(true).open(&local_path)?;
 
         file.seek(SeekFrom::Start(offset))?;
@@ -65,7 +65,7 @@ impl DistributedFile {
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.write(&self.filename, data, offset,false).unwrap();
+                peer.write(&self.path, data, offset, false).unwrap();
             }
         }
 
@@ -74,15 +74,15 @@ impl DistributedFile {
     }
 
     fn mkdir(self, _mode: u16, forward: bool) -> Result<(), std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        let path = Path::new(&self.local_data_dir).join(&self.path);
         fs::create_dir(path)?;
 
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.mkdir(&self.filename, _mode, false).unwrap();
+                peer.mkdir(&self.path, _mode, false).unwrap();
             }
         }
         // TODO set the mode
@@ -91,7 +91,7 @@ impl DistributedFile {
     }
 
     fn readdir(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
-        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        let path = Path::new(&self.local_data_dir).join(&self.path);
 
         let mut entries = vec![];
         for entry in fs::read_dir(path).unwrap() {
@@ -106,8 +106,8 @@ impl DistributedFile {
             else {
                 unimplemented!()
             };
-            let filename = buffer.create_string(&filename);
-            let directory_entry = DirectoryEntry::create(buffer, &DirectoryEntryArgs {filename: Some(filename), kind: file_type});
+            let path = buffer.create_string(&filename);
+            let directory_entry = DirectoryEntry::create(buffer, &DirectoryEntryArgs {path: Some(path), kind: file_type});
             entries.push(directory_entry);
         }
         buffer.start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
@@ -122,9 +122,9 @@ impl DistributedFile {
     }
 
     fn getattr(self, buffer: &mut FlatBufferBuilder) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        let path = Path::new(&self.local_data_dir).join(&self.path);
         let metadata = fs::metadata(path)?;
 
         let mut builder = FileMetadataResponseBuilder::new(buffer);
@@ -156,13 +156,13 @@ impl DistributedFile {
     }
 
     fn utimens(self, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        let local_path = self.to_local_path(&self.filename);
+        let local_path = self.to_local_path(&self.path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.utimens(&self.filename, atime_secs, atime_nanos, mtime_secs, mtime_nanos, false).unwrap();
+                peer.utimens(&self.path, atime_secs, atime_nanos, mtime_secs, mtime_nanos, false).unwrap();
             }
         }
         return filetime::set_file_times(local_path,
@@ -171,13 +171,13 @@ impl DistributedFile {
     }
 
     fn chmod(self, mode: u32, forward: bool) -> Result<(), std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        let local_path = self.to_local_path(&self.filename);
+        let local_path = self.to_local_path(&self.path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.chmod(&self.filename, mode, false).unwrap();
+                peer.chmod(&self.path, mode, false).unwrap();
             }
         }
         let c_path = CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
@@ -195,15 +195,15 @@ impl DistributedFile {
     }
 
     fn hardlink(self, new_path: &String, buffer: &mut FlatBufferBuilder, forward: bool) -> Result<WIPOffset<UnionWIPOffset>, std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        info!("Hardlinking file: {} to {}", self.filename, new_path);
-        let local_path = self.to_local_path(&self.filename);
+        info!("Hardlinking file: {} to {}", self.path, new_path);
+        let local_path = self.to_local_path(&self.path);
         let local_new_path = self.to_local_path(new_path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.hardlink(&self.filename, new_path, false).unwrap();
+                peer.hardlink(&self.path, new_path, false).unwrap();
             }
         }
         // TODO error handling
@@ -239,25 +239,25 @@ impl DistributedFile {
     }
 
     fn rename(self, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        info!("Renaming file: {} to {}", self.filename, new_path);
-        let local_path = self.to_local_path(&self.filename);
+        info!("Renaming file: {} to {}", self.path, new_path);
+        let local_path = self.to_local_path(&self.path);
         let local_new_path = self.to_local_path(new_path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.rename(&self.filename, new_path, false).unwrap();
+                peer.rename(&self.path, new_path, false).unwrap();
             }
         }
         return fs::rename(local_path, local_new_path);
     }
 
     fn read(self, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
-        info!("Reading file: {}. data_dir={}", self.filename, self.local_data_dir);
-        let path = Path::new(&self.local_data_dir).join(&self.filename);
+        info!("Reading file: {}. data_dir={}", self.path, self.local_data_dir);
+        let path = Path::new(&self.local_data_dir).join(&self.path);
         let file = File::open(&path)?;
 
         let mut contents = vec![0; size as usize];
@@ -268,14 +268,14 @@ impl DistributedFile {
     }
 
     fn unlink(self, forward: bool) -> Result<(), std::io::Error> {
-        assert_ne!(self.filename.len(), 0);
+        assert_ne!(self.path.len(), 0);
 
         info!("Deleting file");
-        let local_path = self.to_local_path(&self.filename);
+        let local_path = self.to_local_path(&self.path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.unlink(&self.filename, false).unwrap();
+                peer.unlink(&self.path, false).unwrap();
             }
         }
         return fs::remove_file(local_path);
@@ -292,7 +292,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         RequestType::ReadRequest => {
             response_type = ResponseType::ReadResponse;
             let read_request = request.request_as_read_request().unwrap();
-            let file = DistributedFile::new(read_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers);
             let data = file.read(read_request.offset(), read_request.read_size());
             let data_offset = builder.create_vector_direct(&data.unwrap());
             let mut response_builder = ReadResponseBuilder::new(&mut builder);
@@ -389,7 +389,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = DistributedFile::new(getattr_request.filename().to_string(), context.data_dir.clone(), &context.peers);
+            let file = DistributedFile::new(getattr_request.path().to_string(), context.data_dir.clone(), &context.peers);
             match file.getattr(&mut builder) {
                 Ok(offset) => {
                     response_type = ResponseType::FileMetadataResponse;
