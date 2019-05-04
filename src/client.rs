@@ -24,6 +24,24 @@ fn file_type_to_fuse_type(file_type: FileType) -> fuse_mt::FileType {
     }
 }
 
+fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
+    FileAttr {
+        size: metadata.size_bytes(),
+        blocks: metadata.size_blocks(),
+        atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+        mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+        ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+        crtime: Timespec { sec: 0, nsec: 0 },
+        kind: file_type_to_fuse_type(metadata.kind()),
+        perm: metadata.mode(),
+        nlink: metadata.hard_links(),
+        uid: metadata.user_id(),
+        gid: metadata.group_id(),
+        rdev: metadata.device_id(),
+        flags: 0
+    }
+}
+
 fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
     let response = flatbuffers::get_root::<GenericResponse>(buffer);
     if response.response_type() == ResponseType::ErrorResponse {
@@ -58,21 +76,7 @@ impl NodeClient {
         let response = response_or_error(&buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
-        return Ok(FileAttr {
-            size: metadata.size_bytes(),
-            blocks: metadata.size_blocks(),
-            atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-            mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-            ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
-            crtime: Timespec { sec: 0, nsec: 0 },
-            kind: file_type_to_fuse_type(metadata.kind()),
-            perm: metadata.mode(),
-            nlink: metadata.hard_links(),
-            uid: metadata.user_id(),
-            gid: metadata.group_id(),
-            rdev: metadata.device_id(),
-            flags: 0
-        });
+        return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
     pub fn getattr(&self, path: &String) -> Result<FileAttr, ErrorCode> {
@@ -105,21 +109,7 @@ impl NodeClient {
         let response = response_or_error(&buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
-        return Ok(FileAttr {
-            size: metadata.size_bytes(),
-            blocks: metadata.size_blocks(),
-            atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-            mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-            ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
-            crtime: Timespec { sec: 0, nsec: 0 },
-            kind: file_type_to_fuse_type(metadata.kind()),
-            perm: metadata.mode(),
-            nlink: metadata.hard_links(),
-            uid: metadata.user_id(),
-            gid: metadata.group_id(),
-            rdev: metadata.device_id(),
-            flags: 0
-        });
+        return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
     pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), ErrorCode> {
@@ -180,21 +170,7 @@ impl NodeClient {
         let response = response_or_error(&buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
-        return Ok(FileAttr {
-            size: metadata.size_bytes(),
-            blocks: metadata.size_blocks(),
-            atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-            mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-            ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
-            crtime: Timespec { sec: 0, nsec: 0 },
-            kind: file_type_to_fuse_type(metadata.kind()),
-            perm: metadata.mode(),
-            nlink: metadata.hard_links(),
-            uid: metadata.user_id(),
-            gid: metadata.group_id(),
-            rdev: metadata.device_id(),
-            flags: 0
-        });
+        return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
     pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), ErrorCode> {
