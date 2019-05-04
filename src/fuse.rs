@@ -63,7 +63,7 @@ impl FilesystemMT for FleetFUSE {
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
         let path = path.to_str().unwrap().to_string();
-        self.client.truncate(&path, size, true).map_err(|_| libc::EIO)
+        self.client.truncate(&path, size, true).map_err(|e| into_fuse_error(e))
     }
 
     fn utimens(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, atime: Option<Timespec>, mtime: Option<Timespec>) -> ResultEmpty {
@@ -73,7 +73,7 @@ impl FilesystemMT for FleetFUSE {
                                    atime.map(|x| x.nsec).unwrap_or(0),
                                    mtime.map(|x| x.sec).unwrap_or(0),
                                    mtime.map(|x| x.nsec).unwrap_or(0),
-                                   true).map_err(|_| libc::EIO);
+                                   true).map_err(|e| into_fuse_error(e));
     }
 
     fn readlink(&self, _req: RequestInfo, _path: &Path) -> ResultData {
@@ -89,19 +89,16 @@ impl FilesystemMT for FleetFUSE {
     fn mkdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
         debug!("mkdir() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
-        let result = match self.client.mkdir(&path.to_str().unwrap().to_string(), mode as u16, true).map_err(|_| libc::EIO)? {
-            None => Err(libc::ENOENT),
-            Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
-        };
-
-        return result;
+        return self.client.mkdir(&path.to_str().unwrap().to_string(), mode as u16, true)
+            .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))
+            .map_err(|e| into_fuse_error(e));
     }
 
     fn unlink(&self, _req: RequestInfo, parent: &Path, name: &OsStr) -> ResultEmpty {
         debug!("unlink() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
         let path = path.to_str().unwrap().to_string();
-        self.client.unlink(&path, true).map_err(|_| libc::EIO)
+        self.client.unlink(&path, true).map_err(|e| into_fuse_error(e))
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
@@ -117,16 +114,15 @@ impl FilesystemMT for FleetFUSE {
     fn rename(&self, _req: RequestInfo, parent: &Path, name: &OsStr, new_parent: &Path, new_name: &OsStr) -> ResultEmpty {
         let path = Path::new(parent).join(name);
         let new_path = Path::new(new_parent).join(new_name);
-        return self.client.rename(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|_| libc::EIO);
+        return self.client.rename(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|e| into_fuse_error(e));
     }
 
     fn link(&self, _req: RequestInfo, path: &Path, new_parent: &Path, new_name: &OsStr) -> ResultEntry {
         debug!("link() called for {:?}, {:?}, {:?}", path, new_parent, new_name);
         let new_path = Path::new(new_parent).join(new_name);
-        let result = self.client.hardlink(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|_| libc::EIO)?;
-
-        debug!("getattr() returned {:?}", &result);
-        return Ok((Timespec {sec: 0, nsec: 0}, result.unwrap()));
+        return self.client.hardlink(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true)
+            .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))
+            .map_err(|e| into_fuse_error(e));
     }
 
     fn open(&self, _req: RequestInfo, path: &Path, _flags: u32) -> ResultOpen {
@@ -138,17 +134,13 @@ impl FilesystemMT for FleetFUSE {
     fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32) -> ResultData {
         debug!("read() called on {:?} with offset={} and size={}", path, offset, size);
         let path = path.to_str().unwrap().to_string();
-        return self.client.read(&path, offset, size).map_err(|_| libc::EIO);
+        return self.client.read(&path, offset, size).map_err(|e| into_fuse_error(e));
     }
 
     fn write(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, data: Vec<u8>, _flags: u32) -> ResultWrite {
         debug!("write() called with {:?}", path);
         let path = path.to_str().unwrap().to_string();
-        let len = data.len() as u32;
-        match self.client.write(&path, &data, offset, true) {
-            Ok(_) => Ok(len),
-            Err(_) => Err(libc::EIO),
-        }
+        return self.client.write(&path, &data, offset, true).map_err(|e| into_fuse_error(e));
     }
 
     fn flush(&self, _req: RequestInfo, path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
@@ -175,11 +167,7 @@ impl FilesystemMT for FleetFUSE {
     fn readdir(&self, _req: RequestInfo, path: &Path, _fh: u64) -> ResultReaddir {
         debug!("readdir() called with {:?}", path);
         let path = path.to_str().unwrap().to_string();
-        // TODO: when server is down return EIO
-        let result = self.client.readdir(&path);
-        debug!("readdir() returned {:?}", &result);
-
-        return result;
+        return self.client.readdir(&path).map_err(|e| into_fuse_error(e));
     }
 
     fn releasedir(&self, _req: RequestInfo, path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {
@@ -226,10 +214,7 @@ impl FilesystemMT for FleetFUSE {
         debug!("create() called with {:?} {:?}", parent, name);
         // TODO: kind of a hack to create the file
         let path = Path::new(parent).join(name);
-        match self.client.write(&path.to_str().unwrap().to_string(), &vec![], 0, true) {
-            Ok(_) => {},
-            Err(_) => return Err(libc::EIO),
-        };
+        self.client.write(&path.to_str().unwrap().to_string(), &vec![], 0, true).map_err(|e| into_fuse_error(e))?;
         // TODO
         Ok(CreatedEntry {
             ttl: Timespec { sec: 0, nsec: 0 },

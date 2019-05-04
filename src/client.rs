@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::net::SocketAddr;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
-use fuse_mt::{FileAttr, DirectoryEntry, ResultReaddir};
+use fuse_mt::{FileAttr, DirectoryEntry};
 use time::Timespec;
 
 use crate::tcp_client::TcpClient;
@@ -44,7 +44,7 @@ impl NodeClient {
         }
     }
 
-    pub fn mkdir(&self, path: &String, mode: u16, forward: bool) -> Result<Option<FileAttr>, std::io::Error> {
+    pub fn mkdir(&self, path: &String, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
         let mut builder = FlatBufferBuilder::new();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
@@ -54,42 +54,31 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
-        match response.response_type() {
-            ResponseType::ErrorResponse => {
-                let error = response.response_as_error_response().unwrap();
-                // TODO
-                assert_eq!(error.error_code(), ErrorCode::DoesNotExist);
-                return Ok(None);
-            },
-            ResponseType::FileMetadataResponse => {
-                let metadata = response.response_as_file_metadata_response().unwrap();
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
+        let metadata = response.response_as_file_metadata_response().unwrap();
 
-                let kind = match metadata.kind() {
-                    FileType::File => fuse_mt::FileType::RegularFile,
-                    FileType::Directory => fuse_mt::FileType::Directory,
-                    FileType::DefaultValueNotAType => unreachable!()
-                };
+        let kind = match metadata.kind() {
+            FileType::File => fuse_mt::FileType::RegularFile,
+            FileType::Directory => fuse_mt::FileType::Directory,
+            FileType::DefaultValueNotAType => unreachable!()
+        };
 
-                return Ok(Some(FileAttr {
-                    size: metadata.size_bytes(),
-                    blocks: metadata.size_blocks(),
-                    atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-                    mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-                    ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
-                    crtime: Timespec { sec: 0, nsec: 0 },
-                    kind,
-                    perm: metadata.mode(),
-                    nlink: metadata.hard_links(),
-                    uid: metadata.user_id(),
-                    gid: metadata.group_id(),
-                    rdev: metadata.device_id(),
-                    flags: 0
-                }));
-            },
-            _ => unimplemented!()
-        }
+        return Ok(FileAttr {
+            size: metadata.size_bytes(),
+            blocks: metadata.size_blocks(),
+            atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+            mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+            ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+            crtime: Timespec { sec: 0, nsec: 0 },
+            kind,
+            perm: metadata.mode(),
+            nlink: metadata.hard_links(),
+            uid: metadata.user_id(),
+            gid: metadata.group_id(),
+            rdev: metadata.device_id(),
+            flags: 0
+        });
     }
 
     pub fn getattr(&self, path: &String) -> Result<FileAttr, ErrorCode> {
@@ -145,7 +134,7 @@ impl NodeClient {
         });
     }
 
-    pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
+    pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -160,8 +149,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
@@ -180,13 +169,13 @@ impl NodeClient {
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
 
         let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let response = response_or_error(&buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
     }
 
-    pub fn hardlink(&self, path: &String, new_path: &String, forward: bool) -> Result<Option<FileAttr>, std::io::Error> {
+    pub fn hardlink(&self, path: &String, new_path: &String, forward: bool) -> Result<FileAttr, ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -199,45 +188,34 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
-        match response.response_type() {
-            ResponseType::ErrorResponse => {
-                let error = response.response_as_error_response().unwrap();
-                // TODO
-                assert_eq!(error.error_code(), ErrorCode::DoesNotExist);
-                return Ok(None);
-            },
-            ResponseType::FileMetadataResponse => {
-                let metadata = response.response_as_file_metadata_response().unwrap();
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
+        let metadata = response.response_as_file_metadata_response().unwrap();
 
-                let kind = match metadata.kind() {
-                    FileType::File => fuse_mt::FileType::RegularFile,
-                    FileType::Directory => fuse_mt::FileType::Directory,
-                    FileType::DefaultValueNotAType => unreachable!()
-                };
+        let kind = match metadata.kind() {
+            FileType::File => fuse_mt::FileType::RegularFile,
+            FileType::Directory => fuse_mt::FileType::Directory,
+            FileType::DefaultValueNotAType => unreachable!()
+        };
 
-                return Ok(Some(FileAttr {
-                    size: metadata.size_bytes(),
-                    blocks: metadata.size_blocks(),
-                    atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-                    mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-                    ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
-                    crtime: Timespec { sec: 0, nsec: 0 },
-                    kind,
-                    perm: metadata.mode(),
-                    nlink: metadata.hard_links(),
-                    uid: metadata.user_id(),
-                    gid: metadata.group_id(),
-                    rdev: metadata.device_id(),
-                    flags: 0
-                }));
-            },
-            _ => unimplemented!()
-        }
+        return Ok(FileAttr {
+            size: metadata.size_bytes(),
+            blocks: metadata.size_blocks(),
+            atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+            mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+            ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+            crtime: Timespec { sec: 0, nsec: 0 },
+            kind,
+            perm: metadata.mode(),
+            nlink: metadata.hard_links(),
+            uid: metadata.user_id(),
+            gid: metadata.group_id(),
+            rdev: metadata.device_id(),
+            flags: 0
+        });
     }
 
-    pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), std::io::Error> {
+    pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -250,14 +228,14 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
     }
 
-    pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, std::io::Error> {
+    pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -269,14 +247,14 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
         let data = response.response_as_read_response().unwrap().data().to_vec();
 
         return Ok(data);
     }
 
-    pub fn readdir(&self, path: &String) -> ResultReaddir {
+    pub fn readdir(&self, path: &String) -> Result<Vec<DirectoryEntry>, ErrorCode> {
         let mut builder = FlatBufferBuilder::new();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
@@ -284,8 +262,9 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReaddirRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| libc::EIO)?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
+
         let mut result = vec![];
         let listing_response = response.response_as_directory_listing_response().unwrap();
         let entries = listing_response.entries();
@@ -300,7 +279,7 @@ impl NodeClient {
         return Ok(result);
     }
 
-    pub fn truncate(&self, path: &String, length: u64, forward: bool) -> Result<(), std::io::Error> {
+    pub fn truncate(&self, path: &String, length: u64, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -312,14 +291,14 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
     }
 
-    pub fn write(&self, path: &String, data: &[u8], offset: u64, forward: bool) -> Result<u32, std::io::Error> {
+    pub fn write(&self, path: &String, data: &[u8], offset: u64, forward: bool) -> Result<u32, ErrorCode> {
         let mut builder = FlatBufferBuilder::new();
         let builder_path = builder.create_string(path.as_str());
         let data_offset = builder.create_vector_direct(data);
@@ -331,12 +310,12 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::WriteRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
         return Ok(response.response_as_written_response().unwrap().bytes_written());
     }
 
-    pub fn unlink(&self, path: &String, forward: bool) -> Result<(), std::io::Error> {
+    pub fn unlink(&self, path: &String, forward: bool) -> Result<(), ErrorCode> {
         let mut builder = FlatBufferBuilder::new();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
@@ -345,8 +324,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
