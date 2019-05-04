@@ -58,12 +58,6 @@ impl NodeClient {
         let response = response_or_error(&buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
-        let kind = match metadata.kind() {
-            FileType::File => fuse_mt::FileType::RegularFile,
-            FileType::Directory => fuse_mt::FileType::Directory,
-            FileType::DefaultValueNotAType => unreachable!()
-        };
-
         return Ok(FileAttr {
             size: metadata.size_bytes(),
             blocks: metadata.size_blocks(),
@@ -71,7 +65,7 @@ impl NodeClient {
             mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
             ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
             crtime: Timespec { sec: 0, nsec: 0 },
-            kind,
+            kind: file_type_to_fuse_type(metadata.kind()),
             perm: metadata.mode(),
             nlink: metadata.hard_links(),
             uid: metadata.user_id(),
@@ -111,12 +105,6 @@ impl NodeClient {
         let response = response_or_error(&buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
-        let kind = match metadata.kind() {
-            FileType::File => fuse_mt::FileType::RegularFile,
-            FileType::Directory => fuse_mt::FileType::Directory,
-            FileType::DefaultValueNotAType => unreachable!()
-        };
-
         return Ok(FileAttr {
             size: metadata.size_bytes(),
             blocks: metadata.size_blocks(),
@@ -124,7 +112,7 @@ impl NodeClient {
             mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
             ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
             crtime: Timespec { sec: 0, nsec: 0 },
-            kind,
+            kind: file_type_to_fuse_type(metadata.kind()),
             perm: metadata.mode(),
             nlink: metadata.hard_links(),
             uid: metadata.user_id(),
@@ -192,12 +180,6 @@ impl NodeClient {
         let response = response_or_error(&buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
-        let kind = match metadata.kind() {
-            FileType::File => fuse_mt::FileType::RegularFile,
-            FileType::Directory => fuse_mt::FileType::Directory,
-            FileType::DefaultValueNotAType => unreachable!()
-        };
-
         return Ok(FileAttr {
             size: metadata.size_bytes(),
             blocks: metadata.size_blocks(),
@@ -205,7 +187,7 @@ impl NodeClient {
             mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
             ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
             crtime: Timespec { sec: 0, nsec: 0 },
-            kind,
+            kind: file_type_to_fuse_type(metadata.kind()),
             perm: metadata.mode(),
             nlink: metadata.hard_links(),
             uid: metadata.user_id(),
