@@ -169,7 +169,7 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn chmod(&self, path: &String, mode: u32, forward: bool) -> Result<(), std::io::Error> {
+    pub fn chmod(&self, path: &String, mode: u32, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -181,7 +181,7 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
         let response = flatbuffers::get_root::<GenericResponse>(&buffer);
         response.response_as_empty_response().unwrap();
 

@@ -10,6 +10,8 @@ use log::warn;
 use time::Timespec;
 
 use crate::client::NodeClient;
+use crate::generated::ErrorCode;
+use std::os::raw::c_int;
 
 pub struct FleetFUSE {
     client: NodeClient
@@ -20,6 +22,14 @@ impl FleetFUSE {
         FleetFUSE {
             client: NodeClient::new(&server_ip_port)
         }
+    }
+}
+
+fn into_fuse_error(error: ErrorCode) -> c_int {
+    match error {
+        ErrorCode::DoesNotExist => libc::ENOENT,
+        ErrorCode::Uncategorized => libc::EIO,
+        ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
 
@@ -46,7 +56,7 @@ impl FilesystemMT for FleetFUSE {
 
     fn chmod(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, mode: u32) -> ResultEmpty {
         debug!("chmod() called with {:?}, {:?}", path, mode);
-        return self.client.chmod(&path.to_str().unwrap().to_string(), mode, true).map_err(|_| libc::EIO);
+        return self.client.chmod(&path.to_str().unwrap().to_string(), mode, true).map_err(|e| into_fuse_error(e));
     }
 
     fn chown(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _uid: Option<u32>, _gid: Option<u32>) -> ResultEmpty {
