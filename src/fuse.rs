@@ -44,6 +44,25 @@ impl FilesystemMT for FleetFUSE {
 
     fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
         debug!("getattr() called with {:?}", path);
+        // TODO
+        if path.to_str().unwrap().len() == 1 {
+            return Ok((Timespec {sec: 0, nsec: 0}, FileAttr {
+                size: 0,
+                blocks: 0,
+                atime: Timespec { sec: 0, nsec: 0 },
+                mtime: Timespec { sec: 0, nsec: 0 },
+                ctime: Timespec { sec: 0, nsec: 0 },
+                crtime: Timespec { sec: 0, nsec: 0 },
+                kind: fuse_mt::FileType::Directory,
+                perm: 0o755,
+                nlink: 2,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                flags: 0
+            }));
+        }
+
         let path = path.to_str().unwrap().to_string();
         return self.client.getattr(&path)
             .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))

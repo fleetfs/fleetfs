@@ -80,24 +80,6 @@ impl NodeClient {
     }
 
     pub fn getattr(&self, path: &String) -> Result<FileAttr, ErrorCode> {
-        if path.len() == 1 {
-            return Ok(FileAttr {
-                size: 0,
-                blocks: 0,
-                atime: Timespec { sec: 0, nsec: 0 },
-                mtime: Timespec { sec: 0, nsec: 0 },
-                ctime: Timespec { sec: 0, nsec: 0 },
-                crtime: Timespec { sec: 0, nsec: 0 },
-                kind: fuse_mt::FileType::Directory,
-                perm: 0o755,
-                nlink: 2,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-                flags: 0
-            });
-        }
-
         let mut builder = FlatBufferBuilder::new();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
