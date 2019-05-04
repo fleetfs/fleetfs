@@ -45,13 +45,9 @@ impl FilesystemMT for FleetFUSE {
     fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
         debug!("getattr() called with {:?}", path);
         let path = path.to_str().unwrap().to_string();
-        let result = match self.client.getattr(&path).map_err(|_| libc::EIO)? {
-            None => Err(libc::ENOENT),
-            Some(fileattr) => Ok((Timespec { sec: 0, nsec: 0 }, fileattr)),
-        };
-
-        debug!("getattr() returned {:?}", &result);
-        return result;
+        return self.client.getattr(&path)
+            .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))
+            .map_err(|e| into_fuse_error(e));
     }
 
     fn chmod(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, mode: u32) -> ResultEmpty {

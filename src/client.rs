@@ -24,6 +24,15 @@ fn file_type_to_fuse_type(file_type: FileType) -> fuse_mt::FileType {
     }
 }
 
+fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
+    let response = flatbuffers::get_root::<GenericResponse>(buffer);
+    if response.response_type() == ResponseType::ErrorResponse {
+        let error = response.response_as_error_response().unwrap();
+        return Err(error.error_code());
+    }
+    return Ok(response);
+}
+
 pub struct NodeClient {
     tcp_client: TcpClient
 }
@@ -83,9 +92,9 @@ impl NodeClient {
         }
     }
 
-    pub fn getattr(&self, path: &String) -> Result<Option<FileAttr>, std::io::Error> {
+    pub fn getattr(&self, path: &String) -> Result<FileAttr, ErrorCode> {
         if path.len() == 1 {
-            return Ok(Some(FileAttr {
+            return Ok(FileAttr {
                 size: 0,
                 blocks: 0,
                 atime: Timespec { sec: 0, nsec: 0 },
@@ -99,7 +108,7 @@ impl NodeClient {
                 gid: 0,
                 rdev: 0,
                 flags: 0
-            }));
+            });
         }
 
         let mut builder = FlatBufferBuilder::new();
@@ -109,42 +118,31 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data())?;
-        let response = flatbuffers::get_root::<GenericResponse>(&buffer);
-        match response.response_type() {
-            ResponseType::ErrorResponse => {
-                let error = response.response_as_error_response().unwrap();
-                // TODO
-                assert_eq!(error.error_code(), ErrorCode::DoesNotExist);
-                return Ok(None);
-            },
-            ResponseType::FileMetadataResponse => {
-                let metadata = response.response_as_file_metadata_response().unwrap();
+        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
+        let response = response_or_error(&buffer)?;
+        let metadata = response.response_as_file_metadata_response().unwrap();
 
-                let kind = match metadata.kind() {
-                    FileType::File => fuse_mt::FileType::RegularFile,
-                    FileType::Directory => fuse_mt::FileType::Directory,
-                    FileType::DefaultValueNotAType => unreachable!()
-                };
+        let kind = match metadata.kind() {
+            FileType::File => fuse_mt::FileType::RegularFile,
+            FileType::Directory => fuse_mt::FileType::Directory,
+            FileType::DefaultValueNotAType => unreachable!()
+        };
 
-                return Ok(Some(FileAttr {
-                    size: metadata.size_bytes(),
-                    blocks: metadata.size_blocks(),
-                    atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-                    mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-                    ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
-                    crtime: Timespec { sec: 0, nsec: 0 },
-                    kind,
-                    perm: metadata.mode(),
-                    nlink: metadata.hard_links(),
-                    uid: metadata.user_id(),
-                    gid: metadata.group_id(),
-                    rdev: metadata.device_id(),
-                    flags: 0
-                }));
-            },
-            _ => unimplemented!()
-        }
+        return Ok(FileAttr {
+            size: metadata.size_bytes(),
+            blocks: metadata.size_blocks(),
+            atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
+            mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
+            ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+            crtime: Timespec { sec: 0, nsec: 0 },
+            kind,
+            perm: metadata.mode(),
+            nlink: metadata.hard_links(),
+            uid: metadata.user_id(),
+            gid: metadata.group_id(),
+            rdev: metadata.device_id(),
+            flags: 0
+        });
     }
 
     pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), std::io::Error> {
