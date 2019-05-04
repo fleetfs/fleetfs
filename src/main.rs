@@ -45,7 +45,7 @@ fn main() {
             .takes_value(true))
         .arg(Arg::with_name("mount-point")
             .long("mount-point")
-            .value_name("SERVER_URL")
+            .value_name("MOUNT_POINT")
             .default_value("")
             .help("Act as a client, and mount FUSE at given path")
             .takes_value(true))
