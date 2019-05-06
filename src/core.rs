@@ -308,49 +308,48 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
 
 }
 
-fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatBufferBuilder<'b> {
-    let mut builder = FlatBufferBuilder::new();
+fn handler<'a>(request: GenericRequest<'a>, context: &LocalContext, builder: &mut FlatBufferBuilder) {
     let response;
 
     match request.request_type() {
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
-            let file = DistributedFileResponder::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.read(read_request.offset(), read_request.read_size());
         },
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let file = DistributedFileResponder::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.hardlink(&hardlink_request.new_path().to_string(), hardlink_request.forward());
         },
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
-            let file = DistributedFileResponder::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.rename(&rename_request.new_path().to_string(), rename_request.forward());
         },
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
-            let file = DistributedFileResponder::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(chmod_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.chmod(chmod_request.mode(), chmod_request.forward());
         },
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
-            let file = DistributedFileResponder::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(truncate_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.truncate(truncate_request.new_length(), truncate_request.forward());
         },
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
-            let file = DistributedFileResponder::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(unlink_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.unlink(unlink_request.forward());
         },
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
-            let file = DistributedFileResponder::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(write_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.write(write_request.offset(), write_request.data(), write_request.forward());
         },
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
-            let file = DistributedFileResponder::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(utimens_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.utimens(utimens_request.atime().map(|x| x.seconds()).unwrap_or(0),
                         utimens_request.atime().map(|x| x.nanos()).unwrap_or(0),
                          utimens_request.mtime().map(|x| x.seconds()).unwrap_or(0),
@@ -359,19 +358,19 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
         },
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = DistributedFileResponder::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(readdir_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.readdir();
         },
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = DistributedFileResponder::new(getattr_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(getattr_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.getattr();
         },
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+            let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
             response = file.mkdir(mkdir_request.mode(), mkdir_request.forward()).map(|_| {
-                let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, &mut builder);
+                let file = DistributedFileResponder::new(mkdir_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
                 // TODO: probably possible to hit a distributed race here
                 file.getattr().expect("getattr failed on newly created file")
             });
@@ -381,7 +380,7 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
 
     match response {
         Ok((response_type, response_offset)) => {
-            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+            let mut generic_response_builder = GenericResponseBuilder::new(builder);
             generic_response_builder.add_response_type(response_type);
             generic_response_builder.add_response(response_offset);
 
@@ -399,8 +398,8 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
                 error_code = ErrorCode::Uncategorized;
             }
             let args = ErrorResponseArgs {error_code};
-            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+            let response_offset = ErrorResponse::create(builder, &args).as_union_value();
+            let mut generic_response_builder = GenericResponseBuilder::new(builder);
             generic_response_builder.add_response_type(ResponseType::ErrorResponse);
             generic_response_builder.add_response(response_offset);
 
@@ -408,7 +407,6 @@ fn handler<'a, 'b>(request: GenericRequest<'a>, context: &LocalContext) -> FlatB
             builder.finish_size_prefixed(final_response_offset, None);
         }
     }
-    return builder;
 }
 
 #[derive(Clone)]
@@ -470,11 +468,13 @@ impl Node {
                     .new_read(reader);
 
                 let cloned = context.clone();
-                let conn = reader.fold(writer, move |writer, frame| {
+                let builder = FlatBufferBuilder::new();
+                let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
                     let request = get_root_as_generic_request(&frame);
-                    let response_builder = handler(request, &cloned);
-                    let writable = WritableFlatBuffer {buffer: response_builder};
-                    tokio::io::write_all(writer, writable).map(|(writer, _)| writer)
+                    builder.reset();
+                    handler(request, &cloned, &mut builder);
+                    let writable = WritableFlatBuffer {buffer: builder};
+                    tokio::io::write_all(writer, writable).map(|(writer, written)| (writer, written.buffer))
                 });
 
                 tokio::spawn(conn.map(|_| ()).map_err(|_| ()))
