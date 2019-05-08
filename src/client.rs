@@ -175,7 +175,7 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn read(&self, path: &String, offset: u64, size: u32) -> Result<Vec<u8>, ErrorCode> {
+    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(&self, path: &String, offset: u64, size: u32, callback: F) {
         assert_ne!(path, "/");
 
         let mut builder = FlatBufferBuilder::new();
@@ -187,11 +187,23 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
-        let data = response.response_as_read_response().unwrap().data().to_vec();
+        let buffer = match self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()) {
+            Ok(buffer) => buffer,
+            Err(_) => {
+                callback(Err(ErrorCode::Uncategorized));
+                return;
+            }
+        };
+        let response = match response_or_error(&buffer) {
+            Ok(response) => response,
+            Err(e) => {
+                callback(Err(e));
+                return;
+            }
+        };
+        let data = response.response_as_read_response().unwrap().data();
 
-        return Ok(data);
+        callback(Ok(data));
     }
 
     pub fn readdir(&self, path: &String) -> Result<Vec<DirectoryEntry>, ErrorCode> {
