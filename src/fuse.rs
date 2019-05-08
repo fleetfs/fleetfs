@@ -63,15 +63,15 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
             }));
         }
 
-        let path = path.to_str().unwrap().to_string();
-        return self.client.getattr(&path)
+        let path = path.to_str().unwrap();
+        return self.client.getattr(path)
             .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))
             .map_err(|e| into_fuse_error(e));
     }
 
     fn chmod(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, mode: u32) -> ResultEmpty {
         debug!("chmod() called with {:?}, {:?}", path, mode);
-        return self.client.chmod(&path.to_str().unwrap().to_string(), mode, true).map_err(|e| into_fuse_error(e));
+        return self.client.chmod(path.to_str().unwrap(), mode, true).map_err(|e| into_fuse_error(e));
     }
 
     fn chown(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _uid: Option<u32>, _gid: Option<u32>) -> ResultEmpty {
@@ -81,13 +81,13 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
 
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
-        let path = path.to_str().unwrap().to_string();
-        self.client.truncate(&path, size, true).map_err(|e| into_fuse_error(e))
+        let path = path.to_str().unwrap();
+        self.client.truncate(path, size, true).map_err(|e| into_fuse_error(e))
     }
 
     fn utimens(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, atime: Option<Timespec>, mtime: Option<Timespec>) -> ResultEmpty {
         debug!("utimens() called with {:?}, {:?}, {:?}", path, atime, mtime);
-        return self.client.utimens(&path.to_str().unwrap().to_string(),
+        return self.client.utimens(path.to_str().unwrap(),
                                    atime.map(|x| x.sec).unwrap_or(0),
                                    atime.map(|x| x.nsec).unwrap_or(0),
                                    mtime.map(|x| x.sec).unwrap_or(0),
@@ -108,7 +108,7 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
     fn mkdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
         debug!("mkdir() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
-        return self.client.mkdir(&path.to_str().unwrap().to_string(), mode as u16, true)
+        return self.client.mkdir(path.to_str().unwrap(), mode as u16, true)
             .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))
             .map_err(|e| into_fuse_error(e));
     }
@@ -116,8 +116,8 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
     fn unlink(&self, _req: RequestInfo, parent: &Path, name: &OsStr) -> ResultEmpty {
         debug!("unlink() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
-        let path = path.to_str().unwrap().to_string();
-        self.client.unlink(&path, true).map_err(|e| into_fuse_error(e))
+        let path = path.to_str().unwrap();
+        self.client.unlink(path, true).map_err(|e| into_fuse_error(e))
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
@@ -133,13 +133,13 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
     fn rename(&self, _req: RequestInfo, parent: &Path, name: &OsStr, new_parent: &Path, new_name: &OsStr) -> ResultEmpty {
         let path = Path::new(parent).join(name);
         let new_path = Path::new(new_parent).join(new_name);
-        return self.client.rename(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true).map_err(|e| into_fuse_error(e));
+        return self.client.rename(path.to_str().unwrap(), new_path.to_str().unwrap(), true).map_err(|e| into_fuse_error(e));
     }
 
     fn link(&self, _req: RequestInfo, path: &Path, new_parent: &Path, new_name: &OsStr) -> ResultEntry {
         debug!("link() called for {:?}, {:?}, {:?}", path, new_parent, new_name);
         let new_path = Path::new(new_parent).join(new_name);
-        return self.client.hardlink(&path.to_str().unwrap().to_string(), &new_path.to_str().unwrap().to_string(), true)
+        return self.client.hardlink(path.to_str().unwrap(), new_path.to_str().unwrap(), true)
             .map(|file_attr| (Timespec {sec: 0, nsec: 0}, file_attr))
             .map_err(|e| into_fuse_error(e));
     }
@@ -152,16 +152,16 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
 
     fn read<F: FnOnce(Result<&[u8], libc::c_int>) -> ()>(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32, reply: F) {
         debug!("read() called on {:?} with offset={} and size={}", path, offset, size);
-        let path = path.to_str().unwrap().to_string();
-        self.client.read(&path, offset, size, move |result| {
+        let path = path.to_str().unwrap();
+        self.client.read(path, offset, size, move |result| {
             reply(result.map_err(|e| into_fuse_error(e)));
         });
     }
 
     fn write(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, data: Vec<u8>, _flags: u32) -> ResultWrite {
         debug!("write() called with {:?}", path);
-        let path = path.to_str().unwrap().to_string();
-        return self.client.write(&path, &data, offset, true).map_err(|e| into_fuse_error(e));
+        let path = path.to_str().unwrap();
+        return self.client.write(path, &data, offset, true).map_err(|e| into_fuse_error(e));
     }
 
     fn flush(&self, _req: RequestInfo, path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
@@ -187,8 +187,8 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
 
     fn readdir(&self, _req: RequestInfo, path: &Path, _fh: u64) -> ResultReaddir {
         debug!("readdir() called with {:?}", path);
-        let path = path.to_str().unwrap().to_string();
-        return self.client.readdir(&path).map_err(|e| into_fuse_error(e));
+        let path = path.to_str().unwrap();
+        return self.client.readdir(path).map_err(|e| into_fuse_error(e));
     }
 
     fn releasedir(&self, _req: RequestInfo, path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {
@@ -235,7 +235,7 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
         debug!("create() called with {:?} {:?}", parent, name);
         // TODO: kind of a hack to create the file
         let path = Path::new(parent).join(name);
-        self.client.write(&path.to_str().unwrap().to_string(), &vec![], 0, true).map_err(|e| into_fuse_error(e))?;
+        self.client.write(path.to_str().unwrap(), &vec![], 0, true).map_err(|e| into_fuse_error(e))?;
         // TODO
         Ok(CreatedEntry {
             ttl: Timespec { sec: 0, nsec: 0 },

@@ -51,7 +51,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         }
     }
 
-    fn to_local_path(&self, path: &String) -> PathBuf {
+    fn to_local_path(&self, path: &str) -> PathBuf {
         Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
@@ -211,7 +211,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         }
     }
 
-    fn hardlink(self, new_path: &String, forward: bool) -> ResultResponse {
+    fn hardlink(self, new_path: &str, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Hardlinking file: {} to {}", self.path, new_path);
@@ -254,7 +254,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return Ok((ResponseType::FileMetadataResponse, builder.finish().as_union_value()));
     }
 
-    fn rename(self, new_path: &String, forward: bool) -> ResultResponse {
+    fn rename(self, new_path: &str, forward: bool) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Renaming file: {} to {}", self.path, new_path);
@@ -320,12 +320,12 @@ fn handler<'a>(request: GenericRequest<'a>, context: &LocalContext, builder: &mu
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
             let file = DistributedFileResponder::new(hardlink_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
-            response = file.hardlink(&hardlink_request.new_path().to_string(), hardlink_request.forward());
+            response = file.hardlink(&hardlink_request.new_path(), hardlink_request.forward());
         },
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
             let file = DistributedFileResponder::new(rename_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
-            response = file.rename(&rename_request.new_path().to_string(), rename_request.forward());
+            response = file.rename(&rename_request.new_path(), rename_request.forward());
         },
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();

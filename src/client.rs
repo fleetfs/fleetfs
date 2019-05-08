@@ -83,9 +83,9 @@ impl <'a> NodeClient<'a> {
         return response_or_error(buffer);
     }
 
-    pub fn mkdir(&self, path: &String, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
+    pub fn mkdir(&self, path: &str, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_mode(mode);
@@ -100,9 +100,9 @@ impl <'a> NodeClient<'a> {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn getattr(&self, path: &String) -> Result<FileAttr, ErrorCode> {
+    pub fn getattr(&self, path: &str) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         let finish_offset = request_builder.finish().as_union_value();
@@ -115,11 +115,11 @@ impl <'a> NodeClient<'a> {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), ErrorCode> {
+    pub fn utimens(&self, path: &str, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = UtimensRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         let atime = Timestamp::new(atime_secs, atime_nanos);
@@ -137,11 +137,11 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn chmod(&self, path: &String, mode: u32, forward: bool) -> Result<(), ErrorCode> {
+    pub fn chmod(&self, path: &str, mode: u32, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = ChmodRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_mode(mode);
@@ -156,12 +156,12 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn hardlink(&self, path: &String, new_path: &String, forward: bool) -> Result<FileAttr, ErrorCode> {
+    pub fn hardlink(&self, path: &str, new_path: &str, forward: bool) -> Result<FileAttr, ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
-        let builder_new_path = builder.create_string(new_path.as_str());
+        let builder_path = builder.create_string(path);
+        let builder_new_path = builder.create_string(new_path);
         let mut request_builder = HardlinkRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_new_path(builder_new_path);
@@ -176,12 +176,12 @@ impl <'a> NodeClient<'a> {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), ErrorCode> {
+    pub fn rename(&self, path: &str, new_path: &str, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
-        let builder_new_path = builder.create_string(new_path.as_str());
+        let builder_path = builder.create_string(path);
+        let builder_new_path = builder.create_string(new_path);
         let mut request_builder = RenameRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_new_path(builder_new_path);
@@ -196,11 +196,11 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(&self, path: &String, offset: u64, size: u32, callback: F) {
+    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(&self, path: &str, offset: u64, size: u32, callback: F) {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = ReadRequestBuilder::new(&mut builder);
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
@@ -221,9 +221,9 @@ impl <'a> NodeClient<'a> {
         callback(Ok(data));
     }
 
-    pub fn readdir(&self, path: &String) -> Result<Vec<DirectoryEntry>, ErrorCode> {
+    pub fn readdir(&self, path: &str) -> Result<Vec<DirectoryEntry>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         let finish_offset = request_builder.finish().as_union_value();
@@ -246,11 +246,11 @@ impl <'a> NodeClient<'a> {
         return Ok(result);
     }
 
-    pub fn truncate(&self, path: &String, length: u64, forward: bool) -> Result<(), ErrorCode> {
+    pub fn truncate(&self, path: &str, length: u64, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = TruncateRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_new_length(length);
@@ -265,9 +265,9 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn write(&self, path: &String, data: &[u8], offset: u64, forward: bool) -> Result<u32, ErrorCode> {
+    pub fn write(&self, path: &str, data: &[u8], offset: u64, forward: bool) -> Result<u32, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let data_offset = builder.create_vector_direct(data);
         let mut request_builder = WriteRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -282,9 +282,9 @@ impl <'a> NodeClient<'a> {
         return Ok(response.response_as_written_response().unwrap().bytes_written());
     }
 
-    pub fn unlink(&self, path: &String, forward: bool) -> Result<(), ErrorCode> {
+    pub fn unlink(&self, path: &str, forward: bool) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path.as_str());
+        let builder_path = builder.create_string(path);
         let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_forward(forward);
