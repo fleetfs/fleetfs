@@ -7,6 +7,8 @@ use time::Timespec;
 
 use crate::tcp_client::TcpClient;
 use crate::generated::*;
+use thread_local::CachedThreadLocal;
+use std::cell::{RefCell, RefMut};
 
 fn finalize_request(builder: &mut FlatBufferBuilder, request_type: RequestType, finish_offset: WIPOffset<UnionWIPOffset>) {
     let mut generic_request_builder = GenericRequestBuilder::new(builder);
@@ -52,14 +54,25 @@ fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
 }
 
 pub struct NodeClient {
-    tcp_client: TcpClient
+    tcp_client: TcpClient,
+    response_buffer: CachedThreadLocal<RefCell<Vec<u8>>>
 }
 
 impl NodeClient {
     pub fn new(server_ip_port: &SocketAddr) -> NodeClient {
         NodeClient {
-            tcp_client: TcpClient::new(server_ip_port.clone())
+            tcp_client: TcpClient::new(server_ip_port.clone()),
+            response_buffer: CachedThreadLocal::new()
         }
+    }
+
+    fn get_or_create_buffer(&self) -> RefMut<Vec<u8>> {
+        return self.response_buffer.get_or(|| Box::new(RefCell::new(vec![]))).borrow_mut();
+    }
+
+    fn send<'a>(&self, request: &[u8], buffer: &'a mut Vec<u8>) -> Result<GenericResponse<'a>, ErrorCode> {
+        self.tcp_client.send_and_receive_length_prefixed(request, buffer.as_mut()).map_err(|_| ErrorCode::Uncategorized)?;
+        return response_or_error(buffer);
     }
 
     pub fn mkdir(&self, path: &String, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
@@ -72,8 +85,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
@@ -87,8 +100,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
@@ -109,8 +122,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
@@ -128,8 +141,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
@@ -148,8 +161,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         let metadata = response.response_as_file_metadata_response().unwrap();
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
@@ -168,8 +181,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
@@ -187,14 +200,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
-        let buffer = match self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()) {
-            Ok(buffer) => buffer,
-            Err(_) => {
-                callback(Err(ErrorCode::Uncategorized));
-                return;
-            }
-        };
-        let response = match response_or_error(&buffer) {
+        let mut buffer = self.get_or_create_buffer();
+        let response = match self.send(builder.finished_data(), &mut buffer) {
             Ok(response) => response,
             Err(e) => {
                 callback(Err(e));
@@ -214,8 +221,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReaddirRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
 
         let mut result = vec![];
         let listing_response = response.response_as_directory_listing_response().unwrap();
@@ -243,8 +250,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());
@@ -262,8 +269,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::WriteRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         return Ok(response.response_as_written_response().unwrap().bytes_written());
     }
 
@@ -276,8 +283,8 @@ impl NodeClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
 
-        let buffer = self.tcp_client.send_and_receive_length_prefixed(builder.finished_data()).map_err(|_| ErrorCode::Uncategorized)?;
-        let response = response_or_error(&buffer)?;
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
         response.response_as_empty_response().unwrap();
 
         return Ok(());

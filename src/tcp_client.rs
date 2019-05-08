@@ -19,7 +19,7 @@ impl TcpClient {
         }
     }
 
-    pub fn send_and_receive_length_prefixed(&self, data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+    pub fn send_and_receive_length_prefixed(&self, data: &[u8], response: &mut Vec<u8>) -> Result<(), std::io::Error> {
         let mut locked = self.connection.lock().expect("lock acquisition failed");
         if locked.is_none() {
             let stream = TcpStream::connect(self.server)?;
@@ -38,12 +38,12 @@ impl TcpClient {
         }
 
         let data_size = stream.read_u32::<LittleEndian>()?;
-        let mut buffer = vec![0; data_size as usize];
-        stream.read_exact(&mut buffer)?;
+        response.resize(data_size as usize, 0);
+        stream.read_exact(response)?;
 
         // If the connection is still working, store it back
         locked.replace(stream);
 
-        return Ok(buffer);
+        return Ok(());
     }
 }
