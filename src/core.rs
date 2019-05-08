@@ -36,7 +36,7 @@ fn empty_response(buffer: &mut FlatBufferBuilder) -> ResultResponse {
 struct DistributedFileResponder<'a: 'b, 'b>  {
     path: String,
     local_data_dir: String,
-    peers: Vec<NodeClient>,
+    peers: Vec<NodeClient<'a>>,
     response_buffer: &'b mut FlatBufferBuilder<'a>
 }
 
@@ -46,7 +46,7 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
             local_data_dir,
-            peers: peers.iter().map(|peer| NodeClient::new(peer)).collect(),
+            peers: peers.iter().map(|peer| NodeClient::new(*peer)).collect(),
             response_buffer: builder
         }
     }

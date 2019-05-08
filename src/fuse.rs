@@ -13,14 +13,14 @@ use crate::client::NodeClient;
 use crate::generated::ErrorCode;
 use std::os::raw::c_int;
 
-pub struct FleetFUSE {
-    client: NodeClient
+pub struct FleetFUSE<'a> {
+    client: NodeClient<'a>
 }
 
-impl FleetFUSE {
-    pub fn new(server_ip_port: SocketAddr) -> FleetFUSE {
+impl <'a> FleetFUSE<'a> {
+    pub fn new(server_ip_port: SocketAddr) -> FleetFUSE<'a> {
         FleetFUSE {
-            client: NodeClient::new(&server_ip_port)
+            client: NodeClient::new(server_ip_port)
         }
     }
 }
@@ -33,7 +33,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
     }
 }
 
-impl FilesystemMT for FleetFUSE {
+impl <'a> FilesystemMT for FleetFUSE<'a> {
     fn init(&self, _req: RequestInfo) -> ResultEmpty {
         Ok(())
     }

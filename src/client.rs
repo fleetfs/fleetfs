@@ -53,30 +53,38 @@ fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
     return Ok(response);
 }
 
-pub struct NodeClient {
+pub struct NodeClient<'a> {
     tcp_client: TcpClient,
-    response_buffer: CachedThreadLocal<RefCell<Vec<u8>>>
+    response_buffer: CachedThreadLocal<RefCell<Vec<u8>>>,
+    request_builder: CachedThreadLocal<RefCell<FlatBufferBuilder<'a>>>
 }
 
-impl NodeClient {
-    pub fn new(server_ip_port: &SocketAddr) -> NodeClient {
+impl <'a> NodeClient<'a> {
+    pub fn new(server_ip_port: SocketAddr) -> NodeClient<'a> {
         NodeClient {
             tcp_client: TcpClient::new(server_ip_port.clone()),
-            response_buffer: CachedThreadLocal::new()
+            response_buffer: CachedThreadLocal::new(),
+            request_builder: CachedThreadLocal::new()
         }
+    }
+
+    fn get_or_create_builder(&self) -> RefMut<FlatBufferBuilder<'a>> {
+        let mut builder = self.request_builder.get_or(|| Box::new(RefCell::new(FlatBufferBuilder::new()))).borrow_mut();
+        builder.reset();
+        return builder;
     }
 
     fn get_or_create_buffer(&self) -> RefMut<Vec<u8>> {
         return self.response_buffer.get_or(|| Box::new(RefCell::new(vec![]))).borrow_mut();
     }
 
-    fn send<'a>(&self, request: &[u8], buffer: &'a mut Vec<u8>) -> Result<GenericResponse<'a>, ErrorCode> {
+    fn send<'b>(&self, request: &[u8], buffer: &'b mut Vec<u8>) -> Result<GenericResponse<'b>, ErrorCode> {
         self.tcp_client.send_and_receive_length_prefixed(request, buffer.as_mut()).map_err(|_| ErrorCode::Uncategorized)?;
         return response_or_error(buffer);
     }
 
     pub fn mkdir(&self, path: &String, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -93,7 +101,7 @@ impl NodeClient {
     }
 
     pub fn getattr(&self, path: &String) -> Result<FileAttr, ErrorCode> {
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -110,7 +118,7 @@ impl NodeClient {
     pub fn utimens(&self, path: &String, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = UtimensRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -132,7 +140,7 @@ impl NodeClient {
     pub fn chmod(&self, path: &String, mode: u32, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = ChmodRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -151,7 +159,7 @@ impl NodeClient {
     pub fn hardlink(&self, path: &String, new_path: &String, forward: bool) -> Result<FileAttr, ErrorCode> {
         assert_ne!(path, "/");
 
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let builder_new_path = builder.create_string(new_path.as_str());
         let mut request_builder = HardlinkRequestBuilder::new(&mut builder);
@@ -171,7 +179,7 @@ impl NodeClient {
     pub fn rename(&self, path: &String, new_path: &String, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let builder_new_path = builder.create_string(new_path.as_str());
         let mut request_builder = RenameRequestBuilder::new(&mut builder);
@@ -191,7 +199,7 @@ impl NodeClient {
     pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(&self, path: &String, offset: u64, size: u32, callback: F) {
         assert_ne!(path, "/");
 
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = ReadRequestBuilder::new(&mut builder);
         request_builder.add_offset(offset);
@@ -214,7 +222,7 @@ impl NodeClient {
     }
 
     pub fn readdir(&self, path: &String) -> Result<Vec<DirectoryEntry>, ErrorCode> {
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -241,7 +249,7 @@ impl NodeClient {
     pub fn truncate(&self, path: &String, length: u64, forward: bool) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = TruncateRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
@@ -258,7 +266,7 @@ impl NodeClient {
     }
 
     pub fn write(&self, path: &String, data: &[u8], offset: u64, forward: bool) -> Result<u32, ErrorCode> {
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let data_offset = builder.create_vector_direct(data);
         let mut request_builder = WriteRequestBuilder::new(&mut builder);
@@ -275,7 +283,7 @@ impl NodeClient {
     }
 
     pub fn unlink(&self, path: &String, forward: bool) -> Result<(), ErrorCode> {
-        let mut builder = FlatBufferBuilder::new();
+        let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path.as_str());
         let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
