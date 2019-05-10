@@ -22,6 +22,7 @@ use std::net::SocketAddr;
 use filetime::FileTime;
 use std::ffi::CString;
 use crate::client::NodeClient;
+use crate::local_storage::LocalStorage;
 
 type ResultResponse = Result<(ResponseType, WIPOffset<UnionWIPOffset>), std::io::Error>;
 
@@ -305,13 +306,49 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
 
         return empty_response(self.response_buffer);
     }
+}
 
+fn fsck(context: &LocalContext) -> Result<(), ErrorCode> {
+    let local_storage = LocalStorage::new(&context.data_dir);
+    let checksum = local_storage.checksum().map_err(|_| ErrorCode::Uncategorized)?;
+    for &peer in context.peers.iter() {
+        let client = NodeClient::new(peer);
+        let peer_checksum = client.filesystem_checksum()?;
+        if checksum != peer_checksum {
+            return Err(ErrorCode::Corrupted);
+        }
+    }
+    return Ok(());
+}
+
+fn checksum_request(data_dir: &str, builder: &mut FlatBufferBuilder) -> ResultResponse {
+    let local_storage = LocalStorage::new(data_dir);
+    let checksum = local_storage.checksum()?;
+    let data_offset = builder.create_vector_direct(&checksum);
+    let mut response_builder = ReadResponseBuilder::new(builder);
+    response_builder.add_data(data_offset);
+    let response_offset = response_builder.finish().as_union_value();
+
+    return Ok((ResponseType::ReadResponse, response_offset));
 }
 
 fn handler<'a>(request: GenericRequest<'a>, context: &LocalContext, builder: &mut FlatBufferBuilder) {
     let response;
+    let mut known_error_code = None;
 
     match request.request_type() {
+        RequestType::FilesystemCheckRequest => {
+            response = match fsck(context) {
+                Ok(_) => empty_response(builder),
+                Err(error_code) => {
+                    known_error_code = Some(error_code);
+                    Err(std::io::Error::from(std::io::ErrorKind::Other))
+                }
+            };
+        },
+        RequestType::FilesystemChecksumRequest => {
+            response = checksum_request(&context.data_dir, builder);
+        },
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
             let file = DistributedFileResponder::new(read_request.path().to_string(), context.data_dir.clone(), &context.peers, builder);
@@ -393,6 +430,9 @@ fn handler<'a>(request: GenericRequest<'a>, context: &LocalContext, builder: &mu
             let error_code;
             if e.kind() == std::io::ErrorKind::NotFound {
                 error_code = ErrorCode::DoesNotExist;
+            }
+            else if e.kind() == std::io::ErrorKind::Other {
+                error_code = known_error_code.unwrap();
             }
             else {
                 error_code = ErrorCode::Uncategorized;

@@ -29,6 +29,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
     match error {
         ErrorCode::DoesNotExist => libc::ENOENT,
         ErrorCode::Uncategorized => libc::EIO,
+        ErrorCode::Corrupted => libc::EIO,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }

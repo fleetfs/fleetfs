@@ -2,10 +2,16 @@ namespace generated;
 
 union RequestType {ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
-                   WriteRequest}
+                   WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest}
 
 table GenericRequest {
   request: RequestType;
+}
+
+table FilesystemChecksumRequest {
+}
+
+table FilesystemCheckRequest {
 }
 
 table ReadRequest {
@@ -76,6 +82,7 @@ root_type GenericRequest;
 enum ErrorCode: byte {
   DefaultValueNotAnError = 0,
   DoesNotExist,
+  Corrupted,
   Uncategorized
 }
 

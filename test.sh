@@ -169,6 +169,21 @@ else
     exit
 fi
 
+if cargo run -- --server-ip-port 127.0.0.1:3300 --fsck; then
+    echo -e "$GREEN OK 10 $NC"
+else
+    echo -e "$RED FAILED on fsck $NC"
+    exit
+fi
+
+rm ${DATA_DIR2}/sub/s.txt
+if ! cargo run -- --server-ip-port 127.0.0.1:3300 --fsck; then
+    echo -e "$GREEN OK 11 $NC"
+else
+    echo -e "$RED FAILED on fsck corruption detection $NC"
+    exit
+fi
+
 kill $FUSE_PID
 sleep 2
 

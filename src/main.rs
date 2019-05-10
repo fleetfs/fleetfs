@@ -7,15 +7,19 @@ use log::LevelFilter;
 use crate::fuse::FleetFUSE;
 use std::ffi::OsStr;
 use std::net::SocketAddr;
+use crate::client::NodeClient;
+
+use crate::generated::ErrorCode;
 
 pub mod core;
 pub mod tcp_client;
 pub mod client;
 pub mod fuse;
+pub mod local_storage;
 
 include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
 
-fn main() {
+fn main() -> Result<(), ErrorCode> {
     let matches = App::new("FleetFS")
         .version(crate_version!())
         .author("Christopher Berner")
@@ -53,6 +57,9 @@ fn main() {
             .long("direct-io")
             .requires("mount-point")
             .help("Mount FUSE with direct IO"))
+        .arg(Arg::with_name("fsck")
+            .long("fsck")
+            .help("Run a filesystem check on the cluster"))
         .arg(Arg::with_name("v")
             .short("v")
             .multiple(true)
@@ -64,6 +71,7 @@ fn main() {
     let server_ip_port: SocketAddr = matches.value_of("server-ip-port").unwrap_or_default().parse().unwrap();
     let mount_point: String = matches.value_of("mount-point").unwrap_or_default().to_string();
     let direct_io: bool = matches.is_present("direct-io");
+    let fsck: bool = matches.is_present("fsck");
     let verbosity: u64 = matches.occurrences_of("v");
     let peers: Vec<SocketAddr> = matches.value_of("peers").unwrap_or_default()
         .split(",")
@@ -82,7 +90,20 @@ fn main() {
 
     env_logger::builder().default_format_timestamp_nanos(true).filter_level(log_level).init();
 
-    if mount_point.is_empty() {
+    if fsck {
+        let client = NodeClient::new(server_ip_port);
+        match client.fsck() {
+            Ok(_) => println!("Filesystem is ok"),
+            Err(e) => {
+                match e {
+                    ErrorCode::Corrupted => println!("Filesystem corrupted!"),
+                    _ => println!("Filesystem check failed. Try again.")
+                }
+                return Err(e);
+            }
+        }
+    }
+    else if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
         Node::new(data_dir, port, peers).run();
     }
@@ -99,5 +120,7 @@ fn main() {
         let fs = FleetFUSE::new(server_ip_port);
         fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mount_point, &fuse_args).unwrap();
     }
+
+    return Ok(());
 }
 

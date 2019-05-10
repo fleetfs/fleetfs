@@ -83,6 +83,33 @@ impl <'a> NodeClient<'a> {
         return response_or_error(buffer);
     }
 
+    // TODO move into an internal peer client
+    pub fn filesystem_checksum(&self) -> Result<Vec<u8>, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::FilesystemChecksumRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let read_response = response.response_as_read_response().unwrap();
+
+        return Ok(read_response.data().to_vec());
+    }
+
+    pub fn fsck(&self) -> Result<(), ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let request_builder = FilesystemCheckRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::FilesystemCheckRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
+    }
+
     pub fn mkdir(&self, path: &str, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);
