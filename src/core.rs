@@ -115,10 +115,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             let entry = entry.unwrap();
             let filename = entry.file_name().clone().to_str().unwrap().to_string();
             let file_type = if entry.file_type().unwrap().is_file() {
-                FileType::File
+                FileKind::File
             }
             else if entry.file_type().unwrap().is_dir() {
-                FileType::Directory
+                FileKind::Directory
             }
             else {
                 unimplemented!()
@@ -154,10 +154,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         let ctime = Timestamp::new(metadata.st_ctime(), metadata.st_ctime_nsec() as i32);
         builder.add_last_metadata_modified_time(&ctime);
         if metadata.is_file() {
-            builder.add_kind(FileType::File);
+            builder.add_kind(FileKind::File);
         }
         else if metadata.is_dir() {
-            builder.add_kind(FileType::Directory);
+            builder.add_kind(FileKind::Directory);
         }
         else {
             unimplemented!();
@@ -238,10 +238,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         let ctime = Timestamp::new(metadata.st_ctime(), metadata.st_ctime_nsec() as i32);
         builder.add_last_metadata_modified_time(&ctime);
         if metadata.is_file() {
-            builder.add_kind(FileType::File);
+            builder.add_kind(FileKind::File);
         }
         else if metadata.is_dir() {
-            builder.add_kind(FileType::Directory);
+            builder.add_kind(FileKind::Directory);
         }
         else {
             unimplemented!();

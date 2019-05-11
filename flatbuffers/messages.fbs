@@ -102,7 +102,7 @@ struct Timestamp {
   nanos: int;
 }
 
-enum FileType: ubyte {
+enum FileKind: ubyte {
   DefaultValueNotAType,
   File,
   Directory
@@ -110,7 +110,7 @@ enum FileType: ubyte {
 
 table DirectoryEntry {
   path: string (required);
-  kind: FileType;
+  kind: FileKind;
 }
 
 table DirectoryListingResponse {
@@ -127,7 +127,7 @@ table FileMetadataResponse {
   last_access_time: Timestamp (required);
   last_modified_time: Timestamp (required);
   last_metadata_modified_time: Timestamp (required);
-  kind: FileType;
+  kind: FileKind;
   mode: ushort;
   hard_links: uint;
   user_id: uint;

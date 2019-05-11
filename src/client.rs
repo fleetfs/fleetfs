@@ -18,11 +18,11 @@ fn finalize_request(builder: &mut FlatBufferBuilder, request_type: RequestType, 
     builder.finish_size_prefixed(finish_offset, None);
 }
 
-fn file_type_to_fuse_type(file_type: FileType) -> fuse_mt::FileType {
+fn file_type_to_fuse_type(file_type: FileKind) -> fuse_mt::FileType {
     match file_type {
-        FileType::File => fuse_mt::FileType::RegularFile,
-        FileType::Directory => fuse_mt::FileType::Directory,
-        FileType::DefaultValueNotAType => unreachable!()
+        FileKind::File => fuse_mt::FileType::RegularFile,
+        FileKind::Directory => fuse_mt::FileType::Directory,
+        FileKind::DefaultValueNotAType => unreachable!()
     }
 }
 
