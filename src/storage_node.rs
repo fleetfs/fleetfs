@@ -190,7 +190,7 @@ impl Node {
     pub fn new(data_dir: String, port: u16, peers: Vec<SocketAddr>) -> Node {
         Node {
             context: LocalContext::new(data_dir, peers),
-            port: port
+            port
         }
     }
 
