@@ -151,7 +151,7 @@ impl <'a> FilesystemMT for FleetFUSE<'a> {
         Ok((0, 0))
     }
 
-    fn read<F: FnOnce(Result<&[u8], libc::c_int>) -> ()>(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32, reply: F) {
+    fn read(&self, _req: RequestInfo, path: &Path, _fh: u64, offset: u64, size: u32, reply: impl FnOnce(Result<&[u8], libc::c_int>)) {
         debug!("read() called on {:?} with offset={} and size={}", path, offset, size);
         let path = path.to_str().unwrap();
         self.client.read(path, offset, size, move |result| {
