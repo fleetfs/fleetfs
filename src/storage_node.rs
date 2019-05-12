@@ -13,6 +13,7 @@ use crate::client::NodeClient;
 use crate::local_storage::LocalStorage;
 use crate::utils::{empty_response, ResultResponse};
 use crate::distributed_file::DistributedFileResponder;
+use std::path::Path;
 
 
 fn fsck(context: &LocalContext) -> Result<(), ErrorCode> {
@@ -163,9 +164,9 @@ struct LocalContext {
 }
 
 impl LocalContext {
-    pub fn new(data_dir: String, peers: Vec<SocketAddr>) -> LocalContext {
+    pub fn new(data_dir: &str, peers: Vec<SocketAddr>) -> LocalContext {
         LocalContext {
-            data_dir,
+            data_dir: data_dir.to_string(),
             peers
         }
     }
@@ -189,7 +190,7 @@ pub struct Node {
 impl Node {
     pub fn new(data_dir: String, port: u16, peers: Vec<SocketAddr>) -> Node {
         Node {
-            context: LocalContext::new(data_dir, peers),
+            context: LocalContext::new(Path::new(&data_dir).join("data").to_str().unwrap(), peers),
             port
         }
     }
