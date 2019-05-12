@@ -1,16 +1,16 @@
 use walkdir::WalkDir;
 
-use sha2::{Sha256, Digest};
-use std::{io, fs};
+use sha2::{Digest, Sha256};
+use std::{fs, io};
 
 pub struct LocalStorage {
-    data_dir: String
+    data_dir: String,
 }
 
 impl LocalStorage {
     pub fn new(data_dir: &str) -> LocalStorage {
         LocalStorage {
-            data_dir: data_dir.to_string()
+            data_dir: data_dir.to_string(),
         }
     }
 

@@ -20,21 +20,26 @@ use crate::generated::*;
 use crate::utils::{empty_response, ResultResponse};
 
 // Handles one request/response
-pub struct DistributedFileResponder<'a: 'b, 'b>  {
+pub struct DistributedFileResponder<'a: 'b, 'b> {
     path: String,
     local_data_dir: String,
     peers: Vec<NodeClient<'a>>,
-    response_buffer: &'b mut FlatBufferBuilder<'a>
+    response_buffer: &'b mut FlatBufferBuilder<'a>,
 }
 
-impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
-    pub fn new(path: String, local_data_dir: String, peers: &Vec<SocketAddr>, builder: &'b mut FlatBufferBuilder<'a>) -> DistributedFileResponder<'a, 'b> {
+impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
+    pub fn new(
+        path: String,
+        local_data_dir: String,
+        peers: &Vec<SocketAddr>,
+        builder: &'b mut FlatBufferBuilder<'a>,
+    ) -> DistributedFileResponder<'a, 'b> {
         DistributedFileResponder {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
             local_data_dir,
             peers: peers.iter().map(|peer| NodeClient::new(*peer)).collect(),
-            response_buffer: builder
+            response_buffer: builder,
         }
     }
 
@@ -58,7 +63,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
 
     pub fn write(self, offset: u64, data: &[u8], forward: bool) -> ResultResponse {
         let local_path = self.to_local_path(&self.path);
-        let mut file = OpenOptions::new().write(true).create(true).open(&local_path)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&local_path)?;
 
         file.seek(SeekFrom::Start(offset))?;
 
@@ -102,18 +110,23 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             let filename = entry.file_name().clone().to_str().unwrap().to_string();
             let file_type = if entry.file_type().unwrap().is_file() {
                 FileKind::File
-            }
-            else if entry.file_type().unwrap().is_dir() {
+            } else if entry.file_type().unwrap().is_dir() {
                 FileKind::Directory
-            }
-            else {
+            } else {
                 unimplemented!()
             };
             let path = self.response_buffer.create_string(&filename);
-            let directory_entry = DirectoryEntry::create(self.response_buffer, &DirectoryEntryArgs {path: Some(path), kind: file_type});
+            let directory_entry = DirectoryEntry::create(
+                self.response_buffer,
+                &DirectoryEntryArgs {
+                    path: Some(path),
+                    kind: file_type,
+                },
+            );
             entries.push(directory_entry);
         }
-        self.response_buffer.start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
+        self.response_buffer
+            .start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
         for &directory_entry in entries.iter() {
             self.response_buffer.push(directory_entry);
         }
@@ -121,7 +134,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         let mut builder = DirectoryListingResponseBuilder::new(self.response_buffer);
         builder.add_entries(entries);
 
-        return Ok((ResponseType::DirectoryListingResponse, builder.finish().as_union_value()));
+        return Ok((
+            ResponseType::DirectoryListingResponse,
+            builder.finish().as_union_value(),
+        ));
     }
 
     pub fn getattr(self) -> ResultResponse {
@@ -141,11 +157,9 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_last_metadata_modified_time(&ctime);
         if metadata.is_file() {
             builder.add_kind(FileKind::File);
-        }
-        else if metadata.is_dir() {
+        } else if metadata.is_dir() {
             builder.add_kind(FileKind::Directory);
-        }
-        else {
+        } else {
             unimplemented!();
         }
         builder.add_mode(metadata.st_mode() as u16);
@@ -154,22 +168,42 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_group_id(metadata.st_gid());
         builder.add_device_id(metadata.st_rdev() as u32);
 
-        return Ok((ResponseType::FileMetadataResponse, builder.finish().as_union_value()));
+        return Ok((
+            ResponseType::FileMetadataResponse,
+            builder.finish().as_union_value(),
+        ));
     }
 
-    pub fn utimens(self, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> ResultResponse {
+    pub fn utimens(
+        self,
+        atime_secs: i64,
+        atime_nanos: i32,
+        mtime_secs: i64,
+        mtime_nanos: i32,
+        forward: bool,
+    ) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
         if forward {
             for peer in self.peers {
                 // TODO make this async
-                peer.utimens(&self.path, atime_secs, atime_nanos, mtime_secs, mtime_nanos, false).unwrap();
+                peer.utimens(
+                    &self.path,
+                    atime_secs,
+                    atime_nanos,
+                    mtime_secs,
+                    mtime_nanos,
+                    false,
+                )
+                .unwrap();
             }
         }
-        filetime::set_file_times(local_path,
-                                 FileTime::from_unix_time(atime_secs, atime_nanos as u32),
-                                 FileTime::from_unix_time(mtime_secs, mtime_nanos as u32))?;
+        filetime::set_file_times(
+            local_path,
+            FileTime::from_unix_time(atime_secs, atime_nanos as u32),
+            FileTime::from_unix_time(mtime_secs, mtime_nanos as u32),
+        )?;
 
         return empty_response(self.response_buffer);
     }
@@ -184,16 +218,17 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
                 peer.chmod(&self.path, mode, false).unwrap();
             }
         }
-        let c_path = CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
+        let c_path =
+            CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
         let exit_code;
-        unsafe {
-            exit_code = libc::chmod(c_path.as_ptr(), mode)
-        }
+        unsafe { exit_code = libc::chmod(c_path.as_ptr(), mode) }
         if exit_code == libc::EXIT_SUCCESS {
             return empty_response(self.response_buffer);
-        }
-        else {
-            warn!("chmod failed on {:?}, {} with error {:?}", local_path, mode, exit_code);
+        } else {
+            warn!(
+                "chmod failed on {:?}, {} with error {:?}",
+                local_path, mode, exit_code
+            );
             return Err(std::io::Error::from(std::io::ErrorKind::Other));
         }
     }
@@ -225,11 +260,9 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_last_metadata_modified_time(&ctime);
         if metadata.is_file() {
             builder.add_kind(FileKind::File);
-        }
-        else if metadata.is_dir() {
+        } else if metadata.is_dir() {
             builder.add_kind(FileKind::Directory);
-        }
-        else {
+        } else {
             unimplemented!();
         }
         builder.add_mode(metadata.st_mode() as u16);
@@ -238,7 +271,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_group_id(metadata.st_gid());
         builder.add_device_id(metadata.st_rdev() as u32);
 
-        return Ok((ResponseType::FileMetadataResponse, builder.finish().as_union_value()));
+        return Ok((
+            ResponseType::FileMetadataResponse,
+            builder.finish().as_union_value(),
+        ));
     }
 
     pub fn rename(self, new_path: &str, forward: bool) -> ResultResponse {
@@ -261,7 +297,10 @@ impl <'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
     pub fn read(self, offset: u64, size: u32) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
-        info!("Reading file: {}. data_dir={}", self.path, self.local_data_dir);
+        info!(
+            "Reading file: {}. data_dir={}",
+            self.path, self.local_data_dir
+        );
         let path = Path::new(&self.local_data_dir).join(&self.path);
         let file = File::open(&path)?;
 

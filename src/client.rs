@@ -2,15 +2,19 @@ use std::ffi::OsString;
 use std::net::SocketAddr;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
-use fuse_mt::{FileAttr, DirectoryEntry};
+use fuse_mt::{DirectoryEntry, FileAttr};
 use time::Timespec;
 
-use crate::tcp_client::TcpClient;
 use crate::generated::*;
-use thread_local::CachedThreadLocal;
+use crate::tcp_client::TcpClient;
 use std::cell::{RefCell, RefMut};
+use thread_local::CachedThreadLocal;
 
-fn finalize_request(builder: &mut FlatBufferBuilder, request_type: RequestType, finish_offset: WIPOffset<UnionWIPOffset>) {
+fn finalize_request(
+    builder: &mut FlatBufferBuilder,
+    request_type: RequestType,
+    finish_offset: WIPOffset<UnionWIPOffset>,
+) {
     let mut generic_request_builder = GenericRequestBuilder::new(builder);
     generic_request_builder.add_request_type(request_type);
     generic_request_builder.add_request(finish_offset);
@@ -22,7 +26,7 @@ fn file_type_to_fuse_type(file_type: FileKind) -> fuse_mt::FileType {
     match file_type {
         FileKind::File => fuse_mt::FileType::RegularFile,
         FileKind::Directory => fuse_mt::FileType::Directory,
-        FileKind::DefaultValueNotAType => unreachable!()
+        FileKind::DefaultValueNotAType => unreachable!(),
     }
 }
 
@@ -30,9 +34,18 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
     FileAttr {
         size: metadata.size_bytes(),
         blocks: metadata.size_blocks(),
-        atime: Timespec {sec: metadata.last_access_time().seconds(), nsec: metadata.last_access_time().nanos()},
-        mtime: Timespec {sec: metadata.last_modified_time().seconds(), nsec: metadata.last_modified_time().nanos()},
-        ctime: Timespec {sec: metadata.last_metadata_modified_time().seconds(), nsec: metadata.last_metadata_modified_time().nanos()},
+        atime: Timespec {
+            sec: metadata.last_access_time().seconds(),
+            nsec: metadata.last_access_time().nanos(),
+        },
+        mtime: Timespec {
+            sec: metadata.last_modified_time().seconds(),
+            nsec: metadata.last_modified_time().nanos(),
+        },
+        ctime: Timespec {
+            sec: metadata.last_metadata_modified_time().seconds(),
+            nsec: metadata.last_metadata_modified_time().nanos(),
+        },
         crtime: Timespec { sec: 0, nsec: 0 },
         kind: file_type_to_fuse_type(metadata.kind()),
         perm: metadata.mode(),
@@ -40,7 +53,7 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
         uid: metadata.user_id(),
         gid: metadata.group_id(),
         rdev: metadata.device_id(),
-        flags: 0
+        flags: 0,
     }
 }
 
@@ -56,30 +69,42 @@ fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
 pub struct NodeClient<'a> {
     tcp_client: TcpClient,
     response_buffer: CachedThreadLocal<RefCell<Vec<u8>>>,
-    request_builder: CachedThreadLocal<RefCell<FlatBufferBuilder<'a>>>
+    request_builder: CachedThreadLocal<RefCell<FlatBufferBuilder<'a>>>,
 }
 
-impl <'a> NodeClient<'a> {
+impl<'a> NodeClient<'a> {
     pub fn new(server_ip_port: SocketAddr) -> NodeClient<'a> {
         NodeClient {
             tcp_client: TcpClient::new(server_ip_port.clone()),
             response_buffer: CachedThreadLocal::new(),
-            request_builder: CachedThreadLocal::new()
+            request_builder: CachedThreadLocal::new(),
         }
     }
 
     fn get_or_create_builder(&self) -> RefMut<FlatBufferBuilder<'a>> {
-        let mut builder = self.request_builder.get_or(|| Box::new(RefCell::new(FlatBufferBuilder::new()))).borrow_mut();
+        let mut builder = self
+            .request_builder
+            .get_or(|| Box::new(RefCell::new(FlatBufferBuilder::new())))
+            .borrow_mut();
         builder.reset();
         return builder;
     }
 
     fn get_or_create_buffer(&self) -> RefMut<Vec<u8>> {
-        return self.response_buffer.get_or(|| Box::new(RefCell::new(vec![]))).borrow_mut();
+        return self
+            .response_buffer
+            .get_or(|| Box::new(RefCell::new(vec![])))
+            .borrow_mut();
     }
 
-    fn send<'b>(&self, request: &[u8], buffer: &'b mut Vec<u8>) -> Result<GenericResponse<'b>, ErrorCode> {
-        self.tcp_client.send_and_receive_length_prefixed(request, buffer.as_mut()).map_err(|_| ErrorCode::Uncategorized)?;
+    fn send<'b>(
+        &self,
+        request: &[u8],
+        buffer: &'b mut Vec<u8>,
+    ) -> Result<GenericResponse<'b>, ErrorCode> {
+        self.tcp_client
+            .send_and_receive_length_prefixed(request, buffer.as_mut())
+            .map_err(|_| ErrorCode::Uncategorized)?;
         return response_or_error(buffer);
     }
 
@@ -88,7 +113,11 @@ impl <'a> NodeClient<'a> {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::FilesystemChecksumRequest, finish_offset);
+        finalize_request(
+            &mut builder,
+            RequestType::FilesystemChecksumRequest,
+            finish_offset,
+        );
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
@@ -101,7 +130,11 @@ impl <'a> NodeClient<'a> {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemCheckRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::FilesystemCheckRequest, finish_offset);
+        finalize_request(
+            &mut builder,
+            RequestType::FilesystemCheckRequest,
+            finish_offset,
+        );
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
@@ -142,7 +175,15 @@ impl <'a> NodeClient<'a> {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn utimens(&self, path: &str, atime_secs: i64, atime_nanos: i32, mtime_secs: i64, mtime_nanos: i32, forward: bool) -> Result<(), ErrorCode> {
+    pub fn utimens(
+        &self,
+        path: &str,
+        atime_secs: i64,
+        atime_nanos: i32,
+        mtime_secs: i64,
+        mtime_nanos: i32,
+        forward: bool,
+    ) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -183,7 +224,12 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn hardlink(&self, path: &str, new_path: &str, forward: bool) -> Result<FileAttr, ErrorCode> {
+    pub fn hardlink(
+        &self,
+        path: &str,
+        new_path: &str,
+        forward: bool,
+    ) -> Result<FileAttr, ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -223,7 +269,13 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(&self, path: &str, offset: u64, size: u32, callback: F) {
+    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(
+        &self,
+        path: &str,
+        offset: u64,
+        size: u32,
+        callback: F,
+    ) {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -266,7 +318,7 @@ impl <'a> NodeClient<'a> {
             let entry = entries.get(i);
             result.push(DirectoryEntry {
                 name: OsString::from(entry.path()),
-                kind: file_type_to_fuse_type(entry.kind())
+                kind: file_type_to_fuse_type(entry.kind()),
             });
         }
 
@@ -292,7 +344,13 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn write(&self, path: &str, data: &[u8], offset: u64, forward: bool) -> Result<u32, ErrorCode> {
+    pub fn write(
+        &self,
+        path: &str,
+        data: &[u8],
+        offset: u64,
+        forward: bool,
+    ) -> Result<u32, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);
         let data_offset = builder.create_vector_direct(data);
@@ -306,7 +364,10 @@ impl <'a> NodeClient<'a> {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        return Ok(response.response_as_written_response().unwrap().bytes_written());
+        return Ok(response
+            .response_as_written_response()
+            .unwrap()
+            .bytes_written());
     }
 
     pub fn unlink(&self, path: &str, forward: bool) -> Result<(), ErrorCode> {
@@ -325,4 +386,3 @@ impl <'a> NodeClient<'a> {
         return Ok(());
     }
 }
-
