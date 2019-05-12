@@ -1,6 +1,18 @@
 language: rust
 rust:
   - stable
+env:
+  - PATH="${PATH}:/tmp/flatbuffers/bin"
+before_install:
+  - sudo apt update
+  - sudo apt install -y libfuse-dev
+  - git clone https://github.com/google/flatbuffers -b v1.10.0 /tmp/flatbuffers
+  - cd /tmp/flatbuffers
+  - cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+  - make -j2 flatc
+  - mkdir bin
+  - mv flatc bin/
+  - cd $TRAVIS_BUILD_DIR
 before_script:
 - rustup component add rustfmt
 script:
