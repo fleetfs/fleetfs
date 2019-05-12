@@ -2,6 +2,7 @@
 name = "fleetfs"
 description = "FleetFS"
 license = "Apache-2.0"
+repository = "https://github.com/fleetfs/fleetfs"
 version = "0.0.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
 edition = "2018"
