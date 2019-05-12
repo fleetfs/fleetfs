@@ -2,7 +2,7 @@ use clap::crate_version;
 use clap::App;
 use clap::Arg;
 
-use crate::core::Node;
+use crate::storage_node::Node;
 use log::LevelFilter;
 use crate::fuse::FleetFUSE;
 use std::ffi::OsStr;
@@ -11,11 +11,13 @@ use crate::client::NodeClient;
 
 use crate::generated::ErrorCode;
 
-pub mod core;
+pub mod storage_node;
 pub mod tcp_client;
 pub mod client;
 pub mod fuse;
 pub mod local_storage;
+pub mod utils;
+pub mod distributed_file;
 
 include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
 
