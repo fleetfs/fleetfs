@@ -83,6 +83,7 @@ enum ErrorCode: byte {
   DefaultValueNotAnError = 0,
   DoesNotExist,
   Corrupted,
+  RaftFailure,
   Uncategorized
 }
 

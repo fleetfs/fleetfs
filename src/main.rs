@@ -17,6 +17,7 @@ pub mod client;
 pub mod distributed_file;
 pub mod fuse;
 pub mod local_storage;
+pub mod raft_manager;
 pub mod storage_node;
 pub mod tcp_client;
 pub mod utils;
@@ -140,7 +141,7 @@ fn main() -> Result<(), ErrorCode> {
         }
     } else if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
-        Node::new(data_dir, port, peers).run();
+        Node::new(&data_dir, port, peers).run();
     } else {
         println!(
             "Connecting to server {} and mounting FUSE at {}",

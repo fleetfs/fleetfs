@@ -11,12 +11,13 @@ use crate::client::NodeClient;
 use crate::distributed_file::DistributedFileResponder;
 use crate::generated::*;
 use crate::local_storage::LocalStorage;
-use crate::utils::{empty_response, ResultResponse};
+use crate::raft_manager::RaftManager;
+use crate::utils::{empty_response, is_write_request, ResultResponse};
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 
-fn fsck(context: &LocalContext) -> Result<(), ErrorCode> {
-    let local_storage = LocalStorage::new(&context.data_dir);
+fn fsck(local_storage: &LocalStorage, context: &LocalContext) -> Result<(), ErrorCode> {
     let checksum = local_storage
         .checksum()
         .map_err(|_| ErrorCode::Uncategorized)?;
@@ -30,8 +31,10 @@ fn fsck(context: &LocalContext) -> Result<(), ErrorCode> {
     return Ok(());
 }
 
-fn checksum_request(data_dir: &str, builder: &mut FlatBufferBuilder) -> ResultResponse {
-    let local_storage = LocalStorage::new(data_dir);
+fn checksum_request(
+    local_storage: &LocalStorage,
+    builder: &mut FlatBufferBuilder,
+) -> ResultResponse {
     let checksum = local_storage.checksum()?;
     let data_offset = builder.create_vector_direct(&checksum);
     let mut response_builder = ReadResponseBuilder::new(builder);
@@ -41,8 +44,18 @@ fn checksum_request(data_dir: &str, builder: &mut FlatBufferBuilder) -> ResultRe
     return Ok((ResponseType::ReadResponse, response_offset));
 }
 
-fn handler<'a>(
+fn raft_handler<'a, 'b>(
     request: GenericRequest<'a>,
+    raft_manager: &'_ RaftManager<'b>,
+    builder: FlatBufferBuilder<'b>,
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ()> {
+    // Commit all writes to Raft
+    return raft_manager.propose(request, builder);
+}
+
+pub fn handler<'a>(
+    request: GenericRequest<'a>,
+    local_storage: &LocalStorage,
     context: &LocalContext,
     builder: &mut FlatBufferBuilder,
 ) {
@@ -51,7 +64,7 @@ fn handler<'a>(
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => {
-            response = match fsck(context) {
+            response = match fsck(local_storage, context) {
                 Ok(_) => empty_response(builder),
                 Err(error_code) => {
                     known_error_code = Some(error_code);
@@ -60,7 +73,7 @@ fn handler<'a>(
             };
         }
         RequestType::FilesystemChecksumRequest => {
-            response = checksum_request(&context.data_dir, builder);
+            response = checksum_request(local_storage, builder);
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
@@ -230,8 +243,8 @@ fn handler<'a>(
 }
 
 #[derive(Clone)]
-struct LocalContext {
-    data_dir: String,
+pub struct LocalContext {
+    pub data_dir: String,
     peers: Vec<SocketAddr>,
 }
 
@@ -256,13 +269,17 @@ impl<'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
 
 pub struct Node {
     context: LocalContext,
+    raft_manager: RaftManager<'static>,
     port: u16,
 }
 
 impl Node {
-    pub fn new(data_dir: String, port: u16, peers: Vec<SocketAddr>) -> Node {
+    pub fn new(node_dir: &str, port: u16, peers: Vec<SocketAddr>) -> Node {
+        let data_dir = Path::new(node_dir).join("data");
+        let context = LocalContext::new(data_dir.to_str().unwrap(), peers);
         Node {
-            context: LocalContext::new(Path::new(&data_dir).join("data").to_str().unwrap(), peers),
+            context: context.clone(),
+            raft_manager: RaftManager::new(context.clone()),
             port,
         }
     }
@@ -276,6 +293,8 @@ impl Node {
         let listener = TcpListener::bind(&address).expect("unable to bind API listener");
 
         let context = self.context.clone();
+        self.raft_manager.initialize();
+        let raft_manager = Arc::new(self.raft_manager);
         let server = listener
             .incoming()
             .map_err(|e| eprintln!("accept connection failed = {:?}", e))
@@ -286,11 +305,17 @@ impl Node {
                     .new_read(reader);
 
                 let cloned = context.clone();
+                let cloned_raft = raft_manager.clone();
                 let builder = FlatBufferBuilder::new();
                 let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
                     let request = get_root_as_generic_request(&frame);
                     builder.reset();
-                    handler(request, &cloned, &mut builder);
+                    if is_write_request(request.request_type()) {
+                        builder = raft_handler(request, &cloned_raft, builder).wait().unwrap();
+                    } else {
+                        let local_storage = LocalStorage::new(cloned.clone());
+                        handler(request, &local_storage, &cloned, &mut builder);
+                    }
                     let writable = WritableFlatBuffer { buffer: builder };
                     tokio::io::write_all(writer, writable)
                         .map(|(writer, written)| (writer, written.buffer))
