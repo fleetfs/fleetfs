@@ -22,6 +22,7 @@ filetime = "0.2"
 thread_local = "0.3"
 sha2 = "0.8"
 walkdir = "2.2"
+raft = "0.5"
 
 [profile.release]
 debug = true

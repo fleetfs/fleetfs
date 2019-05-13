@@ -33,6 +33,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::DoesNotExist => libc::ENOENT,
         ErrorCode::Uncategorized => libc::EIO,
         ErrorCode::Corrupted => libc::EIO,
+        ErrorCode::RaftFailure => libc::EIO,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
