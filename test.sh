@@ -185,7 +185,7 @@ else
 fi
 
 kill $FUSE_PID
-sleep 2
+wait $FUSE_PID
 
 if rmdir ${DIR}; then
     echo -e "$GREEN OK END $NC"
