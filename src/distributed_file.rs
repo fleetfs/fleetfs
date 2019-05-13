@@ -31,7 +31,7 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
     pub fn new(
         path: String,
         local_data_dir: String,
-        peers: &Vec<SocketAddr>,
+        peers: &[SocketAddr],
         builder: &'b mut FlatBufferBuilder<'a>,
     ) -> DistributedFileResponder<'a, 'b> {
         DistributedFileResponder {

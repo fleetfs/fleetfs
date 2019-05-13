@@ -145,10 +145,10 @@ fn handler<'a>(
                 builder,
             );
             response = file.utimens(
-                utimens_request.atime().map(|x| x.seconds()).unwrap_or(0),
-                utimens_request.atime().map(|x| x.nanos()).unwrap_or(0),
-                utimens_request.mtime().map(|x| x.seconds()).unwrap_or(0),
-                utimens_request.mtime().map(|x| x.nanos()).unwrap_or(0),
+                utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
+                utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
+                utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
+                utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
                 utimens_request.forward(),
             );
         }
@@ -268,9 +268,8 @@ impl Node {
     }
 
     pub fn run(self) {
-        match fs::create_dir_all(&self.context.data_dir) {
-            Err(why) => panic!("Couldn't create storage dir: {}", why.description()),
-            Ok(_) => (),
+        if let Err(why) = fs::create_dir_all(&self.context.data_dir) {
+            panic!("Couldn't create storage dir: {}", why.description());
         };
 
         let address = ([127, 0, 0, 1], self.port).into();

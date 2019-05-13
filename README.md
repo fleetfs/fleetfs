@@ -10,6 +10,7 @@ FleetFS distributed filesystem
 * `apt install libfuse-dev` (needed by `fuse` dependency)
 * Install flatc (https://github.com/google/flatbuffers)
 * rustup component add rustfmt
+* rustup component add clippy
 
 ## Status
 Very very alpha. Expect FleetFS to eat your data :)

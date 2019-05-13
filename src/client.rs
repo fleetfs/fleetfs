@@ -1,14 +1,14 @@
+use std::cell::{RefCell, RefMut};
 use std::ffi::OsString;
 use std::net::SocketAddr;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use fuse_mt::{DirectoryEntry, FileAttr};
+use thread_local::CachedThreadLocal;
 use time::Timespec;
 
 use crate::generated::*;
 use crate::tcp_client::TcpClient;
-use std::cell::{RefCell, RefMut};
-use thread_local::CachedThreadLocal;
 
 fn finalize_request(
     builder: &mut FlatBufferBuilder,
@@ -75,7 +75,7 @@ pub struct NodeClient<'a> {
 impl<'a> NodeClient<'a> {
     pub fn new(server_ip_port: SocketAddr) -> NodeClient<'a> {
         NodeClient {
-            tcp_client: TcpClient::new(server_ip_port.clone()),
+            tcp_client: TcpClient::new(server_ip_port),
             response_buffer: CachedThreadLocal::new(),
             request_builder: CachedThreadLocal::new(),
         }

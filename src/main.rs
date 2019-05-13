@@ -1,3 +1,5 @@
+#![allow(clippy::needless_return)]
+
 use clap::crate_version;
 use clap::App;
 use clap::Arg;
@@ -105,9 +107,9 @@ fn main() -> Result<(), ErrorCode> {
     let peers: Vec<SocketAddr> = matches
         .value_of("peers")
         .unwrap_or_default()
-        .split(",")
-        .map(|x| x.to_string())
-        .filter(|x| x.len() > 0)
+        .split(',')
+        .map(ToString::to_string)
+        .filter(|x| !x.is_empty())
         .map(|x| x.parse().unwrap())
         .collect();
 
