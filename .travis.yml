@@ -20,3 +20,4 @@ script:
 - cargo fmt --all -- --check
 - cargo build
 - cargo test
+- bash -m ./test.sh
