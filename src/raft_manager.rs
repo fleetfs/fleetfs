@@ -75,7 +75,18 @@ impl<'a> RaftManager<'a> {
         Ok(ready.messages.drain(..).collect())
     }
 
-    // TODO: Add background thread to make sure this function is called frequently
+    // Should be called once every 100ms to handle background tasks
+    pub fn background_tick(&self) {
+        let ready;
+        {
+            let mut raft_node = self.raft_node.lock().unwrap();
+            ready = raft_node.tick();
+        }
+        if ready {
+            self.process_raft_queue().unwrap();
+        }
+    }
+
     // Returns the last applied index
     fn process_raft_queue(&self) -> raft::Result<Option<u64>> {
         let mut raft_node = self.raft_node.lock().unwrap();
@@ -158,30 +169,6 @@ impl<'a> RaftManager<'a> {
             // Wait until there is a leader
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-    }
-
-    fn wait_for_commit(&self, wait_index: u64) -> raft::Result<()> {
-        for _ in 0..100 {
-            let applied_index = self.process_raft_queue()?;
-            if let Some(index) = applied_index {
-                if index >= wait_index {
-                    return Ok(());
-                }
-            }
-            let messages = self.get_outgoing_raft_messages().unwrap();
-            if !messages.is_empty() {
-                self.apply_messages(&messages).unwrap();
-            }
-
-            {
-                let mut raft_node = self.raft_node.lock().unwrap();
-                raft_node.tick();
-            }
-
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        // TODO. For now just timeout after 10s
-        Err(raft::Error::ViolatesContract("timeout".to_string()))
     }
 
     pub fn propose(

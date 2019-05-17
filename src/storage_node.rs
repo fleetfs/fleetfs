@@ -16,6 +16,8 @@ use crate::utils::{empty_response, is_write_request, ResultResponse};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::timer::Interval;
 
 fn fsck(local_storage: &LocalStorage, context: &LocalContext) -> Result<(), ErrorCode> {
     let checksum = local_storage
@@ -295,6 +297,7 @@ impl Node {
         let context = self.context.clone();
         self.raft_manager.initialize();
         let raft_manager = Arc::new(self.raft_manager);
+        let raft_manager_cloned = raft_manager.clone();
         let server = listener
             .incoming()
             .map_err(|e| eprintln!("accept connection failed = {:?}", e))
@@ -324,6 +327,13 @@ impl Node {
                 tokio::spawn(conn.map(|_| ()).map_err(|_| ()))
             });
 
-        tokio::runtime::run(server.map(|_| ()));
+        let background_raft = Interval::new(Instant::now(), Duration::from_millis(100))
+            .for_each(move |_| {
+                raft_manager_cloned.background_tick();
+                Ok(())
+            })
+            .map_err(|e| panic!("Background Raft thread failed error: {:?}", e));
+
+        tokio::runtime::run(server.join(background_raft).map(|_| ()));
     }
 }
