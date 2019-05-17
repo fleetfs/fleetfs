@@ -6,18 +6,19 @@ use raft::{Config, RawNode};
 use std::cmp::max;
 use std::sync::Mutex;
 
-use crate::generated::GenericRequest;
+use crate::generated::{get_root_as_generic_request, GenericRequest};
 use crate::local_storage::LocalStorage;
 use crate::storage_node::{handler, LocalContext};
 use crate::utils::is_write_request;
 use flatbuffers::FlatBufferBuilder;
 use futures::sync::oneshot;
+use futures::sync::oneshot::Sender;
 use futures::Future;
 use std::collections::HashMap;
 
 pub struct RaftManager<'a> {
     raft_node: Mutex<RawNode<MemStorage>>,
-    pending_responses: Mutex<HashMap<u64, FlatBufferBuilder<'a>>>,
+    pending_responses: Mutex<HashMap<u64, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
     node_id: u64,
     context: LocalContext,
 }
@@ -74,6 +75,7 @@ impl<'a> RaftManager<'a> {
         Ok(ready.messages.drain(..).collect())
     }
 
+    // TODO: Add background thread to make sure this function is called frequently
     // Returns the last applied index
     fn process_raft_queue(&self) -> raft::Result<Option<u64>> {
         let mut raft_node = self.raft_node.lock().unwrap();
@@ -110,6 +112,17 @@ impl<'a> RaftManager<'a> {
                 }
 
                 assert_eq!(entry.entry_type, EntryType::EntryNormal);
+
+                let mut pending_responses = self.pending_responses.lock().unwrap();
+
+                let (mut builder, sender) = pending_responses.remove(&entry.index).unwrap();
+
+                let local_storage = LocalStorage::new(self.context.clone());
+                let request = get_root_as_generic_request(&entry.data);
+                handler(request, &local_storage, &self.context, &mut builder);
+                info!("Committed write index {}", entry.index);
+
+                sender.send(builder).ok().unwrap();
             }
         }
 
@@ -174,26 +187,20 @@ impl<'a> RaftManager<'a> {
     pub fn propose(
         &self,
         request: GenericRequest,
-        mut builder: FlatBufferBuilder<'a>,
+        builder: FlatBufferBuilder<'a>,
     ) -> impl Future<Item = FlatBufferBuilder<'a>, Error = ()> {
         assert!(is_write_request(request.request_type()));
         let index = self._propose(request._tab.buf.to_vec()).unwrap();
 
+        // TODO: fix race. proposal could get accepted before this builder is inserted into response map
         let (sender, receiver) = oneshot::channel();
+        {
+            let mut pending_responses = self.pending_responses.lock().unwrap();
+            pending_responses.insert(index, (builder, sender));
+        }
 
-        let mut pending_responses = self.pending_responses.lock().unwrap();
-
-        pending_responses.insert(index, builder);
-
-        info!("Waiting for message index {}", index);
-        self.wait_for_commit(index).unwrap();
-
-        builder = pending_responses.remove(&index).unwrap();
-
-        let local_storage = LocalStorage::new(self.context.clone());
-        handler(request, &local_storage, &self.context, &mut builder);
-
-        sender.send(builder).ok().unwrap();
+        // Force immediate processing, since we know there's a proposal
+        self.process_raft_queue().unwrap();
 
         return receiver.map_err(|_| ());
     }
