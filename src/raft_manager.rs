@@ -170,23 +170,6 @@ impl<'a> RaftManager<'a> {
         return Ok(raft_node.raft.raft_log.last_index());
     }
 
-    pub fn initialize(&self) {
-        for _ in 0..100 {
-            {
-                // TODO: probably don't need to tick() here, since background timer does that
-                let mut raft_node = self.raft_node.lock().unwrap();
-                raft_node.tick();
-                if raft_node.raft.leader_id > 0 {
-                    println!("Leader elected {}", raft_node.raft.leader_id);
-                    return;
-                }
-            }
-            // Wait until there is a leader
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        panic!("No leader elected");
-    }
-
     pub fn propose(
         &self,
         request: GenericRequest,

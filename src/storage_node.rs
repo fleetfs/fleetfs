@@ -293,7 +293,6 @@ impl Node {
         let context = self.context.clone();
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();
-        let raft_manager_cloned2 = raft_manager.clone();
         let server = listener
             .incoming()
             .map_err(|e| eprintln!("accept connection failed = {:?}", e))
@@ -346,12 +345,12 @@ impl Node {
             })
             .map_err(|e| panic!("Background Raft thread failed error: {:?}", e));
 
-        let initialize = ok(()).map(move |_| raft_manager_cloned2.initialize());
-
-        // TODO: should be able to run with a single thread, but right now it deadlocks because TCP client is blocking
-        let mut runtime = tokio::runtime::Builder::new().build().unwrap();
+        // TODO: currently we run single threaded to uncover deadlocks more easily
+        let mut runtime = tokio::runtime::Builder::new()
+            .core_threads(1)
+            .build()
+            .unwrap();
         runtime.spawn(server);
-        runtime.spawn(initialize);
         runtime.block_on_all(background_raft.map(|_| ())).unwrap();
     }
 }
