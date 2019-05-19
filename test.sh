@@ -178,6 +178,12 @@ else
     echo -e "$RED FAILED on fsck $NC"
     exit
 fi
+if cargo run -- --server-ip-port 127.0.0.1:3301 --fsck > /dev/null 2>&1; then
+    echo -e "$GREEN OK 10 replica $NC"
+else
+    echo -e "$RED FAILED on fsck replica $NC"
+    exit
+fi
 
 rm ${DATA_DIR2}/data/sub/s.txt
 if ! cargo run -- --server-ip-port 127.0.0.1:3300 --fsck > /dev/null 2>&1; then
