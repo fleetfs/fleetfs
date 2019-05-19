@@ -15,12 +15,13 @@ use futures::future::ok;
 use futures::sync::oneshot;
 use futures::sync::oneshot::Sender;
 use futures::Future;
+use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
 
 pub struct RaftManager<'a> {
     raft_node: Mutex<RawNode<MemStorage>>,
-    pending_responses: Mutex<HashMap<u64, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
+    pending_responses: Mutex<HashMap<u128, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     applied_index: Mutex<u64>,
     peers: HashMap<u64, PeerClient>,
@@ -195,7 +196,11 @@ impl<'a> RaftManager<'a> {
 
                 let local_storage = LocalStorage::new(self.context.clone());
                 let request = get_root_as_generic_request(&entry.data);
-                if let Some((mut builder, sender)) = pending_responses.remove(&entry.index) {
+                let mut uuid = [0; 16];
+                uuid.copy_from_slice(&entry.context[0..16]);
+                if let Some((mut builder, sender)) =
+                    pending_responses.remove(&u128::from_le_bytes(uuid))
+                {
                     handler(request, &local_storage, &self.context, &mut builder);
                     sender.send(builder).ok().unwrap();
                 } else {
@@ -232,10 +237,11 @@ impl<'a> RaftManager<'a> {
         Ok(messages)
     }
 
-    fn _propose(&self, data: Vec<u8>) -> raft::Result<u64> {
+    fn _propose(&self, uuid: u128, data: Vec<u8>) {
         let mut raft_node = self.raft_node.lock().unwrap();
-        raft_node.propose(vec![], data)?;
-        return Ok(raft_node.raft.raft_log.last_index());
+        raft_node
+            .propose(uuid.to_le_bytes().to_vec(), data)
+            .unwrap();
     }
 
     pub fn propose(
@@ -244,13 +250,15 @@ impl<'a> RaftManager<'a> {
         builder: FlatBufferBuilder<'a>,
     ) -> impl Future<Item = FlatBufferBuilder<'a>, Error = ()> {
         assert!(is_write_request(request.request_type()));
-        let index = self._propose(request._tab.buf.to_vec()).unwrap();
+        let uuid: u128 = rand::thread_rng().gen();
+
+        self._propose(uuid, request._tab.buf.to_vec());
 
         // TODO: fix race. proposal could get accepted before this builder is inserted into response map
         let (sender, receiver) = oneshot::channel();
         {
             let mut pending_responses = self.pending_responses.lock().unwrap();
-            pending_responses.insert(index, (builder, sender));
+            pending_responses.insert(uuid, (builder, sender));
         }
 
         // TODO: Force immediate processing, since we know there's a proposal
