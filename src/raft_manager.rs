@@ -5,20 +5,24 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
-use crate::generated::{get_root_as_generic_request, GenericRequest, RequestType};
+use crate::generated::{get_root_as_generic_request, GenericRequest};
 use crate::local_storage::LocalStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::{handler, LocalContext};
 use crate::utils::is_write_request;
 use flatbuffers::FlatBufferBuilder;
+use futures::future::ok;
 use futures::sync::oneshot;
 use futures::sync::oneshot::Sender;
 use futures::Future;
+use std::cmp::max;
 use std::collections::HashMap;
 
 pub struct RaftManager<'a> {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u64, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
+    sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
+    applied_index: Mutex<u64>,
     peers: HashMap<u64, PeerClient>,
     node_id: u64,
     context: LocalContext,
@@ -56,6 +60,8 @@ impl<'a> RaftManager<'a> {
         RaftManager {
             raft_node: Mutex::new(raft_node),
             pending_responses: Mutex::new(HashMap::new()),
+            sync_requests: Mutex::new(vec![]),
+            applied_index: Mutex::new(0),
             peers: context
                 .peers
                 .iter()
@@ -86,6 +92,50 @@ impl<'a> RaftManager<'a> {
             // TODO: errors
             tokio::spawn(peer.send_raft_message(message));
         }
+    }
+
+    pub fn get_latest_local_commit(&self) -> u64 {
+        let raft_node = self.raft_node.lock().unwrap();
+
+        if raft_node.raft.leader_id == self.node_id {
+            return *self.applied_index.lock().unwrap();
+        }
+
+        unreachable!();
+    }
+
+    pub fn get_latest_commit_from_leader(&self) -> impl Future<Item = u64, Error = ()> {
+        let raft_node = self.raft_node.lock().unwrap();
+
+        let commit: Box<Future<Item = u64, Error = ()> + Send>;
+        if raft_node.raft.leader_id == self.node_id {
+            commit = Box::new(ok(*self.applied_index.lock().unwrap()));
+        } else if raft_node.raft.leader_id == 0 {
+            // TODO: wait for a leader
+            commit = Box::new(ok(0));
+        } else {
+            let leader = &self.peers[&raft_node.raft.leader_id];
+            commit = Box::new(leader.get_latest_commit());
+        }
+
+        commit
+    }
+
+    // Wait until the given index has been committed
+    pub fn sync(&self, index: u64) -> impl Future<Item = (), Error = ()> {
+        // Make sure we have the lock on all data structures
+        let _raft_node_locked = self.raft_node.lock().unwrap();
+
+        let commit: Box<Future<Item = (), Error = ()> + Send> =
+            if *self.applied_index.lock().unwrap() >= index {
+                Box::new(ok(()))
+            } else {
+                let (sender, receiver) = oneshot::channel();
+                self.sync_requests.lock().unwrap().push((index, sender));
+                Box::new(receiver.map_err(|_| ()))
+            };
+
+        commit
     }
 
     // Should be called once every 100ms to handle background tasks
@@ -128,11 +178,11 @@ impl<'a> RaftManager<'a> {
             raft_node.mut_store().wl().set_hardstate(hard_state.clone());
         }
 
-        //        let mut applied_index = 0;
+        let mut applied_index = *self.applied_index.lock().unwrap();
         if let Some(committed_entries) = ready.committed_entries.take() {
             for entry in committed_entries {
-                // TODO save this
-                //                applied_index = max(applied_index, entry.index);
+                // TODO: probably need to save the term too
+                applied_index = max(applied_index, entry.index);
 
                 if entry.data.is_empty() {
                     // New leaders send empty entries
@@ -160,6 +210,19 @@ impl<'a> RaftManager<'a> {
                     raft_node.raft.leader_id,
                     request.request_type()
                 );
+            }
+        }
+
+        *self.applied_index.lock().unwrap() = applied_index;
+
+        // TODO: once drain_filter is stable, it could be used to make this a lot nicer
+        let mut sync_requests = self.sync_requests.lock().unwrap();
+        while !sync_requests.is_empty() {
+            if applied_index >= sync_requests[0].0 {
+                let (_, sender) = sync_requests.remove(0);
+                sender.send(()).unwrap();
+            } else {
+                break;
             }
         }
 

@@ -2,7 +2,8 @@ namespace generated;
 
 union RequestType {ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
-                   WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest}
+                   WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
+                   LatestCommitRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -11,6 +12,9 @@ table GenericRequest {
 // TODO: maybe support multiple messages in a single request
 table RaftRequest {
   message: [ubyte] (required);
+}
+
+table LatestCommitRequest {
 }
 
 table FilesystemChecksumRequest {
@@ -133,7 +137,13 @@ table FileMetadataResponse {
   device_id: uint;
 }
 
-union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse, WrittenResponse }
+table LatestCommitResponse {
+  term: ulong;
+  index: ulong;
+}
+
+union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
+                     WrittenResponse, LatestCommitResponse }
 
 table GenericResponse {
   response: ResponseType;

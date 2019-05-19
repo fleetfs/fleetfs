@@ -10,6 +10,27 @@ pub fn empty_response(buffer: &mut FlatBufferBuilder) -> ResultResponse {
     return Ok((ResponseType::EmptyResponse, offset));
 }
 
+pub fn is_raft_request(request_type: RequestType) -> bool {
+    match request_type {
+        RequestType::ReadRequest => false,
+        RequestType::ReaddirRequest => false,
+        RequestType::GetattrRequest => false,
+        RequestType::FilesystemCheckRequest => false,
+        RequestType::FilesystemChecksumRequest => false,
+        RequestType::UtimensRequest => false,
+        RequestType::ChmodRequest => false,
+        RequestType::HardlinkRequest => false,
+        RequestType::TruncateRequest => false,
+        RequestType::UnlinkRequest => false,
+        RequestType::RenameRequest => false,
+        RequestType::MkdirRequest => false,
+        RequestType::WriteRequest => false,
+        RequestType::RaftRequest => true,
+        RequestType::LatestCommitRequest => true,
+        RequestType::NONE => unreachable!(),
+    }
+}
+
 pub fn is_write_request(request_type: RequestType) -> bool {
     match request_type {
         RequestType::ReadRequest => false,
@@ -26,6 +47,7 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::MkdirRequest => true,
         RequestType::WriteRequest => true,
         RequestType::RaftRequest => unreachable!(),
+        RequestType::LatestCommitRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 }
