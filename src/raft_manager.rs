@@ -5,7 +5,7 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
-use crate::generated::{get_root_as_generic_request, GenericRequest};
+use crate::generated::{get_root_as_generic_request, GenericRequest, RequestType};
 use crate::local_storage::LocalStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::{handler, LocalContext};
@@ -154,7 +154,12 @@ impl<'a> RaftManager<'a> {
                     handler(request, &local_storage, &self.context, &mut builder);
                 }
 
-                info!("Committed write index {}", entry.index);
+                info!(
+                    "Committed write index {} (leader={}): {:?}",
+                    entry.index,
+                    raft_node.raft.leader_id,
+                    request.request_type()
+                );
             }
         }
 
