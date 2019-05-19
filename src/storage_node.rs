@@ -12,7 +12,9 @@ use crate::distributed_file::DistributedFileResponder;
 use crate::generated::*;
 use crate::local_storage::LocalStorage;
 use crate::raft_manager::RaftManager;
-use crate::utils::{empty_response, is_write_request, ResultResponse, WritableFlatBuffer};
+use crate::utils::{
+    empty_response, is_raft_request, is_write_request, ResultResponse, WritableFlatBuffer,
+};
 use futures::future::ok;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
@@ -53,17 +55,44 @@ pub fn raft_message_handler<'a>(
     raft_manager: &RaftManager,
     builder: &mut FlatBufferBuilder,
 ) {
-    assert_eq!(request.request_type(), RequestType::RaftRequest);
-    let raft_request = request.request_as_raft_request().unwrap();
-    let mut deserialized_message = Message::new();
-    deserialized_message
-        .merge_from_bytes(raft_request.message())
-        .unwrap();
-    raft_manager
-        .apply_messages(&[deserialized_message])
-        .unwrap();
+    let response;
 
-    let (response_type, response_offset) = empty_response(builder).unwrap();
+    match request.request_type() {
+        RequestType::FilesystemCheckRequest => unreachable!(),
+        RequestType::FilesystemChecksumRequest => unreachable!(),
+        RequestType::ReadRequest => unreachable!(),
+        RequestType::HardlinkRequest => unreachable!(),
+        RequestType::RenameRequest => unreachable!(),
+        RequestType::ChmodRequest => unreachable!(),
+        RequestType::TruncateRequest => unreachable!(),
+        RequestType::UnlinkRequest => unreachable!(),
+        RequestType::WriteRequest => unreachable!(),
+        RequestType::UtimensRequest => unreachable!(),
+        RequestType::ReaddirRequest => unreachable!(),
+        RequestType::GetattrRequest => unreachable!(),
+        RequestType::MkdirRequest => unreachable!(),
+        RequestType::RaftRequest => {
+            let raft_request = request.request_as_raft_request().unwrap();
+            let mut deserialized_message = Message::new();
+            deserialized_message
+                .merge_from_bytes(raft_request.message())
+                .unwrap();
+            raft_manager
+                .apply_messages(&[deserialized_message])
+                .unwrap();
+            response = empty_response(builder);
+        }
+        RequestType::LatestCommitRequest => {
+            let index = raft_manager.get_latest_local_commit();
+            let mut response_builder = LatestCommitResponseBuilder::new(builder);
+            response_builder.add_index(index);
+            let response_offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::LatestCommitResponse, response_offset));
+        }
+        RequestType::NONE => unreachable!(),
+    }
+
+    let (response_type, response_offset) = response.unwrap();
     let mut generic_response_builder = GenericResponseBuilder::new(builder);
     generic_response_builder.add_response_type(response_type);
     generic_response_builder.add_response(response_offset);
@@ -207,9 +236,8 @@ pub fn handler<'a>(
                     .expect("getattr failed on newly created file")
             });
         }
-        RequestType::RaftRequest => {
-            unreachable!("RaftRequest should be handled outside this function")
-        }
+        RequestType::RaftRequest => unreachable!(),
+        RequestType::LatestCommitRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 
@@ -312,7 +340,7 @@ impl Node {
                     let builder_future: Box<
                         Future<Item = FlatBufferBuilder, Error = std::io::Error> + Send,
                     >;
-                    if request.request_type() == RequestType::RaftRequest {
+                    if is_raft_request(request.request_type()) {
                         raft_message_handler(request, &cloned_raft, &mut builder);
                         builder_future = Box::new(ok(builder));
                     } else if is_write_request(request.request_type()) {
@@ -322,9 +350,22 @@ impl Node {
                                 .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other)),
                         );
                     } else {
-                        let local_storage = LocalStorage::new(cloned.clone());
-                        handler(request, &local_storage, &cloned, &mut builder);
-                        builder_future = Box::new(ok(builder));
+                        // Sync to ensure replicas serve latest data
+                        let cloned_raft2 = cloned_raft.clone();
+                        let cloned2 = cloned.clone();
+                        let after_sync = cloned_raft
+                            .get_latest_commit_from_leader()
+                            .map(move |latest_commit| cloned_raft2.sync(latest_commit))
+                            .flatten();
+                        let read_after_sync = after_sync
+                            .map(move |_| {
+                                let request = get_root_as_generic_request(&frame);
+                                let local_storage = LocalStorage::new(cloned2.clone());
+                                handler(request, &local_storage, &cloned2, &mut builder);
+                                builder
+                            })
+                            .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other));
+                        builder_future = Box::new(read_after_sync);
                     }
                     builder_future
                         .map(|builder| {

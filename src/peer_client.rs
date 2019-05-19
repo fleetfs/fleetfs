@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 
 use crate::generated::*;
-use crate::utils::finalize_request;
+use crate::utils::{finalize_request, response_or_error};
 use futures::stream::Stream;
 use futures::Future;
 use log::error;
@@ -59,5 +59,26 @@ impl PeerClient {
         self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
             .map(|_| ())
             .map_err(|e| error!("Error sending Raft message: {:?}", e))
+    }
+
+    pub fn get_latest_commit(&self) -> impl Future<Item = u64, Error = ()> {
+        let mut builder = FlatBufferBuilder::new();
+        let request_builder = LatestCommitRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(
+            &mut builder,
+            RequestType::LatestCommitRequest,
+            finish_offset,
+        );
+
+        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
+            .map(|response| {
+                response_or_error(&response)
+                    .unwrap()
+                    .response_as_latest_commit_response()
+                    .unwrap()
+                    .index()
+            })
+            .map_err(|e| error!("Error reading latest commit: {:?}", e))
     }
 }
