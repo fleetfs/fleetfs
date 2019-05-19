@@ -17,6 +17,7 @@ pub mod client;
 pub mod distributed_file;
 pub mod fuse;
 pub mod local_storage;
+pub mod peer_client;
 pub mod raft_manager;
 pub mod storage_node;
 pub mod tcp_client;

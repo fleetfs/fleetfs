@@ -1,6 +1,6 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
-use crate::generated::{EmptyResponseBuilder, RequestType, ResponseType};
+use crate::generated::*;
 
 pub type ResultResponse = Result<(ResponseType, WIPOffset<UnionWIPOffset>), std::io::Error>;
 
@@ -28,4 +28,25 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::RaftRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
+}
+
+pub fn finalize_request(
+    builder: &mut FlatBufferBuilder,
+    request_type: RequestType,
+    finish_offset: WIPOffset<UnionWIPOffset>,
+) {
+    let mut generic_request_builder = GenericRequestBuilder::new(builder);
+    generic_request_builder.add_request_type(request_type);
+    generic_request_builder.add_request(finish_offset);
+    let finish_offset = generic_request_builder.finish();
+    builder.finish_size_prefixed(finish_offset, None);
+}
+
+pub fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
+    let response = flatbuffers::get_root::<GenericResponse>(buffer);
+    if response.response_type() == ResponseType::ErrorResponse {
+        let error = response.response_as_error_response().unwrap();
+        return Err(error.error_code());
+    }
+    return Ok(response);
 }

@@ -2,27 +2,14 @@ use std::cell::{RefCell, RefMut};
 use std::ffi::OsString;
 use std::net::SocketAddr;
 
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use flatbuffers::FlatBufferBuilder;
 use fuse_mt::{DirectoryEntry, FileAttr};
 use thread_local::CachedThreadLocal;
 use time::Timespec;
 
 use crate::generated::*;
 use crate::tcp_client::TcpClient;
-use protobuf::Message as ProtobufMessage;
-use raft::eraftpb::Message;
-
-fn finalize_request(
-    builder: &mut FlatBufferBuilder,
-    request_type: RequestType,
-    finish_offset: WIPOffset<UnionWIPOffset>,
-) {
-    let mut generic_request_builder = GenericRequestBuilder::new(builder);
-    generic_request_builder.add_request_type(request_type);
-    generic_request_builder.add_request(finish_offset);
-    let finish_offset = generic_request_builder.finish();
-    builder.finish_size_prefixed(finish_offset, None);
-}
+use crate::utils::{finalize_request, response_or_error};
 
 fn file_type_to_fuse_type(file_type: FileKind) -> fuse_mt::FileType {
     match file_type {
@@ -57,15 +44,6 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
         rdev: metadata.device_id(),
         flags: 0,
     }
-}
-
-fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
-    let response = flatbuffers::get_root::<GenericResponse>(buffer);
-    if response.response_type() == ResponseType::ErrorResponse {
-        let error = response.response_as_error_response().unwrap();
-        return Err(error.error_code());
-    }
-    return Ok(response);
 }
 
 pub struct NodeClient<'a> {
@@ -108,24 +86,6 @@ impl<'a> NodeClient<'a> {
             .send_and_receive_length_prefixed(request, buffer.as_mut())
             .map_err(|_| ErrorCode::Uncategorized)?;
         return response_or_error(buffer);
-    }
-
-    // TODO move into an internal peer client
-    pub fn send_raft_message(&self, message: Message) -> Result<(), ErrorCode> {
-        let serialized_message = message.write_to_bytes().unwrap();
-        let mut builder = self.get_or_create_builder();
-        let data_offset = builder.create_vector_direct(&serialized_message);
-        let mut request_builder = RaftRequestBuilder::new(&mut builder);
-        request_builder.add_message(data_offset);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::RaftRequest, finish_offset);
-
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
-        // TODO: maybe receive message back to reduce roundtrips?
-        response.response_as_empty_response().unwrap();
-
-        return Ok(());
     }
 
     // TODO move into an internal peer client

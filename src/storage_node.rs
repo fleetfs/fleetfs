@@ -274,7 +274,7 @@ impl<'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
 
 pub struct Node {
     context: LocalContext,
-    raft_manager: RaftManager<'static, 'static>,
+    raft_manager: RaftManager<'static>,
     port: u16,
 }
 
