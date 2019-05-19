@@ -9,6 +9,8 @@ use time::Timespec;
 
 use crate::generated::*;
 use crate::tcp_client::TcpClient;
+use protobuf::Message as ProtobufMessage;
+use raft::eraftpb::Message;
 
 fn finalize_request(
     builder: &mut FlatBufferBuilder,
@@ -109,6 +111,24 @@ impl<'a> NodeClient<'a> {
     }
 
     // TODO move into an internal peer client
+    pub fn send_raft_message(&self, message: Message) -> Result<(), ErrorCode> {
+        let serialized_message = message.write_to_bytes().unwrap();
+        let mut builder = self.get_or_create_builder();
+        let data_offset = builder.create_vector_direct(&serialized_message);
+        let mut request_builder = RaftRequestBuilder::new(&mut builder);
+        request_builder.add_message(data_offset);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::RaftRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        // TODO: maybe receive message back to reduce roundtrips?
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
+    }
+
+    // TODO move into an internal peer client
     pub fn filesystem_checksum(&self) -> Result<Vec<u8>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
@@ -143,13 +163,12 @@ impl<'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn mkdir(&self, path: &str, mode: u16, forward: bool) -> Result<FileAttr, ErrorCode> {
+    pub fn mkdir(&self, path: &str, mode: u16) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_mode(mode);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);
 
@@ -182,7 +201,6 @@ impl<'a> NodeClient<'a> {
         atime_nanos: i32,
         mtime_secs: i64,
         mtime_nanos: i32,
-        forward: bool,
     ) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
@@ -194,7 +212,6 @@ impl<'a> NodeClient<'a> {
         request_builder.add_atime(&atime);
         let mtime = Timestamp::new(mtime_secs, mtime_nanos);
         request_builder.add_mtime(&mtime);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
 
@@ -205,7 +222,7 @@ impl<'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn chmod(&self, path: &str, mode: u32, forward: bool) -> Result<(), ErrorCode> {
+    pub fn chmod(&self, path: &str, mode: u32) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -213,7 +230,6 @@ impl<'a> NodeClient<'a> {
         let mut request_builder = ChmodRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_mode(mode);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
 
@@ -224,12 +240,7 @@ impl<'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn hardlink(
-        &self,
-        path: &str,
-        new_path: &str,
-        forward: bool,
-    ) -> Result<FileAttr, ErrorCode> {
+    pub fn hardlink(&self, path: &str, new_path: &str) -> Result<FileAttr, ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -238,7 +249,6 @@ impl<'a> NodeClient<'a> {
         let mut request_builder = HardlinkRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_new_path(builder_new_path);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
 
@@ -249,7 +259,7 @@ impl<'a> NodeClient<'a> {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn rename(&self, path: &str, new_path: &str, forward: bool) -> Result<(), ErrorCode> {
+    pub fn rename(&self, path: &str, new_path: &str) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -258,7 +268,6 @@ impl<'a> NodeClient<'a> {
         let mut request_builder = RenameRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_new_path(builder_new_path);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
 
@@ -325,7 +334,7 @@ impl<'a> NodeClient<'a> {
         return Ok(result);
     }
 
-    pub fn truncate(&self, path: &str, length: u64, forward: bool) -> Result<(), ErrorCode> {
+    pub fn truncate(&self, path: &str, length: u64) -> Result<(), ErrorCode> {
         assert_ne!(path, "/");
 
         let mut builder = self.get_or_create_builder();
@@ -333,7 +342,6 @@ impl<'a> NodeClient<'a> {
         let mut request_builder = TruncateRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
         request_builder.add_new_length(length);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
 
@@ -344,13 +352,7 @@ impl<'a> NodeClient<'a> {
         return Ok(());
     }
 
-    pub fn write(
-        &self,
-        path: &str,
-        data: &[u8],
-        offset: u64,
-        forward: bool,
-    ) -> Result<u32, ErrorCode> {
+    pub fn write(&self, path: &str, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);
         let data_offset = builder.create_vector_direct(data);
@@ -358,7 +360,6 @@ impl<'a> NodeClient<'a> {
         request_builder.add_path(builder_path);
         request_builder.add_offset(offset);
         request_builder.add_data(data_offset);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::WriteRequest, finish_offset);
 
@@ -370,12 +371,11 @@ impl<'a> NodeClient<'a> {
             .bytes_written());
     }
 
-    pub fn unlink(&self, path: &str, forward: bool) -> Result<(), ErrorCode> {
+    pub fn unlink(&self, path: &str) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);
         let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
-        request_builder.add_forward(forward);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
 

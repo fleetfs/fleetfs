@@ -4,7 +4,11 @@ use std::sync::Mutex;
 
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
+use core::time::Duration;
 
+const TIMEOUT: u64 = 5;
+
+// TODO: should not use this on the server, since it's blocking
 pub struct TcpClient {
     server: SocketAddr,
     // TODO: should probably have a connection pool here
@@ -26,7 +30,13 @@ impl TcpClient {
     ) -> Result<(), std::io::Error> {
         let mut locked = self.connection.lock().expect("lock acquisition failed");
         if locked.is_none() {
-            let stream = TcpStream::connect(self.server)?;
+            let stream = TcpStream::connect_timeout(&self.server, Duration::from_secs(TIMEOUT))?;
+            stream
+                .set_read_timeout(Some(Duration::from_secs(TIMEOUT)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(TIMEOUT)))
+                .unwrap();
             locked.replace(stream);
         }
 
@@ -36,7 +46,13 @@ impl TcpClient {
             Ok(_) => {}
             Err(_) => {
                 // Retry once
-                stream = TcpStream::connect(self.server)?;
+                stream = TcpStream::connect_timeout(&self.server, Duration::from_secs(TIMEOUT))?;
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(TIMEOUT)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(TIMEOUT)))
+                    .unwrap();
                 stream.write_all(data)?;
             }
         }

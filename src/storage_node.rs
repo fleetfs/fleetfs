@@ -13,6 +13,9 @@ use crate::generated::*;
 use crate::local_storage::LocalStorage;
 use crate::raft_manager::RaftManager;
 use crate::utils::{empty_response, is_write_request, ResultResponse};
+use futures::future::ok;
+use protobuf::Message as ProtobufMessage;
+use raft::eraftpb::Message;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -45,14 +48,28 @@ fn checksum_request(
 
     return Ok((ResponseType::ReadResponse, response_offset));
 }
-
-fn raft_handler<'a, 'b>(
+pub fn raft_message_handler<'a>(
     request: GenericRequest<'a>,
-    raft_manager: &'_ RaftManager<'b>,
-    builder: FlatBufferBuilder<'b>,
-) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ()> {
-    // Commit all writes to Raft
-    return raft_manager.propose(request, builder);
+    raft_manager: &RaftManager,
+    builder: &mut FlatBufferBuilder,
+) {
+    assert_eq!(request.request_type(), RequestType::RaftRequest);
+    let raft_request = request.request_as_raft_request().unwrap();
+    let mut deserialized_message = Message::new();
+    deserialized_message
+        .merge_from_bytes(raft_request.message())
+        .unwrap();
+    raft_manager
+        .apply_messages(&[deserialized_message])
+        .unwrap();
+
+    let (response_type, response_offset) = empty_response(builder).unwrap();
+    let mut generic_response_builder = GenericResponseBuilder::new(builder);
+    generic_response_builder.add_response_type(response_type);
+    generic_response_builder.add_response(response_offset);
+
+    let final_response_offset = generic_response_builder.finish();
+    builder.finish_size_prefixed(final_response_offset, None);
 }
 
 pub fn handler<'a>(
@@ -82,7 +99,6 @@ pub fn handler<'a>(
             let file = DistributedFileResponder::new(
                 read_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
             response = file.read(read_request.offset(), read_request.read_size());
@@ -92,71 +108,60 @@ pub fn handler<'a>(
             let file = DistributedFileResponder::new(
                 hardlink_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file.hardlink(&hardlink_request.new_path(), hardlink_request.forward());
+            response = file.hardlink(&hardlink_request.new_path());
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
             let file = DistributedFileResponder::new(
                 rename_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file.rename(&rename_request.new_path(), rename_request.forward());
+            response = file.rename(&rename_request.new_path());
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
             let file = DistributedFileResponder::new(
                 chmod_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file.chmod(chmod_request.mode(), chmod_request.forward());
+            response = file.chmod(chmod_request.mode());
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
             let file = DistributedFileResponder::new(
                 truncate_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file.truncate(truncate_request.new_length(), truncate_request.forward());
+            response = file.truncate(truncate_request.new_length());
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
             let file = DistributedFileResponder::new(
                 unlink_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file.unlink(unlink_request.forward());
+            response = file.unlink();
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
             let file = DistributedFileResponder::new(
                 write_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file.write(
-                write_request.offset(),
-                write_request.data(),
-                write_request.forward(),
-            );
+            response = file.write(write_request.offset(), write_request.data());
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
             let file = DistributedFileResponder::new(
                 utimens_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
             response = file.utimens(
@@ -164,7 +169,6 @@ pub fn handler<'a>(
                 utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
-                utimens_request.forward(),
             );
         }
         RequestType::ReaddirRequest => {
@@ -172,7 +176,6 @@ pub fn handler<'a>(
             let file = DistributedFileResponder::new(
                 readdir_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
             response = file.readdir();
@@ -182,7 +185,6 @@ pub fn handler<'a>(
             let file = DistributedFileResponder::new(
                 getattr_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
             response = file.getattr();
@@ -192,22 +194,21 @@ pub fn handler<'a>(
             let file = DistributedFileResponder::new(
                 mkdir_request.path().to_string(),
                 context.data_dir.clone(),
-                &context.peers,
                 builder,
             );
-            response = file
-                .mkdir(mkdir_request.mode(), mkdir_request.forward())
-                .map(|_| {
-                    let file = DistributedFileResponder::new(
-                        mkdir_request.path().to_string(),
-                        context.data_dir.clone(),
-                        &context.peers,
-                        builder,
-                    );
-                    // TODO: probably possible to hit a distributed race here
-                    file.getattr()
-                        .expect("getattr failed on newly created file")
-                });
+            response = file.mkdir(mkdir_request.mode()).map(|_| {
+                let file = DistributedFileResponder::new(
+                    mkdir_request.path().to_string(),
+                    context.data_dir.clone(),
+                    builder,
+                );
+                // TODO: probably possible to hit a distributed race here
+                file.getattr()
+                    .expect("getattr failed on newly created file")
+            });
+        }
+        RequestType::RaftRequest => {
+            unreachable!("RaftRequest should be handled outside this function")
         }
         RequestType::NONE => unreachable!(),
     }
@@ -247,14 +248,16 @@ pub fn handler<'a>(
 #[derive(Clone)]
 pub struct LocalContext {
     pub data_dir: String,
-    peers: Vec<SocketAddr>,
+    pub peers: Vec<SocketAddr>,
+    pub node_id: u64,
 }
 
 impl LocalContext {
-    pub fn new(data_dir: &str, peers: Vec<SocketAddr>) -> LocalContext {
+    pub fn new(data_dir: &str, peers: Vec<SocketAddr>, node_id: u64) -> LocalContext {
         LocalContext {
             data_dir: data_dir.to_string(),
             peers,
+            node_id,
         }
     }
 }
@@ -271,14 +274,17 @@ impl<'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
 
 pub struct Node {
     context: LocalContext,
-    raft_manager: RaftManager<'static>,
+    raft_manager: RaftManager<'static, 'static>,
     port: u16,
 }
 
 impl Node {
     pub fn new(node_dir: &str, port: u16, peers: Vec<SocketAddr>) -> Node {
         let data_dir = Path::new(node_dir).join("data");
-        let context = LocalContext::new(data_dir.to_str().unwrap(), peers);
+        // TODO huge hack. Should be generated randomly and then dynamically discovered
+        // Unique ID of node within the cluster. Never 0.
+        let node_id = u64::from(port);
+        let context = LocalContext::new(data_dir.to_str().unwrap(), peers, node_id);
         Node {
             context: context.clone(),
             raft_manager: RaftManager::new(context.clone()),
@@ -295,9 +301,9 @@ impl Node {
         let listener = TcpListener::bind(&address).expect("unable to bind API listener");
 
         let context = self.context.clone();
-        self.raft_manager.initialize();
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();
+        let raft_manager_cloned2 = raft_manager.clone();
         let server = listener
             .incoming()
             .map_err(|e| eprintln!("accept connection failed = {:?}", e))
@@ -313,14 +319,30 @@ impl Node {
                 let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
                     let request = get_root_as_generic_request(&frame);
                     builder.reset();
-                    if is_write_request(request.request_type()) {
-                        builder = raft_handler(request, &cloned_raft, builder).wait().unwrap();
+                    // TODO: not sure we really need this Box
+                    let builder_future: Box<
+                        Future<Item = FlatBufferBuilder, Error = std::io::Error> + Send,
+                    >;
+                    if request.request_type() == RequestType::RaftRequest {
+                        raft_message_handler(request, &cloned_raft, &mut builder);
+                        builder_future = Box::new(ok(builder));
+                    } else if is_write_request(request.request_type()) {
+                        builder_future = Box::new(
+                            cloned_raft
+                                .propose(request, builder)
+                                .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other)),
+                        );
                     } else {
                         let local_storage = LocalStorage::new(cloned.clone());
                         handler(request, &local_storage, &cloned, &mut builder);
+                        builder_future = Box::new(ok(builder));
                     }
-                    let writable = WritableFlatBuffer { buffer: builder };
-                    tokio::io::write_all(writer, writable)
+                    builder_future
+                        .map(|builder| {
+                            let writable = WritableFlatBuffer { buffer: builder };
+                            tokio::io::write_all(writer, writable)
+                        })
+                        .flatten()
                         .map(|(writer, written)| (writer, written.buffer))
                 });
 
@@ -334,6 +356,12 @@ impl Node {
             })
             .map_err(|e| panic!("Background Raft thread failed error: {:?}", e));
 
-        tokio::runtime::run(server.join(background_raft).map(|_| ()));
+        let initialize = ok(()).map(move |_| raft_manager_cloned2.initialize());
+
+        // TODO: should be able to run with a single thread, but right now it deadlocks because TCP client is blocking
+        let mut runtime = tokio::runtime::Builder::new().build().unwrap();
+        runtime.spawn(server);
+        runtime.spawn(initialize);
+        runtime.block_on_all(background_raft.map(|_| ())).unwrap();
     }
 }

@@ -2,10 +2,15 @@ namespace generated;
 
 union RequestType {ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
-                   WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest}
+                   WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest}
 
 table GenericRequest {
   request: RequestType;
+}
+
+// TODO: maybe support multiple messages in a single request
+table RaftRequest {
+  message: [ubyte] (required);
 }
 
 table FilesystemChecksumRequest {
@@ -27,25 +32,21 @@ table GetattrRequest {
 table MkdirRequest {
   path: string (required);
   mode: ushort;
-  forward: bool = true;
 }
 
 table WriteRequest {
   path: string (required);
   offset: ulong;
   data: [ubyte] (required);
-  forward: bool = true;
 }
 
 table UnlinkRequest {
   path: string (required);
-  forward: bool = true;
 }
 
 table TruncateRequest {
   path: string (required);
   new_length: ulong;
-  forward: bool = true;
 }
 
 table ReaddirRequest {
@@ -55,26 +56,22 @@ table ReaddirRequest {
 table ChmodRequest {
   path: string (required);
   mode: uint;
-  forward: bool = true;
 }
 
 table UtimensRequest {
   path: string (required);
   atime: Timestamp;
   mtime: Timestamp;
-  forward: bool = true;
 }
 
 table HardlinkRequest {
   path: string (required);
   new_path: string (required);
-  forward: bool = true;
 }
 
 table RenameRequest {
   path: string (required);
   new_path: string (required);
-  forward: bool = true;
 }
 
 root_type GenericRequest;
