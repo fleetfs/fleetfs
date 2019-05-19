@@ -5,7 +5,6 @@ use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
-use std::net::SocketAddr;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
@@ -15,15 +14,14 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
 use log::warn;
 
-use crate::client::NodeClient;
 use crate::generated::*;
 use crate::utils::{empty_response, ResultResponse};
 
 // Handles one request/response
+// TODO: rename this, since it is no longer distributed
 pub struct DistributedFileResponder<'a: 'b, 'b> {
     path: String,
     local_data_dir: String,
-    peers: Vec<NodeClient<'a>>,
     response_buffer: &'b mut FlatBufferBuilder<'a>,
 }
 
@@ -31,14 +29,12 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
     pub fn new(
         path: String,
         local_data_dir: String,
-        peers: &[SocketAddr],
         builder: &'b mut FlatBufferBuilder<'a>,
     ) -> DistributedFileResponder<'a, 'b> {
         DistributedFileResponder {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
             local_data_dir,
-            peers: peers.iter().map(|peer| NodeClient::new(*peer)).collect(),
             response_buffer: builder,
         }
     }
@@ -47,21 +43,15 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
-    pub fn truncate(self, new_length: u64, forward: bool) -> ResultResponse {
+    pub fn truncate(self, new_length: u64) -> ResultResponse {
         let local_path = self.to_local_path(&self.path);
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.truncate(&self.path, new_length, false).unwrap();
-            }
-        }
         let file = File::create(&local_path).expect("Couldn't create file");
         file.set_len(new_length)?;
 
         return empty_response(self.response_buffer);
     }
 
-    pub fn write(self, offset: u64, data: &[u8], forward: bool) -> ResultResponse {
+    pub fn write(self, offset: u64, data: &[u8]) -> ResultResponse {
         let local_path = self.to_local_path(&self.path);
         let mut file = OpenOptions::new()
             .write(true)
@@ -70,13 +60,6 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
 
         file.seek(SeekFrom::Start(offset))?;
 
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.write(&self.path, data, offset, false).unwrap();
-            }
-        }
-
         file.write_all(data)?;
         let mut response_builder = WrittenResponseBuilder::new(self.response_buffer);
         response_builder.add_bytes_written(data.len() as u32);
@@ -84,18 +67,12 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return Ok((ResponseType::WrittenResponse, offset));
     }
 
-    pub fn mkdir(self, _mode: u16, forward: bool) -> Result<(), std::io::Error> {
+    pub fn mkdir(self, _mode: u16) -> Result<(), std::io::Error> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
         fs::create_dir(path)?;
 
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.mkdir(&self.path, _mode, false).unwrap();
-            }
-        }
         // TODO set the mode
 
         return Ok(());
@@ -180,25 +157,10 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         atime_nanos: i32,
         mtime_secs: i64,
         mtime_nanos: i32,
-        forward: bool,
     ) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.utimens(
-                    &self.path,
-                    atime_secs,
-                    atime_nanos,
-                    mtime_secs,
-                    mtime_nanos,
-                    false,
-                )
-                .unwrap();
-            }
-        }
         filetime::set_file_times(
             local_path,
             FileTime::from_unix_time(atime_secs, atime_nanos as u32),
@@ -208,16 +170,10 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return empty_response(self.response_buffer);
     }
 
-    pub fn chmod(self, mode: u32, forward: bool) -> ResultResponse {
+    pub fn chmod(self, mode: u32) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.chmod(&self.path, mode, false).unwrap();
-            }
-        }
         let c_path =
             CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
         let exit_code;
@@ -233,18 +189,12 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         }
     }
 
-    pub fn hardlink(self, new_path: &str, forward: bool) -> ResultResponse {
+    pub fn hardlink(self, new_path: &str) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Hardlinking file: {} to {}", self.path, new_path);
         let local_path = self.to_local_path(&self.path);
         let local_new_path = self.to_local_path(new_path);
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.hardlink(&self.path, new_path, false).unwrap();
-            }
-        }
         // TODO error handling
         fs::hard_link(&local_path, &local_new_path).expect("hardlink failed");
         let metadata = fs::metadata(local_new_path)?;
@@ -277,18 +227,12 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         ));
     }
 
-    pub fn rename(self, new_path: &str, forward: bool) -> ResultResponse {
+    pub fn rename(self, new_path: &str) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Renaming file: {} to {}", self.path, new_path);
         let local_path = self.to_local_path(&self.path);
         let local_new_path = self.to_local_path(new_path);
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.rename(&self.path, new_path, false).unwrap();
-            }
-        }
         fs::rename(local_path, local_new_path)?;
 
         return empty_response(self.response_buffer);
@@ -316,17 +260,11 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         return Ok((ResponseType::ReadResponse, response_offset));
     }
 
-    pub fn unlink(self, forward: bool) -> ResultResponse {
+    pub fn unlink(self) -> ResultResponse {
         assert_ne!(self.path.len(), 0);
 
         info!("Deleting file");
         let local_path = self.to_local_path(&self.path);
-        if forward {
-            for peer in self.peers {
-                // TODO make this async
-                peer.unlink(&self.path, false).unwrap();
-            }
-        }
         fs::remove_file(local_path)?;
 
         return empty_response(self.response_buffer);

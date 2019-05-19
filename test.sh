@@ -6,8 +6,10 @@ NC="\e[39m"
 GREEN="\e[32m"
 RED="\e[31m"
 
-trap "exit" INT TERM
-trap "kill 0" EXIT
+trap "exit" TERM
+trap "kill 0" INT EXIT
+
+export RUST_BACKTRACE=1
 
 DATA_DIR=$(mktemp --directory)
 DATA_DIR2=$(mktemp --directory)
@@ -22,12 +24,15 @@ FUSE_PID=$!
 # Mount the replica with direct IO, so that replication shows up immediately. Otherwise, some tests might fail
 # due to caching in the kernel
 cargo run -- --server-ip-port 127.0.0.1:3301 --mount-point $DIR2 --direct-io &
-sleep 2
+# TODO: wait until a leader has been elected, so that this doesn't fail sometimes
+sleep 5
 
 echo "mounting at $DIR"
 echo "mounting replica at $DIR2"
 
 echo 1 > ${DIR}/1.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(cat ${DIR}/1.txt) = "1" ]]; then
     echo -e "$GREEN OK 0 $NC"
 else
@@ -42,6 +47,8 @@ else
 fi
 
 echo 2 > ${DIR}/1.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(cat ${DIR}/1.txt) = "2" ]]; then
     echo -e "$GREEN OK 1 $NC"
 else
@@ -56,6 +63,8 @@ else
 fi
 
 echo 2 > ${DIR}/2.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(cat ${DIR}/2.txt) = "2" ]]; then
     echo -e "$GREEN OK 2 $NC"
 else
@@ -70,6 +79,8 @@ else
 fi
 
 rm ${DIR}/2.txt
+# TODO: support replica reads
+sleep 2
 if [[ ! -f ${DIR}/2.txt ]]; then
     echo -e "$GREEN OK 3 $NC"
 else
@@ -84,6 +95,8 @@ else
 fi
 
 yes 0123 | head -n 10000 > ${DIR}/big.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(cat ${DIR}/big.txt | wc) = "$(yes 0123 | head -n 10000 | wc)" ]]; then
     echo -e "$GREEN OK 4 $NC"
 else
@@ -99,6 +112,8 @@ fi
 
 echo 5 > ${DIR}/5.txt
 mv ${DIR}/5.txt ${DIR}/new_5.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(cat ${DIR}/new_5.txt) = "5" ]]; then
     echo -e "$GREEN OK 5 $NC"
 else
@@ -113,6 +128,8 @@ else
 fi
 
 touch -d "jan 3 2000" ${DIR}/new_5.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(stat -c'%x' ${DIR}/new_5.txt) == 2000-01* ]]; then
     echo -e "$GREEN OK 6 $NC"
 else
@@ -127,6 +144,8 @@ else
 fi
 
 chmod 747 ${DIR}/new_5.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(stat -c'%a' ${DIR}/new_5.txt) == "747" ]]; then
     echo -e "$GREEN OK 7 $NC"
 else
@@ -141,6 +160,8 @@ else
 fi
 
 link ${DIR}/new_5.txt ${DIR}/hardlinked_5.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(stat -c'%h' ${DIR}/new_5.txt) == "2" ]] && [[ $(stat -c'%h' ${DIR}/hardlinked_5.txt) == "2" ]]; then
     echo -e "$GREEN OK 8 $NC"
 else
@@ -156,6 +177,8 @@ fi
 
 mkdir ${DIR}/sub
 echo s > ${DIR}/sub/s.txt
+# TODO: support replica reads
+sleep 2
 if [[ $(cat ${DIR}/sub/s.txt) = "s" ]]; then
     echo -e "$GREEN OK 9 $NC"
 else

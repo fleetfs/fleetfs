@@ -3,9 +3,9 @@ use raft::eraftpb::Message;
 use raft::prelude::EntryType;
 use raft::storage::MemStorage;
 use raft::{Config, RawNode};
-use std::cmp::max;
 use std::sync::Mutex;
 
+use crate::client::NodeClient;
 use crate::generated::{get_root_as_generic_request, GenericRequest};
 use crate::local_storage::LocalStorage;
 use crate::storage_node::{handler, LocalContext};
@@ -16,23 +16,31 @@ use futures::sync::oneshot::Sender;
 use futures::Future;
 use std::collections::HashMap;
 
-pub struct RaftManager<'a> {
+pub struct RaftManager<'a, 'b> {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u64, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
+    peers: HashMap<u64, NodeClient<'b>>,
     node_id: u64,
     context: LocalContext,
 }
 
-impl<'a> RaftManager<'a> {
-    pub fn new(context: LocalContext) -> RaftManager<'a> {
-        // Unique ID of node within the cluster. Never 0.
-        let node_id = 1;
+impl<'a, 'b> RaftManager<'a, 'b> {
+    pub fn new(context: LocalContext) -> RaftManager<'a, 'b> {
+        let node_id = context.node_id;
+        let mut peer_ids: Vec<u64> = context
+            .peers
+            .iter()
+            // TODO: huge hack. Assume the port is the node id
+            .map(|peer| u64::from(peer.port()))
+            .collect();
+        peer_ids.push(node_id);
+
         let raft_config = Config {
             id: node_id,
-            peers: vec![node_id],
+            peers: peer_ids,
             learners: vec![],
             // TODO: set good value
-            election_tick: 10,
+            election_tick: 10 * 3,
             // TODO: set good value
             heartbeat_tick: 3,
             // TODO: need to restore this from storage
@@ -48,6 +56,11 @@ impl<'a> RaftManager<'a> {
         RaftManager {
             raft_node: Mutex::new(raft_node),
             pending_responses: Mutex::new(HashMap::new()),
+            peers: context
+                .peers
+                .iter()
+                .map(|peer| (u64::from(peer.port()), NodeClient::new(*peer)))
+                .collect(),
             node_id,
             context,
         }
@@ -61,38 +74,41 @@ impl<'a> RaftManager<'a> {
             raft_node.step(message.clone())?;
         }
 
+        // TODO: should call process_queue here, but we can't because it would deadlock
+        // because this is a message from a peer, and we would create an infinite cycle of TCP calls
+
         Ok(())
     }
 
-    pub fn get_outgoing_raft_messages(&self) -> raft::Result<Vec<Message>> {
-        let mut raft_node = self.raft_node.lock().unwrap();
-        if !raft_node.has_ready() {
-            return Ok(vec![]);
+    fn send_outgoing_raft_messages(&self, messages: Vec<Message>) {
+        for message in messages {
+            let peer = &self.peers[&message.to];
+            // TODO: errors
+            peer.send_raft_message(message).unwrap();
         }
-
-        let mut ready = raft_node.ready();
-
-        Ok(ready.messages.drain(..).collect())
     }
 
     // Should be called once every 100ms to handle background tasks
     pub fn background_tick(&self) {
-        let ready;
         {
             let mut raft_node = self.raft_node.lock().unwrap();
-            ready = raft_node.tick();
+            raft_node.tick();
         }
-        if ready {
-            self.process_raft_queue().unwrap();
-        }
+        // TODO: should be able to only do this on ready, but apply_messages() doesn't process the queue right now, because it would deadlock
+        self.process_raft_queue();
+    }
+
+    fn process_raft_queue(&self) {
+        let messages = self._process_raft_queue().unwrap();
+        self.send_outgoing_raft_messages(messages);
     }
 
     // Returns the last applied index
-    fn process_raft_queue(&self) -> raft::Result<Option<u64>> {
+    fn _process_raft_queue(&self) -> raft::Result<Vec<Message>> {
         let mut raft_node = self.raft_node.lock().unwrap();
 
         if !raft_node.has_ready() {
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         let mut ready = raft_node.ready();
@@ -112,10 +128,11 @@ impl<'a> RaftManager<'a> {
             raft_node.mut_store().wl().set_hardstate(hard_state.clone());
         }
 
-        let mut applied_index = 0;
+        //        let mut applied_index = 0;
         if let Some(committed_entries) = ready.committed_entries.take() {
             for entry in committed_entries {
-                applied_index = max(applied_index, entry.index);
+                // TODO save this
+                //                applied_index = max(applied_index, entry.index);
 
                 if entry.data.is_empty() {
                     // New leaders send empty entries
@@ -126,49 +143,48 @@ impl<'a> RaftManager<'a> {
 
                 let mut pending_responses = self.pending_responses.lock().unwrap();
 
-                let (mut builder, sender) = pending_responses.remove(&entry.index).unwrap();
-
                 let local_storage = LocalStorage::new(self.context.clone());
                 let request = get_root_as_generic_request(&entry.data);
-                handler(request, &local_storage, &self.context, &mut builder);
-                info!("Committed write index {}", entry.index);
+                if let Some((mut builder, sender)) = pending_responses.remove(&entry.index) {
+                    handler(request, &local_storage, &self.context, &mut builder);
+                    sender.send(builder).ok().unwrap();
+                } else {
+                    let mut builder = FlatBufferBuilder::new();
+                    // TODO: pass None for builder to avoid this useless allocation
+                    handler(request, &local_storage, &self.context, &mut builder);
+                }
 
-                sender.send(builder).ok().unwrap();
+                info!("Committed write index {}", entry.index);
             }
         }
 
+        let messages = ready.messages.drain(..).collect();
         raft_node.advance(ready);
 
-        if applied_index > 0 {
-            return Ok(Some(applied_index));
-        } else {
-            return Ok(None);
-        }
+        Ok(messages)
     }
 
     fn _propose(&self, data: Vec<u8>) -> raft::Result<u64> {
         let mut raft_node = self.raft_node.lock().unwrap();
-        assert_eq!(self.node_id, raft_node.raft.leader_id);
         raft_node.propose(vec![], data)?;
         return Ok(raft_node.raft.raft_log.last_index());
     }
 
     pub fn initialize(&self) {
         for _ in 0..100 {
-            let messages = self.get_outgoing_raft_messages().unwrap();
-            self.apply_messages(&messages).unwrap();
-            self.process_raft_queue().unwrap();
             {
+                // TODO: probably don't need to tick() here, since background timer does that
                 let mut raft_node = self.raft_node.lock().unwrap();
-                // TODO: hack. remove this.
                 raft_node.tick();
                 if raft_node.raft.leader_id > 0 {
-                    break;
+                    println!("Leader elected {}", raft_node.raft.leader_id);
+                    return;
                 }
             }
             // Wait until there is a leader
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        panic!("No leader elected");
     }
 
     pub fn propose(
@@ -186,8 +202,8 @@ impl<'a> RaftManager<'a> {
             pending_responses.insert(index, (builder, sender));
         }
 
-        // Force immediate processing, since we know there's a proposal
-        self.process_raft_queue().unwrap();
+        // TODO: Force immediate processing, since we know there's a proposal
+        //        self.process_raft_queue();
 
         return receiver.map_err(|_| ());
     }

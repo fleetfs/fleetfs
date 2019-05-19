@@ -25,6 +25,7 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::RenameRequest => true,
         RequestType::MkdirRequest => true,
         RequestType::WriteRequest => true,
+        RequestType::RaftRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 }

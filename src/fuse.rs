@@ -83,7 +83,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         debug!("chmod() called with {:?}, {:?}", path, mode);
         return self
             .client
-            .chmod(path.to_str().unwrap(), mode, true)
+            .chmod(path.to_str().unwrap(), mode)
             .map_err(into_fuse_error);
     }
 
@@ -102,9 +102,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
         let path = path.to_str().unwrap();
-        self.client
-            .truncate(path, size, true)
-            .map_err(into_fuse_error)
+        self.client.truncate(path, size).map_err(into_fuse_error)
     }
 
     fn utimens(
@@ -124,7 +122,6 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
                 atime.map(|x| x.nsec).unwrap_or(0),
                 mtime.map(|x| x.sec).unwrap_or(0),
                 mtime.map(|x| x.nsec).unwrap_or(0),
-                true,
             )
             .map_err(into_fuse_error);
     }
@@ -151,7 +148,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         let path = Path::new(parent).join(name);
         return self
             .client
-            .mkdir(path.to_str().unwrap(), mode as u16, true)
+            .mkdir(path.to_str().unwrap(), mode as u16)
             .map(|file_attr| (Timespec { sec: 0, nsec: 0 }, file_attr))
             .map_err(into_fuse_error);
     }
@@ -160,7 +157,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         debug!("unlink() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
         let path = path.to_str().unwrap();
-        self.client.unlink(path, true).map_err(into_fuse_error)
+        self.client.unlink(path).map_err(into_fuse_error)
     }
 
     fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
@@ -191,7 +188,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         let new_path = Path::new(new_parent).join(new_name);
         return self
             .client
-            .rename(path.to_str().unwrap(), new_path.to_str().unwrap(), true)
+            .rename(path.to_str().unwrap(), new_path.to_str().unwrap())
             .map_err(into_fuse_error);
     }
 
@@ -209,7 +206,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         let new_path = Path::new(new_parent).join(new_name);
         return self
             .client
-            .hardlink(path.to_str().unwrap(), new_path.to_str().unwrap(), true)
+            .hardlink(path.to_str().unwrap(), new_path.to_str().unwrap())
             .map(|file_attr| (Timespec { sec: 0, nsec: 0 }, file_attr))
             .map_err(into_fuse_error);
     }
@@ -252,7 +249,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         let path = path.to_str().unwrap();
         return self
             .client
-            .write(path, &data, offset, true)
+            .write(path, &data, offset)
             .map_err(into_fuse_error);
     }
 
@@ -351,7 +348,7 @@ impl<'a> FilesystemMT for FleetFUSE<'a> {
         // TODO: kind of a hack to create the file
         let path = Path::new(parent).join(name);
         self.client
-            .write(path.to_str().unwrap(), &[], 0, true)
+            .write(path.to_str().unwrap(), &[], 0)
             .map_err(into_fuse_error)?;
         // TODO
         Ok(CreatedEntry {
