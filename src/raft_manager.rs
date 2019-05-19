@@ -84,7 +84,7 @@ impl<'a> RaftManager<'a> {
         for message in messages {
             let peer = &self.peers[&message.to];
             // TODO: errors
-            peer.send_raft_message(message).unwrap();
+            tokio::spawn(peer.send_raft_message(message));
         }
     }
 
