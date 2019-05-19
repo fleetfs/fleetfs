@@ -3,34 +3,51 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 
 use crate::generated::*;
-use crate::tcp_client::TcpClient;
-use crate::utils::{finalize_request, response_or_error};
+use crate::utils::finalize_request;
+use futures::stream::Stream;
+use futures::Future;
+use log::error;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
+use tokio::codec::length_delimited;
+use tokio::net::TcpStream;
 
 pub struct PeerClient {
-    tcp_client: TcpClient,
+    server_ip_port: SocketAddr,
 }
 
 impl PeerClient {
     pub fn new(server_ip_port: SocketAddr) -> PeerClient {
-        PeerClient {
-            tcp_client: TcpClient::new(server_ip_port),
-        }
+        PeerClient { server_ip_port }
     }
 
-    fn send<'b>(
+    pub fn send_and_receive_length_prefixed(
         &self,
-        request: &[u8],
-        buffer: &'b mut Vec<u8>,
-    ) -> Result<GenericResponse<'b>, ErrorCode> {
-        self.tcp_client
-            .send_and_receive_length_prefixed(request, buffer.as_mut())
-            .map_err(|_| ErrorCode::Uncategorized)?;
-        return response_or_error(buffer);
+        data: Vec<u8>,
+    ) -> impl Future<Item = Vec<u8>, Error = std::io::Error> {
+        // TODO: find a way to use a connection pool
+        let tcp_stream = TcpStream::connect(&self.server_ip_port);
+
+        tcp_stream
+            .map(move |tcp_stream| {
+                tokio::io::write_all(tcp_stream, data)
+                    .map(|(stream, _)| {
+                        let reader = length_delimited::Builder::new()
+                            .little_endian()
+                            .new_read(stream);
+
+                        reader
+                            .take(1)
+                            .map(|response| response.to_vec())
+                            .collect()
+                            .map(|mut x| x.pop().unwrap())
+                    })
+                    .flatten()
+            })
+            .flatten()
     }
 
-    pub fn send_raft_message(&self, message: Message) -> Result<(), ErrorCode> {
+    pub fn send_raft_message(&self, message: Message) -> impl Future<Item = (), Error = ()> {
         let serialized_message = message.write_to_bytes().unwrap();
         let mut builder = FlatBufferBuilder::new();
         let data_offset = builder.create_vector_direct(&serialized_message);
@@ -39,11 +56,8 @@ impl PeerClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RaftRequest, finish_offset);
 
-        let mut buffer = vec![];
-        let response = self.send(builder.finished_data(), &mut buffer)?;
-        // TODO: maybe receive message back to reduce roundtrips?
-        response.response_as_empty_response().unwrap();
-
-        return Ok(());
+        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
+            .map(|_| ())
+            .map_err(|e| error!("Error sending Raft message: {:?}", e))
     }
 }

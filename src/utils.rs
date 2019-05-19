@@ -50,3 +50,23 @@ pub fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
     }
     return Ok(response);
 }
+
+pub struct WritableFlatBuffer<'a> {
+    buffer: FlatBufferBuilder<'a>,
+}
+
+impl<'a> WritableFlatBuffer<'a> {
+    pub fn new(buffer: FlatBufferBuilder<'a>) -> WritableFlatBuffer<'a> {
+        WritableFlatBuffer { buffer }
+    }
+
+    pub fn into_buffer(self) -> FlatBufferBuilder<'a> {
+        self.buffer
+    }
+}
+
+impl<'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.finished_data()
+    }
+}

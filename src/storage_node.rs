@@ -12,7 +12,7 @@ use crate::distributed_file::DistributedFileResponder;
 use crate::generated::*;
 use crate::local_storage::LocalStorage;
 use crate::raft_manager::RaftManager;
-use crate::utils::{empty_response, is_write_request, ResultResponse};
+use crate::utils::{empty_response, is_write_request, ResultResponse, WritableFlatBuffer};
 use futures::future::ok;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
@@ -262,16 +262,6 @@ impl LocalContext {
     }
 }
 
-struct WritableFlatBuffer<'a> {
-    buffer: FlatBufferBuilder<'a>,
-}
-
-impl<'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
-    fn as_ref(&self) -> &[u8] {
-        self.buffer.finished_data()
-    }
-}
-
 pub struct Node {
     context: LocalContext,
     raft_manager: RaftManager<'static>,
@@ -339,11 +329,11 @@ impl Node {
                     }
                     builder_future
                         .map(|builder| {
-                            let writable = WritableFlatBuffer { buffer: builder };
+                            let writable = WritableFlatBuffer::new(builder);
                             tokio::io::write_all(writer, writable)
                         })
                         .flatten()
-                        .map(|(writer, written)| (writer, written.buffer))
+                        .map(|(writer, written)| (writer, written.into_buffer()))
                 });
 
                 tokio::spawn(conn.map(|_| ()).map_err(|_| ()))
