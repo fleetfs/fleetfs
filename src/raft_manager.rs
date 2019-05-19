@@ -5,9 +5,9 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
-use crate::client::NodeClient;
 use crate::generated::{get_root_as_generic_request, GenericRequest};
 use crate::local_storage::LocalStorage;
+use crate::peer_client::PeerClient;
 use crate::storage_node::{handler, LocalContext};
 use crate::utils::is_write_request;
 use flatbuffers::FlatBufferBuilder;
@@ -16,16 +16,16 @@ use futures::sync::oneshot::Sender;
 use futures::Future;
 use std::collections::HashMap;
 
-pub struct RaftManager<'a, 'b> {
+pub struct RaftManager<'a> {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u64, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
-    peers: HashMap<u64, NodeClient<'b>>,
+    peers: HashMap<u64, PeerClient>,
     node_id: u64,
     context: LocalContext,
 }
 
-impl<'a, 'b> RaftManager<'a, 'b> {
-    pub fn new(context: LocalContext) -> RaftManager<'a, 'b> {
+impl<'a> RaftManager<'a> {
+    pub fn new(context: LocalContext) -> RaftManager<'a> {
         let node_id = context.node_id;
         let mut peer_ids: Vec<u64> = context
             .peers
@@ -59,7 +59,7 @@ impl<'a, 'b> RaftManager<'a, 'b> {
             peers: context
                 .peers
                 .iter()
-                .map(|peer| (u64::from(peer.port()), NodeClient::new(*peer)))
+                .map(|peer| (u64::from(peer.port()), PeerClient::new(*peer)))
                 .collect(),
             node_id,
             context,
