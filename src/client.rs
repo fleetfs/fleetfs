@@ -88,6 +88,19 @@ impl<'a> NodeClient<'a> {
         return response_or_error(buffer);
     }
 
+    pub fn leader_id(&self) -> Result<u64, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let request_builder = GetLeaderRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::GetLeaderRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let node_id_response = response.response_as_node_id_response().unwrap();
+
+        return Ok(node_id_response.node_id());
+    }
+
     pub fn fsck(&self) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemCheckRequestBuilder::new(&mut builder);

@@ -76,12 +76,21 @@ fn checksum_request<'a>(
 
     return Ok((builder, ResponseType::ReadResponse, response_offset));
 }
-pub fn raft_message_handler<'a>(
+pub fn raft_message_handler<'a, 'b>(
     request: GenericRequest<'a>,
     raft_manager: &RaftManager,
-    builder: &mut FlatBufferBuilder,
-) {
-    let response: Result<(ResponseType, WIPOffset<UnionWIPOffset>), ErrorCode>;
+    mut builder: FlatBufferBuilder<'b>,
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = std::io::Error> {
+    let response: Box<
+        Future<
+                Item = (
+                    FlatBufferBuilder<'b>,
+                    ResponseType,
+                    WIPOffset<UnionWIPOffset>,
+                ),
+                Error = ErrorCode,
+            > + Send,
+    >;
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => unreachable!(),
@@ -106,27 +115,48 @@ pub fn raft_message_handler<'a>(
             raft_manager
                 .apply_messages(&[deserialized_message])
                 .unwrap();
-            let response_builder = EmptyResponseBuilder::new(builder);
-            let offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::EmptyResponse, offset));
+            response = Box::new(result(empty_response(builder)));
         }
         RequestType::LatestCommitRequest => {
             let index = raft_manager.get_latest_local_commit();
-            let mut response_builder = LatestCommitResponseBuilder::new(builder);
+            let mut response_builder = LatestCommitResponseBuilder::new(&mut builder);
             response_builder.add_index(index);
             let response_offset = response_builder.finish().as_union_value();
-            response = Ok((ResponseType::LatestCommitResponse, response_offset));
+            response = Box::new(ok((
+                builder,
+                ResponseType::LatestCommitResponse,
+                response_offset,
+            )));
+        }
+        RequestType::GetLeaderRequest => {
+            let leader_future = raft_manager
+                .get_leader()
+                .map(move |leader_id| {
+                    let mut response_builder = NodeIdResponseBuilder::new(&mut builder);
+                    response_builder.add_node_id(leader_id);
+                    let response_offset = response_builder.finish().as_union_value();
+                    (builder, ResponseType::NodeIdResponse, response_offset)
+                })
+                .map_err(|_| ErrorCode::Uncategorized);
+
+            response = Box::new(leader_future);
         }
         RequestType::NONE => unreachable!(),
     }
 
-    let (response_type, response_offset) = response.unwrap();
-    let mut generic_response_builder = GenericResponseBuilder::new(builder);
-    generic_response_builder.add_response_type(response_type);
-    generic_response_builder.add_response(response_offset);
+    response
+        .map(|(mut builder, response_type, response_offset)| {
+            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+            generic_response_builder.add_response_type(response_type);
+            generic_response_builder.add_response(response_offset);
 
-    let final_response_offset = generic_response_builder.finish();
-    builder.finish_size_prefixed(final_response_offset, None);
+            let final_response_offset = generic_response_builder.finish();
+            builder.finish_size_prefixed(final_response_offset, None);
+
+            builder
+        })
+        // TODO: handle errors like handler()
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
 }
 
 pub fn handler<'a, 'b>(
@@ -272,6 +302,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::GetLeaderRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 
@@ -371,8 +402,8 @@ impl Node {
                         Future<Item = FlatBufferBuilder, Error = std::io::Error> + Send,
                     >;
                     if is_raft_request(request.request_type()) {
-                        raft_message_handler(request, &cloned_raft, &mut builder);
-                        builder_future = Box::new(ok(builder));
+                        builder_future =
+                            Box::new(raft_message_handler(request, &cloned_raft, builder));
                     } else if is_write_request(request.request_type()) {
                         builder_future = Box::new(
                             cloned_raft

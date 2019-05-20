@@ -42,6 +42,7 @@ pub fn is_raft_request(request_type: RequestType) -> bool {
         RequestType::WriteRequest => false,
         RequestType::RaftRequest => true,
         RequestType::LatestCommitRequest => true,
+        RequestType::GetLeaderRequest => true,
         RequestType::NONE => unreachable!(),
     }
 }
@@ -63,6 +64,7 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::WriteRequest => true,
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::GetLeaderRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 }
