@@ -15,22 +15,22 @@ use log::info;
 use log::warn;
 
 use crate::generated::*;
-use crate::utils::{empty_response, ResultResponse};
+use crate::utils::{empty_response, into_error_code, ResultResponse};
 
 // Handles one request/response
 // TODO: rename this, since it is no longer distributed
-pub struct DistributedFileResponder<'a: 'b, 'b> {
+pub struct DistributedFileResponder<'a> {
     path: String,
     local_data_dir: String,
-    response_buffer: &'b mut FlatBufferBuilder<'a>,
+    response_buffer: FlatBufferBuilder<'a>,
 }
 
-impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
+impl<'a> DistributedFileResponder<'a> {
     pub fn new(
         path: String,
         local_data_dir: String,
-        builder: &'b mut FlatBufferBuilder<'a>,
-    ) -> DistributedFileResponder<'a, 'b> {
+        builder: FlatBufferBuilder<'a>,
+    ) -> DistributedFileResponder<'a> {
         DistributedFileResponder {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
@@ -43,42 +43,44 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
-    pub fn truncate(self, new_length: u64) -> ResultResponse {
+    pub fn truncate(self, new_length: u64) -> ResultResponse<'a> {
         let local_path = self.to_local_path(&self.path);
         let file = File::create(&local_path).expect("Couldn't create file");
-        file.set_len(new_length)?;
+        file.set_len(new_length).map_err(into_error_code)?;
 
         return empty_response(self.response_buffer);
     }
 
-    pub fn write(self, offset: u64, data: &[u8]) -> ResultResponse {
+    pub fn write(mut self, offset: u64, data: &[u8]) -> ResultResponse<'a> {
         let local_path = self.to_local_path(&self.path);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
-            .open(&local_path)?;
+            .open(&local_path)
+            .map_err(into_error_code)?;
 
-        file.seek(SeekFrom::Start(offset))?;
+        file.seek(SeekFrom::Start(offset))
+            .map_err(into_error_code)?;
 
-        file.write_all(data)?;
-        let mut response_builder = WrittenResponseBuilder::new(self.response_buffer);
+        file.write_all(data).map_err(into_error_code)?;
+        let mut response_builder = WrittenResponseBuilder::new(&mut self.response_buffer);
         response_builder.add_bytes_written(data.len() as u32);
         let offset = response_builder.finish().as_union_value();
-        return Ok((ResponseType::WrittenResponse, offset));
+        return Ok((self.response_buffer, ResponseType::WrittenResponse, offset));
     }
 
-    pub fn mkdir(self, _mode: u16) -> Result<(), std::io::Error> {
+    pub fn mkdir(self, _mode: u16) -> Result<FlatBufferBuilder<'a>, ErrorCode> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
-        fs::create_dir(path)?;
+        fs::create_dir(path).map_err(into_error_code)?;
 
         // TODO set the mode
 
-        return Ok(());
+        return Ok(self.response_buffer);
     }
 
-    pub fn readdir(self) -> ResultResponse {
+    pub fn readdir(mut self) -> ResultResponse<'a> {
         let path = Path::new(&self.local_data_dir).join(&self.path);
 
         let mut entries = vec![];
@@ -94,7 +96,7 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             };
             let path = self.response_buffer.create_string(&filename);
             let directory_entry = DirectoryEntry::create(
-                self.response_buffer,
+                &mut self.response_buffer,
                 &DirectoryEntryArgs {
                     path: Some(path),
                     kind: file_type,
@@ -108,22 +110,24 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             self.response_buffer.push(directory_entry);
         }
         let entries = self.response_buffer.end_vector(entries.len());
-        let mut builder = DirectoryListingResponseBuilder::new(self.response_buffer);
+        let mut builder = DirectoryListingResponseBuilder::new(&mut self.response_buffer);
         builder.add_entries(entries);
 
+        let offset = builder.finish().as_union_value();
         return Ok((
+            self.response_buffer,
             ResponseType::DirectoryListingResponse,
-            builder.finish().as_union_value(),
+            offset,
         ));
     }
 
-    pub fn getattr(self) -> ResultResponse {
+    pub fn getattr(mut self) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
-        let metadata = fs::metadata(path)?;
+        let metadata = fs::metadata(path).map_err(into_error_code)?;
 
-        let mut builder = FileMetadataResponseBuilder::new(self.response_buffer);
+        let mut builder = FileMetadataResponseBuilder::new(&mut self.response_buffer);
         builder.add_size_bytes(metadata.len());
         builder.add_size_blocks(metadata.st_blocks());
         let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
@@ -145,9 +149,11 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_group_id(metadata.st_gid());
         builder.add_device_id(metadata.st_rdev() as u32);
 
+        let offset = builder.finish().as_union_value();
         return Ok((
+            self.response_buffer,
             ResponseType::FileMetadataResponse,
-            builder.finish().as_union_value(),
+            offset,
         ));
     }
 
@@ -157,7 +163,7 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         atime_nanos: i32,
         mtime_secs: i64,
         mtime_nanos: i32,
-    ) -> ResultResponse {
+    ) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
@@ -165,12 +171,13 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             local_path,
             FileTime::from_unix_time(atime_secs, atime_nanos as u32),
             FileTime::from_unix_time(mtime_secs, mtime_nanos as u32),
-        )?;
+        )
+        .map_err(into_error_code)?;
 
         return empty_response(self.response_buffer);
     }
 
-    pub fn chmod(self, mode: u32) -> ResultResponse {
+    pub fn chmod(self, mode: u32) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
@@ -185,11 +192,11 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
                 "chmod failed on {:?}, {} with error {:?}",
                 local_path, mode, exit_code
             );
-            return Err(std::io::Error::from(std::io::ErrorKind::Other));
+            return Err(ErrorCode::Uncategorized);
         }
     }
 
-    pub fn hardlink(self, new_path: &str) -> ResultResponse {
+    pub fn hardlink(mut self, new_path: &str) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!("Hardlinking file: {} to {}", self.path, new_path);
@@ -197,9 +204,9 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         let local_new_path = self.to_local_path(new_path);
         // TODO error handling
         fs::hard_link(&local_path, &local_new_path).expect("hardlink failed");
-        let metadata = fs::metadata(local_new_path)?;
+        let metadata = fs::metadata(local_new_path).map_err(into_error_code)?;
 
-        let mut builder = FileMetadataResponseBuilder::new(self.response_buffer);
+        let mut builder = FileMetadataResponseBuilder::new(&mut self.response_buffer);
         builder.add_size_bytes(metadata.len());
         builder.add_size_blocks(metadata.st_blocks());
         let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
@@ -221,24 +228,26 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
         builder.add_group_id(metadata.st_gid());
         builder.add_device_id(metadata.st_rdev() as u32);
 
+        let offset = builder.finish().as_union_value();
         return Ok((
+            self.response_buffer,
             ResponseType::FileMetadataResponse,
-            builder.finish().as_union_value(),
+            offset,
         ));
     }
 
-    pub fn rename(self, new_path: &str) -> ResultResponse {
+    pub fn rename(self, new_path: &str) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!("Renaming file: {} to {}", self.path, new_path);
         let local_path = self.to_local_path(&self.path);
         let local_new_path = self.to_local_path(new_path);
-        fs::rename(local_path, local_new_path)?;
+        fs::rename(local_path, local_new_path).map_err(into_error_code)?;
 
         return empty_response(self.response_buffer);
     }
 
-    pub fn read(self, offset: u64, size: u32) -> ResultResponse {
+    pub fn read(mut self, offset: u64, size: u32) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!(
@@ -246,26 +255,32 @@ impl<'a: 'b, 'b> DistributedFileResponder<'a, 'b> {
             self.path, self.local_data_dir
         );
         let path = Path::new(&self.local_data_dir).join(&self.path);
-        let file = File::open(&path)?;
+        let file = File::open(&path).map_err(into_error_code)?;
 
         let mut contents = vec![0; size as usize];
-        let bytes_read = file.read_at(&mut contents, offset)?;
+        let bytes_read = file
+            .read_at(&mut contents, offset)
+            .map_err(into_error_code)?;
         contents.truncate(bytes_read);
 
         let data_offset = self.response_buffer.create_vector_direct(&contents);
-        let mut response_builder = ReadResponseBuilder::new(self.response_buffer);
+        let mut response_builder = ReadResponseBuilder::new(&mut self.response_buffer);
         response_builder.add_data(data_offset);
         let response_offset = response_builder.finish().as_union_value();
 
-        return Ok((ResponseType::ReadResponse, response_offset));
+        return Ok((
+            self.response_buffer,
+            ResponseType::ReadResponse,
+            response_offset,
+        ));
     }
 
-    pub fn unlink(self) -> ResultResponse {
+    pub fn unlink(self) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!("Deleting file");
         let local_path = self.to_local_path(&self.path);
-        fs::remove_file(local_path)?;
+        fs::remove_file(local_path).map_err(into_error_code)?;
 
         return empty_response(self.response_buffer);
     }

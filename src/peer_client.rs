@@ -81,4 +81,25 @@ impl PeerClient {
             })
             .map_err(|e| error!("Error reading latest commit: {:?}", e))
     }
+
+    pub fn filesystem_checksum(&self) -> impl Future<Item = Vec<u8>, Error = std::io::Error> {
+        let mut builder = FlatBufferBuilder::new();
+        let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(
+            &mut builder,
+            RequestType::FilesystemChecksumRequest,
+            finish_offset,
+        );
+
+        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
+            .map(|response| {
+                response_or_error(&response)
+                    .unwrap()
+                    .response_as_read_response()
+                    .unwrap()
+                    .data()
+                    .to_vec()
+            })
+    }
 }

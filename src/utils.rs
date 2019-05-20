@@ -1,13 +1,28 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 use crate::generated::*;
+use std::io::ErrorKind;
 
-pub type ResultResponse = Result<(ResponseType, WIPOffset<UnionWIPOffset>), std::io::Error>;
+pub type ResultResponse<'a> = Result<
+    (
+        FlatBufferBuilder<'a>,
+        ResponseType,
+        WIPOffset<UnionWIPOffset>,
+    ),
+    ErrorCode,
+>;
 
-pub fn empty_response(buffer: &mut FlatBufferBuilder) -> ResultResponse {
-    let response_builder = EmptyResponseBuilder::new(buffer);
+pub fn empty_response(mut buffer: FlatBufferBuilder) -> ResultResponse {
+    let response_builder = EmptyResponseBuilder::new(&mut buffer);
     let offset = response_builder.finish().as_union_value();
-    return Ok((ResponseType::EmptyResponse, offset));
+    return Ok((buffer, ResponseType::EmptyResponse, offset));
+}
+
+pub fn into_error_code(error: std::io::Error) -> ErrorCode {
+    match error.kind() {
+        ErrorKind::NotFound => ErrorCode::DoesNotExist,
+        _ => ErrorCode::Uncategorized,
+    }
 }
 
 pub fn is_raft_request(request_type: RequestType) -> bool {

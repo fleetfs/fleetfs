@@ -201,12 +201,18 @@ impl<'a> RaftManager<'a> {
                 if let Some((mut builder, sender)) =
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
-                    handler(request, &local_storage, &self.context, &mut builder);
+                    // TODO: dangerous. wait() could block!
+                    builder = handler(request, &local_storage, &self.context, builder)
+                        .wait()
+                        .unwrap();
                     sender.send(builder).ok().unwrap();
                 } else {
-                    let mut builder = FlatBufferBuilder::new();
+                    let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
-                    handler(request, &local_storage, &self.context, &mut builder);
+                    // TODO: dangerous. wait() could block!
+                    handler(request, &local_storage, &self.context, builder)
+                        .wait()
+                        .unwrap();
                 }
 
                 info!(
