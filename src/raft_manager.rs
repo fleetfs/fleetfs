@@ -76,15 +76,18 @@ impl<'a> RaftManager<'a> {
     }
 
     pub fn apply_messages(&self, messages: &[Message]) -> raft::Result<()> {
-        let mut raft_node = self.raft_node.lock().unwrap();
+        {
+            let mut raft_node = self.raft_node.lock().unwrap();
 
-        for message in messages {
-            assert_eq!(message.to, self.node_id);
-            raft_node.step(message.clone())?;
+            for message in messages {
+                assert_eq!(message.to, self.node_id);
+                raft_node.step(message.clone())?;
+            }
         }
 
-        // TODO: should call process_queue here, but we can't because it would deadlock
-        // because this is a message from a peer, and we would create an infinite cycle of TCP calls
+        {
+            self.process_raft_queue();
+        }
 
         Ok(())
     }
@@ -171,7 +174,7 @@ impl<'a> RaftManager<'a> {
                     .for_each(|sender| sender.send(leader_id).unwrap());
             }
         }
-        // TODO: should be able to only do this on ready, but apply_messages() doesn't process the queue right now, because it would deadlock
+        // TODO: should be able to only do this on ready, I think
         self.process_raft_queue();
     }
 
@@ -293,8 +296,7 @@ impl<'a> RaftManager<'a> {
             pending_responses.insert(uuid, (builder, sender));
         }
 
-        // TODO: Force immediate processing, since we know there's a proposal
-        //        self.process_raft_queue();
+        self.process_raft_queue();
 
         return receiver.map_err(|_| ());
     }
