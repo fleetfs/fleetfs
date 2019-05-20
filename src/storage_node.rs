@@ -1,21 +1,22 @@
 use std::error::Error;
 use std::fs;
 
-use flatbuffers::FlatBufferBuilder;
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use futures::Stream;
 use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::client::NodeClient;
 use crate::distributed_file::DistributedFileResponder;
 use crate::generated::*;
 use crate::local_storage::LocalStorage;
+use crate::peer_client::PeerClient;
 use crate::raft_manager::RaftManager;
 use crate::utils::{
-    empty_response, is_raft_request, is_write_request, ResultResponse, WritableFlatBuffer,
+    empty_response, into_error_code, is_raft_request, is_write_request, ResultResponse,
+    WritableFlatBuffer,
 };
-use futures::future::ok;
+use futures::future::{ok, result};
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
 use std::net::SocketAddr;
@@ -24,38 +25,63 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 
-fn fsck(local_storage: &LocalStorage, context: &LocalContext) -> Result<(), ErrorCode> {
+fn fsck<'a>(
+    local_storage: &LocalStorage,
+    context: &LocalContext,
+    mut builder: FlatBufferBuilder<'a>,
+) -> impl Future<
+    Item = (
+        FlatBufferBuilder<'a>,
+        ResponseType,
+        WIPOffset<UnionWIPOffset>,
+    ),
+    Error = ErrorCode,
+> {
+    let future_checksum = result(local_storage.checksum().map_err(into_error_code));
+    let mut peer_futures = vec![];
+    for peer in context.peers.iter() {
+        let client = PeerClient::new(*peer);
+        peer_futures.push(client.filesystem_checksum().map_err(into_error_code));
+    }
+
+    futures::future::join_all(peer_futures)
+        .join(future_checksum)
+        .map(move |(peer_checksums, checksum)| {
+            for peer_checksum in peer_checksums {
+                if checksum != peer_checksum {
+                    let args = ErrorResponseArgs {
+                        error_code: ErrorCode::Corrupted,
+                    };
+                    let response_offset =
+                        ErrorResponse::create(&mut builder, &args).as_union_value();
+                    return (builder, ResponseType::ErrorResponse, response_offset);
+                }
+            }
+
+            return empty_response(builder).unwrap();
+        })
+}
+
+fn checksum_request<'a>(
+    local_storage: &LocalStorage,
+    mut builder: FlatBufferBuilder<'a>,
+) -> ResultResponse<'a> {
     let checksum = local_storage
         .checksum()
         .map_err(|_| ErrorCode::Uncategorized)?;
-    for &peer in context.peers.iter() {
-        let client = NodeClient::new(peer);
-        let peer_checksum = client.filesystem_checksum()?;
-        if checksum != peer_checksum {
-            return Err(ErrorCode::Corrupted);
-        }
-    }
-    return Ok(());
-}
-
-fn checksum_request(
-    local_storage: &LocalStorage,
-    builder: &mut FlatBufferBuilder,
-) -> ResultResponse {
-    let checksum = local_storage.checksum()?;
     let data_offset = builder.create_vector_direct(&checksum);
-    let mut response_builder = ReadResponseBuilder::new(builder);
+    let mut response_builder = ReadResponseBuilder::new(&mut builder);
     response_builder.add_data(data_offset);
     let response_offset = response_builder.finish().as_union_value();
 
-    return Ok((ResponseType::ReadResponse, response_offset));
+    return Ok((builder, ResponseType::ReadResponse, response_offset));
 }
 pub fn raft_message_handler<'a>(
     request: GenericRequest<'a>,
     raft_manager: &RaftManager,
     builder: &mut FlatBufferBuilder,
 ) {
-    let response;
+    let response: Result<(ResponseType, WIPOffset<UnionWIPOffset>), ErrorCode>;
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => unreachable!(),
@@ -80,7 +106,9 @@ pub fn raft_message_handler<'a>(
             raft_manager
                 .apply_messages(&[deserialized_message])
                 .unwrap();
-            response = empty_response(builder);
+            let response_builder = EmptyResponseBuilder::new(builder);
+            let offset = response_builder.finish().as_union_value();
+            response = Ok((ResponseType::EmptyResponse, offset));
         }
         RequestType::LatestCommitRequest => {
             let index = raft_manager.get_latest_local_commit();
@@ -101,27 +129,29 @@ pub fn raft_message_handler<'a>(
     builder.finish_size_prefixed(final_response_offset, None);
 }
 
-pub fn handler<'a>(
+pub fn handler<'a, 'b>(
     request: GenericRequest<'a>,
     local_storage: &LocalStorage,
     context: &LocalContext,
-    builder: &mut FlatBufferBuilder,
-) {
-    let response;
-    let mut known_error_code = None;
+    builder: FlatBufferBuilder<'b>,
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = std::io::Error> {
+    let response: Box<
+        Future<
+                Item = (
+                    FlatBufferBuilder<'b>,
+                    ResponseType,
+                    WIPOffset<UnionWIPOffset>,
+                ),
+                Error = ErrorCode,
+            > + Send,
+    >;
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => {
-            response = match fsck(local_storage, context) {
-                Ok(_) => empty_response(builder),
-                Err(error_code) => {
-                    known_error_code = Some(error_code);
-                    Err(std::io::Error::from(std::io::ErrorKind::Other))
-                }
-            };
+            response = Box::new(fsck(local_storage, context, builder));
         }
         RequestType::FilesystemChecksumRequest => {
-            response = checksum_request(local_storage, builder);
+            response = Box::new(result(checksum_request(local_storage, builder)));
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
@@ -130,7 +160,9 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.read(read_request.offset(), read_request.read_size());
+            response = Box::new(result(
+                file.read(read_request.offset(), read_request.read_size()),
+            ));
         }
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
@@ -139,7 +171,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.hardlink(&hardlink_request.new_path());
+            response = Box::new(result(file.hardlink(&hardlink_request.new_path())));
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
@@ -148,7 +180,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.rename(&rename_request.new_path());
+            response = Box::new(result(file.rename(&rename_request.new_path())));
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
@@ -157,7 +189,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.chmod(chmod_request.mode());
+            response = Box::new(result(file.chmod(chmod_request.mode())));
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
@@ -166,7 +198,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.truncate(truncate_request.new_length());
+            response = Box::new(result(file.truncate(truncate_request.new_length())));
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
@@ -175,7 +207,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.unlink();
+            response = Box::new(result(file.unlink()));
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
@@ -184,7 +216,9 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.write(write_request.offset(), write_request.data());
+            response = Box::new(result(
+                file.write(write_request.offset(), write_request.data()),
+            ));
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
@@ -193,12 +227,12 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.utimens(
+            response = Box::new(result(file.utimens(
                 utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
-            );
+            )));
         }
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
@@ -207,7 +241,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.readdir();
+            response = Box::new(result(file.readdir()));
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
@@ -216,7 +250,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.getattr();
+            response = Box::new(result(file.getattr()));
         }
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
@@ -225,7 +259,7 @@ pub fn handler<'a>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = file.mkdir(mkdir_request.mode()).map(|_| {
+            response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
                 let file = DistributedFileResponder::new(
                     mkdir_request.path().to_string(),
                     context.data_dir.clone(),
@@ -234,43 +268,39 @@ pub fn handler<'a>(
                 // TODO: probably possible to hit a distributed race here
                 file.getattr()
                     .expect("getattr failed on newly created file")
-            });
+            })));
         }
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 
-    match response {
-        Ok((response_type, response_offset)) => {
-            let mut generic_response_builder = GenericResponseBuilder::new(builder);
+    response
+        .map(|(mut builder, response_type, response_offset)| {
+            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
             generic_response_builder.add_response_type(response_type);
             generic_response_builder.add_response(response_offset);
 
             let final_response_offset = generic_response_builder.finish();
             builder.finish_size_prefixed(final_response_offset, None);
-        }
-        Err(e) => {
+
+            builder
+        })
+        .or_else(|error_code| {
+            // TODO: receive builder, so that we don't have to create a new one
             // Reset builder in case a partial response was written
-            builder.reset();
-            let error_code;
-            if e.kind() == std::io::ErrorKind::NotFound {
-                error_code = ErrorCode::DoesNotExist;
-            } else if e.kind() == std::io::ErrorKind::Other {
-                error_code = known_error_code.unwrap();
-            } else {
-                error_code = ErrorCode::Uncategorized;
-            }
+            let mut builder = FlatBufferBuilder::new();
             let args = ErrorResponseArgs { error_code };
-            let response_offset = ErrorResponse::create(builder, &args).as_union_value();
-            let mut generic_response_builder = GenericResponseBuilder::new(builder);
+            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
             generic_response_builder.add_response_type(ResponseType::ErrorResponse);
             generic_response_builder.add_response(response_offset);
 
             let final_response_offset = generic_response_builder.finish();
             builder.finish_size_prefixed(final_response_offset, None);
-        }
-    }
+
+            Ok(builder)
+        })
 }
 
 #[derive(Clone)]
@@ -361,10 +391,10 @@ impl Node {
                             .map(move |_| {
                                 let request = get_root_as_generic_request(&frame);
                                 let local_storage = LocalStorage::new(cloned2.clone());
-                                handler(request, &local_storage, &cloned2, &mut builder);
-                                builder
+                                handler(request, &local_storage, &cloned2, builder)
                             })
-                            .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other));
+                            .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
+                            .flatten();
                         builder_future = Box::new(read_after_sync);
                     }
                     builder_future
