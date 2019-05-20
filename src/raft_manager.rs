@@ -23,6 +23,7 @@ pub struct RaftManager<'a> {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u128, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
+    leader_requests: Mutex<Vec<Sender<u64>>>,
     applied_index: Mutex<u64>,
     peers: HashMap<u64, PeerClient>,
     node_id: u64,
@@ -61,6 +62,7 @@ impl<'a> RaftManager<'a> {
         RaftManager {
             raft_node: Mutex::new(raft_node),
             pending_responses: Mutex::new(HashMap::new()),
+            leader_requests: Mutex::new(vec![]),
             sync_requests: Mutex::new(vec![]),
             applied_index: Mutex::new(0),
             peers: context
@@ -122,6 +124,21 @@ impl<'a> RaftManager<'a> {
         commit
     }
 
+    pub fn get_leader(&self) -> impl Future<Item = u64, Error = ()> {
+        let raft_node = self.raft_node.lock().unwrap();
+
+        let leader: Box<Future<Item = u64, Error = ()> + Send>;
+        if raft_node.raft.leader_id > 0 {
+            leader = Box::new(ok(raft_node.raft.leader_id));
+        } else {
+            let (sender, receiver) = oneshot::channel();
+            self.leader_requests.lock().unwrap().push(sender);
+            leader = Box::new(receiver.map_err(|_| ()));
+        }
+
+        leader
+    }
+
     // Wait until the given index has been committed
     pub fn sync(&self, index: u64) -> impl Future<Item = (), Error = ()> {
         // Make sure we have the lock on all data structures
@@ -144,6 +161,15 @@ impl<'a> RaftManager<'a> {
         {
             let mut raft_node = self.raft_node.lock().unwrap();
             raft_node.tick();
+
+            let leader_id = raft_node.raft.leader_id;
+            if leader_id > 0 {
+                self.leader_requests
+                    .lock()
+                    .unwrap()
+                    .drain(..)
+                    .for_each(|sender| sender.send(leader_id).unwrap());
+            }
         }
         // TODO: should be able to only do this on ready, but apply_messages() doesn't process the queue right now, because it would deadlock
         self.process_raft_queue();

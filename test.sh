@@ -18,14 +18,17 @@ DIR2=$(mktemp --directory)
 cargo build
 cargo run -- --port 3300 --data-dir $DATA_DIR --peers 127.0.0.1:3301 &
 cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers 127.0.0.1:3300 &
-sleep 2
+
+# Wait for leader to be elected
+sleep 0.5
+cargo run -- --server-ip-port 127.0.0.1:3300 --get-leader
+
 cargo run -- --server-ip-port 127.0.0.1:3300 --mount-point $DIR &
 FUSE_PID=$!
 # Mount the replica with direct IO, so that replication shows up immediately. Otherwise, some tests might fail
 # due to caching in the kernel
 cargo run -- --server-ip-port 127.0.0.1:3301 --mount-point $DIR2 --direct-io &
-# TODO: wait until a leader has been elected, so that this doesn't fail sometimes
-sleep 5
+sleep 0.5
 
 echo "mounting at $DIR"
 echo "mounting replica at $DIR2"

@@ -6,7 +6,7 @@ use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use core::time::Duration;
 
-const TIMEOUT: u64 = 5;
+const TIMEOUT: u64 = 10;
 
 // TODO: should not use this on the server, since it's blocking
 pub struct TcpClient {

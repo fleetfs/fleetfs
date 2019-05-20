@@ -3,7 +3,7 @@ namespace generated;
 union RequestType {ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
-                   LatestCommitRequest}
+                   LatestCommitRequest, GetLeaderRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -15,6 +15,9 @@ table RaftRequest {
 }
 
 table LatestCommitRequest {
+}
+
+table GetLeaderRequest {
 }
 
 table FilesystemChecksumRequest {
@@ -142,8 +145,12 @@ table LatestCommitResponse {
   index: ulong;
 }
 
+table NodeIdResponse {
+  node_id: ulong;
+}
+
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse }
+                     WrittenResponse, LatestCommitResponse, NodeIdResponse }
 
 table GenericResponse {
   response: ResponseType;

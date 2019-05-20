@@ -81,6 +81,11 @@ fn main() -> Result<(), ErrorCode> {
                 .help("Run a filesystem check on the cluster"),
         )
         .arg(
+            Arg::with_name("get-leader")
+                .long("get-leader")
+                .help("Print the ID of the leader node"),
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
@@ -105,6 +110,7 @@ fn main() -> Result<(), ErrorCode> {
         .to_string();
     let direct_io: bool = matches.is_present("direct-io");
     let fsck: bool = matches.is_present("fsck");
+    let get_leader: bool = matches.is_present("get-leader");
     let verbosity: u64 = matches.occurrences_of("v");
     let peers: Vec<SocketAddr> = matches
         .value_of("peers")
@@ -140,6 +146,9 @@ fn main() -> Result<(), ErrorCode> {
                 return Err(e);
             }
         }
+    } else if get_leader {
+        let client = NodeClient::new(server_ip_port);
+        println!("Leader: {}", client.leader_id()?);
     } else if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
         Node::new(&data_dir, port, peers).run();
