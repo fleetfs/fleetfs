@@ -45,9 +45,7 @@ impl<'a> RaftManager<'a> {
             id: node_id,
             peers: peer_ids,
             learners: vec![],
-            // TODO: set good value
             election_tick: 10 * 3,
-            // TODO: set good value
             heartbeat_tick: 3,
             // TODO: need to restore this from storage
             applied: 0,
