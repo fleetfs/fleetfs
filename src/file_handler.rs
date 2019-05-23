@@ -18,20 +18,19 @@ use crate::generated::*;
 use crate::utils::{empty_response, into_error_code, ResultResponse};
 
 // Handles one request/response
-// TODO: rename this, since it is no longer distributed
-pub struct DistributedFileResponder<'a> {
+pub struct FileRequestHandler<'a> {
     path: String,
     local_data_dir: String,
     response_buffer: FlatBufferBuilder<'a>,
 }
 
-impl<'a> DistributedFileResponder<'a> {
+impl<'a> FileRequestHandler<'a> {
     pub fn new(
         path: String,
         local_data_dir: String,
         builder: FlatBufferBuilder<'a>,
-    ) -> DistributedFileResponder<'a> {
-        DistributedFileResponder {
+    ) -> FileRequestHandler<'a> {
+        FileRequestHandler {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
             local_data_dir,
