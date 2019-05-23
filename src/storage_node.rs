@@ -7,7 +7,7 @@ use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::distributed_file::DistributedFileResponder;
+use crate::file_handler::FileRequestHandler;
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::raft_manager::RaftManager;
@@ -194,7 +194,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 read_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -205,7 +205,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 hardlink_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -214,7 +214,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 rename_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -223,7 +223,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 chmod_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -232,7 +232,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 truncate_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -241,7 +241,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 unlink_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -250,7 +250,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 write_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -261,7 +261,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 utimens_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -275,7 +275,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 readdir_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -284,7 +284,7 @@ pub fn handler<'a, 'b>(
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 getattr_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -293,13 +293,13 @@ pub fn handler<'a, 'b>(
         }
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = DistributedFileResponder::new(
+            let file = FileRequestHandler::new(
                 mkdir_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
             );
             response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
-                let file = DistributedFileResponder::new(
+                let file = FileRequestHandler::new(
                     mkdir_request.path().to_string(),
                     context.data_dir.clone(),
                     builder,
