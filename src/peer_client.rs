@@ -35,6 +35,7 @@ impl PeerClient {
         if let Some(stream) = locked.pop() {
             result = Box::new(ok(stream));
         } else {
+            // TODO: should have an upper limit on the number of outstanding connections
             result = Box::new(TcpStream::connect(&self.server_ip_port));
         }
 
