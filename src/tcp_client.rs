@@ -8,7 +8,6 @@ use core::time::Duration;
 
 const TIMEOUT: u64 = 10;
 
-// TODO: should not use this on the server, since it's blocking
 pub struct TcpClient {
     server: SocketAddr,
     // TODO: should probably have a connection pool here
