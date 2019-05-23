@@ -80,7 +80,7 @@ pub fn raft_message_handler<'a, 'b>(
     request: GenericRequest<'a>,
     raft_manager: &RaftManager,
     mut builder: FlatBufferBuilder<'b>,
-) -> impl Future<Item = FlatBufferBuilder<'b>, Error = std::io::Error> {
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
     let response: Box<
         Future<
                 Item = (
@@ -144,19 +144,16 @@ pub fn raft_message_handler<'a, 'b>(
         RequestType::NONE => unreachable!(),
     }
 
-    response
-        .map(|(mut builder, response_type, response_offset)| {
-            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-            generic_response_builder.add_response_type(response_type);
-            generic_response_builder.add_response(response_offset);
+    response.map(|(mut builder, response_type, response_offset)| {
+        let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+        generic_response_builder.add_response_type(response_type);
+        generic_response_builder.add_response(response_offset);
 
-            let final_response_offset = generic_response_builder.finish();
-            builder.finish_size_prefixed(final_response_offset, None);
+        let final_response_offset = generic_response_builder.finish();
+        builder.finish_size_prefixed(final_response_offset, None);
 
-            builder
-        })
-        // TODO: handle errors like handler()
-        .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
+        builder
+    })
 }
 
 pub fn handler<'a, 'b>(
@@ -164,7 +161,7 @@ pub fn handler<'a, 'b>(
     local_storage: &LocalStorage,
     context: &LocalContext,
     builder: FlatBufferBuilder<'b>,
-) -> impl Future<Item = FlatBufferBuilder<'b>, Error = std::io::Error> {
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
     let response: Box<
         Future<
                 Item = (
@@ -306,32 +303,16 @@ pub fn handler<'a, 'b>(
         RequestType::NONE => unreachable!(),
     }
 
-    response
-        .map(|(mut builder, response_type, response_offset)| {
-            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-            generic_response_builder.add_response_type(response_type);
-            generic_response_builder.add_response(response_offset);
+    response.map(|(mut builder, response_type, response_offset)| {
+        let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+        generic_response_builder.add_response_type(response_type);
+        generic_response_builder.add_response(response_offset);
 
-            let final_response_offset = generic_response_builder.finish();
-            builder.finish_size_prefixed(final_response_offset, None);
+        let final_response_offset = generic_response_builder.finish();
+        builder.finish_size_prefixed(final_response_offset, None);
 
-            builder
-        })
-        .or_else(|error_code| {
-            // TODO: receive builder, so that we don't have to create a new one
-            // Reset builder in case a partial response was written
-            let mut builder = FlatBufferBuilder::new();
-            let args = ErrorResponseArgs { error_code };
-            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-            let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-            generic_response_builder.add_response_type(ResponseType::ErrorResponse);
-            generic_response_builder.add_response(response_offset);
-
-            let final_response_offset = generic_response_builder.finish();
-            builder.finish_size_prefixed(final_response_offset, None);
-
-            Ok(builder)
-        })
+        builder
+    })
 }
 
 #[derive(Clone)]
@@ -397,9 +378,8 @@ impl Node {
                 let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
                     let request = get_root_as_generic_request(&frame);
                     builder.reset();
-                    // TODO: not sure we really need this Box
                     let builder_future: Box<
-                        Future<Item = FlatBufferBuilder, Error = std::io::Error> + Send,
+                        Future<Item = FlatBufferBuilder, Error = ErrorCode> + Send,
                     >;
                     if is_raft_request(request.request_type()) {
                         builder_future =
@@ -408,7 +388,7 @@ impl Node {
                         builder_future = Box::new(
                             cloned_raft
                                 .propose(request, builder)
-                                .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other)),
+                                .map_err(|_| ErrorCode::Uncategorized),
                         );
                     } else {
                         // Sync to ensure replicas serve latest data
@@ -417,18 +397,36 @@ impl Node {
                         let after_sync = cloned_raft
                             .get_latest_commit_from_leader()
                             .map(move |latest_commit| cloned_raft2.sync(latest_commit))
-                            .flatten();
+                            .flatten()
+                            .map_err(|_| ErrorCode::Uncategorized);
                         let read_after_sync = after_sync
                             .map(move |_| {
                                 let request = get_root_as_generic_request(&frame);
                                 let local_storage = LocalStorage::new(cloned2.clone());
                                 handler(request, &local_storage, &cloned2, builder)
                             })
-                            .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
                             .flatten();
                         builder_future = Box::new(read_after_sync);
                     }
-                    builder_future
+                    let builder_future2: Box<
+                        Future<Item = FlatBufferBuilder, Error = std::io::Error> + Send,
+                    >;
+                    builder_future2 = Box::new(builder_future.or_else(|error_code| {
+                        let mut builder = FlatBufferBuilder::new();
+                        let args = ErrorResponseArgs { error_code };
+                        let response_offset =
+                            ErrorResponse::create(&mut builder, &args).as_union_value();
+                        let mut generic_response_builder =
+                            GenericResponseBuilder::new(&mut builder);
+                        generic_response_builder.add_response_type(ResponseType::ErrorResponse);
+                        generic_response_builder.add_response(response_offset);
+
+                        let final_response_offset = generic_response_builder.finish();
+                        builder.finish_size_prefixed(final_response_offset, None);
+
+                        Ok(builder)
+                    }));
+                    builder_future2
                         .map(|builder| {
                             let writable = WritableFlatBuffer::new(builder);
                             tokio::io::write_all(writer, writable)
