@@ -5,9 +5,10 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
+use crate::file_handler::file_request_handler;
 use crate::generated::{get_root_as_generic_request, GenericRequest};
 use crate::peer_client::PeerClient;
-use crate::storage_node::{handler, LocalContext};
+use crate::storage_node::LocalContext;
 use crate::utils::is_write_request;
 use flatbuffers::FlatBufferBuilder;
 use futures::future::ok;
@@ -229,13 +230,17 @@ impl<'a> RaftManager<'a> {
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     // TODO: dangerous. wait() could block!
-                    builder = handler(request, &self.context, builder).wait().unwrap();
+                    builder = file_request_handler(request, &self.context, builder)
+                        .wait()
+                        .unwrap();
                     sender.send(builder).ok().unwrap();
                 } else {
                     let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
                     // TODO: dangerous. wait() could block!
-                    handler(request, &self.context, builder).wait().unwrap();
+                    file_request_handler(request, &self.context, builder)
+                        .wait()
+                        .unwrap();
                 }
 
                 info!(

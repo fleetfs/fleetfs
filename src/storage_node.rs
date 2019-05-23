@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::{fs, io};
+use std::fs;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use futures::Stream;
@@ -7,88 +7,19 @@ use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::file_handler::FileRequestHandler;
+use crate::file_handler::file_request_handler;
 use crate::generated::*;
-use crate::peer_client::PeerClient;
 use crate::raft_manager::RaftManager;
-use crate::utils::{
-    empty_response, into_error_code, is_raft_request, is_write_request, ResultResponse,
-    WritableFlatBuffer,
-};
+use crate::utils::{empty_response, is_raft_request, is_write_request, WritableFlatBuffer};
 use futures::future::{ok, result};
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
-use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use walkdir::WalkDir;
 
-fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
-    let mut hasher = Sha256::new();
-    for entry in WalkDir::new(data_dir).sort_by(|a, b| a.file_name().cmp(b.file_name())) {
-        let entry = entry?;
-        if entry.file_type().is_file() {
-            let mut file = fs::File::open(entry.path())?;
-
-            // TODO hash the path and file attributes too
-            io::copy(&mut file, &mut hasher)?;
-        }
-        // TODO handle other file types
-    }
-    return Ok(hasher.result().to_vec());
-}
-
-fn fsck<'a>(
-    context: &LocalContext,
-    mut builder: FlatBufferBuilder<'a>,
-) -> impl Future<
-    Item = (
-        FlatBufferBuilder<'a>,
-        ResponseType,
-        WIPOffset<UnionWIPOffset>,
-    ),
-    Error = ErrorCode,
-> {
-    let future_checksum = result(checksum(&context.data_dir).map_err(into_error_code));
-    let mut peer_futures = vec![];
-    for peer in context.peers.iter() {
-        let client = PeerClient::new(*peer);
-        peer_futures.push(client.filesystem_checksum().map_err(into_error_code));
-    }
-
-    futures::future::join_all(peer_futures)
-        .join(future_checksum)
-        .map(move |(peer_checksums, checksum)| {
-            for peer_checksum in peer_checksums {
-                if checksum != peer_checksum {
-                    let args = ErrorResponseArgs {
-                        error_code: ErrorCode::Corrupted,
-                    };
-                    let response_offset =
-                        ErrorResponse::create(&mut builder, &args).as_union_value();
-                    return (builder, ResponseType::ErrorResponse, response_offset);
-                }
-            }
-
-            return empty_response(builder).unwrap();
-        })
-}
-
-fn checksum_request<'a>(
-    local_context: &LocalContext,
-    mut builder: FlatBufferBuilder<'a>,
-) -> ResultResponse<'a> {
-    let checksum = checksum(&local_context.data_dir).map_err(|_| ErrorCode::Uncategorized)?;
-    let data_offset = builder.create_vector_direct(&checksum);
-    let mut response_builder = ReadResponseBuilder::new(&mut builder);
-    response_builder.add_data(data_offset);
-    let response_offset = response_builder.finish().as_union_value();
-
-    return Ok((builder, ResponseType::ReadResponse, response_offset));
-}
 pub fn raft_message_handler<'a, 'b>(
     request: GenericRequest<'a>,
     raft_manager: &RaftManager,
@@ -154,164 +85,6 @@ pub fn raft_message_handler<'a, 'b>(
 
             response = Box::new(leader_future);
         }
-        RequestType::NONE => unreachable!(),
-    }
-
-    response.map(|(mut builder, response_type, response_offset)| {
-        let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-        generic_response_builder.add_response_type(response_type);
-        generic_response_builder.add_response(response_offset);
-
-        let final_response_offset = generic_response_builder.finish();
-        builder.finish_size_prefixed(final_response_offset, None);
-
-        builder
-    })
-}
-
-pub fn handler<'a, 'b>(
-    request: GenericRequest<'a>,
-    context: &LocalContext,
-    builder: FlatBufferBuilder<'b>,
-) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
-    let response: Box<
-        Future<
-                Item = (
-                    FlatBufferBuilder<'b>,
-                    ResponseType,
-                    WIPOffset<UnionWIPOffset>,
-                ),
-                Error = ErrorCode,
-            > + Send,
-    >;
-
-    match request.request_type() {
-        RequestType::FilesystemCheckRequest => {
-            response = Box::new(fsck(context, builder));
-        }
-        RequestType::FilesystemChecksumRequest => {
-            response = Box::new(result(checksum_request(context, builder)));
-        }
-        RequestType::ReadRequest => {
-            let read_request = request.request_as_read_request().unwrap();
-            let file = FileRequestHandler::new(
-                read_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(
-                file.read(read_request.offset(), read_request.read_size()),
-            ));
-        }
-        RequestType::HardlinkRequest => {
-            let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let file = FileRequestHandler::new(
-                hardlink_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.hardlink(&hardlink_request.new_path())));
-        }
-        RequestType::RenameRequest => {
-            let rename_request = request.request_as_rename_request().unwrap();
-            let file = FileRequestHandler::new(
-                rename_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.rename(&rename_request.new_path())));
-        }
-        RequestType::ChmodRequest => {
-            let chmod_request = request.request_as_chmod_request().unwrap();
-            let file = FileRequestHandler::new(
-                chmod_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.chmod(chmod_request.mode())));
-        }
-        RequestType::TruncateRequest => {
-            let truncate_request = request.request_as_truncate_request().unwrap();
-            let file = FileRequestHandler::new(
-                truncate_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.truncate(truncate_request.new_length())));
-        }
-        RequestType::UnlinkRequest => {
-            let unlink_request = request.request_as_unlink_request().unwrap();
-            let file = FileRequestHandler::new(
-                unlink_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.unlink()));
-        }
-        RequestType::WriteRequest => {
-            let write_request = request.request_as_write_request().unwrap();
-            let file = FileRequestHandler::new(
-                write_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(
-                file.write(write_request.offset(), write_request.data()),
-            ));
-        }
-        RequestType::UtimensRequest => {
-            let utimens_request = request.request_as_utimens_request().unwrap();
-            let file = FileRequestHandler::new(
-                utimens_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.utimens(
-                utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
-                utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
-                utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
-                utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
-            )));
-        }
-        RequestType::ReaddirRequest => {
-            let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = FileRequestHandler::new(
-                readdir_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.readdir()));
-        }
-        RequestType::GetattrRequest => {
-            let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = FileRequestHandler::new(
-                getattr_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.getattr()));
-        }
-        RequestType::MkdirRequest => {
-            let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = FileRequestHandler::new(
-                mkdir_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
-                let file = FileRequestHandler::new(
-                    mkdir_request.path().to_string(),
-                    context.data_dir.clone(),
-                    builder,
-                );
-                // TODO: probably possible to hit a distributed race here
-                file.getattr()
-                    .expect("getattr failed on newly created file")
-            })));
-        }
-        RequestType::RaftRequest => unreachable!(),
-        RequestType::LatestCommitRequest => unreachable!(),
-        RequestType::GetLeaderRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 
@@ -414,7 +187,7 @@ impl Node {
                         let read_after_sync = after_sync
                             .map(move |_| {
                                 let request = get_root_as_generic_request(&frame);
-                                handler(request, &cloned2, builder)
+                                file_request_handler(request, &cloned2, builder)
                             })
                             .flatten();
                         builder_future = Box::new(read_after_sync);

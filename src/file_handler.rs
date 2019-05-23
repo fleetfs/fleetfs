@@ -1,5 +1,4 @@
 use std::ffi::CString;
-use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Seek;
@@ -8,24 +7,189 @@ use std::io::Write;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use filetime::FileTime;
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use log::info;
 use log::warn;
 
 use crate::generated::*;
+use crate::peer_client::PeerClient;
+use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, into_error_code, ResultResponse};
+use futures::future::result;
+use futures::Future;
+use sha2::{Digest, Sha256};
+use walkdir::WalkDir;
+
+pub fn file_request_handler<'a, 'b>(
+    request: GenericRequest<'a>,
+    context: &LocalContext,
+    builder: FlatBufferBuilder<'b>,
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
+    let response: Box<
+        Future<
+                Item = (
+                    FlatBufferBuilder<'b>,
+                    ResponseType,
+                    WIPOffset<UnionWIPOffset>,
+                ),
+                Error = ErrorCode,
+            > + Send,
+    >;
+
+    match request.request_type() {
+        RequestType::FilesystemCheckRequest => {
+            response = Box::new(fsck(context, builder));
+        }
+        RequestType::FilesystemChecksumRequest => {
+            response = Box::new(result(checksum_request(context, builder)));
+        }
+        RequestType::ReadRequest => {
+            let read_request = request.request_as_read_request().unwrap();
+            let file = FileRequestHandler::new(
+                read_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(
+                file.read(read_request.offset(), read_request.read_size()),
+            ));
+        }
+        RequestType::HardlinkRequest => {
+            let hardlink_request = request.request_as_hardlink_request().unwrap();
+            let file = FileRequestHandler::new(
+                hardlink_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.hardlink(&hardlink_request.new_path())));
+        }
+        RequestType::RenameRequest => {
+            let rename_request = request.request_as_rename_request().unwrap();
+            let file = FileRequestHandler::new(
+                rename_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.rename(&rename_request.new_path())));
+        }
+        RequestType::ChmodRequest => {
+            let chmod_request = request.request_as_chmod_request().unwrap();
+            let file = FileRequestHandler::new(
+                chmod_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.chmod(chmod_request.mode())));
+        }
+        RequestType::TruncateRequest => {
+            let truncate_request = request.request_as_truncate_request().unwrap();
+            let file = FileRequestHandler::new(
+                truncate_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.truncate(truncate_request.new_length())));
+        }
+        RequestType::UnlinkRequest => {
+            let unlink_request = request.request_as_unlink_request().unwrap();
+            let file = FileRequestHandler::new(
+                unlink_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.unlink()));
+        }
+        RequestType::WriteRequest => {
+            let write_request = request.request_as_write_request().unwrap();
+            let file = FileRequestHandler::new(
+                write_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(
+                file.write(write_request.offset(), write_request.data()),
+            ));
+        }
+        RequestType::UtimensRequest => {
+            let utimens_request = request.request_as_utimens_request().unwrap();
+            let file = FileRequestHandler::new(
+                utimens_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.utimens(
+                utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
+                utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
+                utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
+                utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
+            )));
+        }
+        RequestType::ReaddirRequest => {
+            let readdir_request = request.request_as_readdir_request().unwrap();
+            let file = FileRequestHandler::new(
+                readdir_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.readdir()));
+        }
+        RequestType::GetattrRequest => {
+            let getattr_request = request.request_as_getattr_request().unwrap();
+            let file = FileRequestHandler::new(
+                getattr_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.getattr()));
+        }
+        RequestType::MkdirRequest => {
+            let mkdir_request = request.request_as_mkdir_request().unwrap();
+            let file = FileRequestHandler::new(
+                mkdir_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
+                let file = FileRequestHandler::new(
+                    mkdir_request.path().to_string(),
+                    context.data_dir.clone(),
+                    builder,
+                );
+                // TODO: probably possible to hit a distributed race here
+                file.getattr()
+                    .expect("getattr failed on newly created file")
+            })));
+        }
+        RequestType::RaftRequest => unreachable!(),
+        RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::GetLeaderRequest => unreachable!(),
+        RequestType::NONE => unreachable!(),
+    }
+
+    response.map(|(mut builder, response_type, response_offset)| {
+        let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
+        generic_response_builder.add_response_type(response_type);
+        generic_response_builder.add_response(response_offset);
+
+        let final_response_offset = generic_response_builder.finish();
+        builder.finish_size_prefixed(final_response_offset, None);
+
+        builder
+    })
+}
 
 // Handles one request/response
-pub struct FileRequestHandler<'a> {
+struct FileRequestHandler<'a> {
     path: String,
     local_data_dir: String,
     response_buffer: FlatBufferBuilder<'a>,
 }
 
 impl<'a> FileRequestHandler<'a> {
-    pub fn new(
+    fn new(
         path: String,
         local_data_dir: String,
         builder: FlatBufferBuilder<'a>,
@@ -42,7 +206,7 @@ impl<'a> FileRequestHandler<'a> {
         Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
-    pub fn truncate(self, new_length: u64) -> ResultResponse<'a> {
+    fn truncate(self, new_length: u64) -> ResultResponse<'a> {
         let local_path = self.to_local_path(&self.path);
         let file = File::create(&local_path).expect("Couldn't create file");
         file.set_len(new_length).map_err(into_error_code)?;
@@ -50,7 +214,7 @@ impl<'a> FileRequestHandler<'a> {
         return empty_response(self.response_buffer);
     }
 
-    pub fn write(mut self, offset: u64, data: &[u8]) -> ResultResponse<'a> {
+    fn write(mut self, offset: u64, data: &[u8]) -> ResultResponse<'a> {
         let local_path = self.to_local_path(&self.path);
         let mut file = OpenOptions::new()
             .write(true)
@@ -68,7 +232,7 @@ impl<'a> FileRequestHandler<'a> {
         return Ok((self.response_buffer, ResponseType::WrittenResponse, offset));
     }
 
-    pub fn mkdir(self, _mode: u16) -> Result<FlatBufferBuilder<'a>, ErrorCode> {
+    fn mkdir(self, _mode: u16) -> Result<FlatBufferBuilder<'a>, ErrorCode> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
@@ -79,7 +243,7 @@ impl<'a> FileRequestHandler<'a> {
         return Ok(self.response_buffer);
     }
 
-    pub fn readdir(mut self) -> ResultResponse<'a> {
+    fn readdir(mut self) -> ResultResponse<'a> {
         let path = Path::new(&self.local_data_dir).join(&self.path);
 
         let mut entries = vec![];
@@ -120,7 +284,7 @@ impl<'a> FileRequestHandler<'a> {
         ));
     }
 
-    pub fn getattr(mut self) -> ResultResponse<'a> {
+    fn getattr(mut self) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
@@ -156,7 +320,7 @@ impl<'a> FileRequestHandler<'a> {
         ));
     }
 
-    pub fn utimens(
+    fn utimens(
         self,
         atime_secs: i64,
         atime_nanos: i32,
@@ -176,7 +340,7 @@ impl<'a> FileRequestHandler<'a> {
         return empty_response(self.response_buffer);
     }
 
-    pub fn chmod(self, mode: u32) -> ResultResponse<'a> {
+    fn chmod(self, mode: u32) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
@@ -195,7 +359,7 @@ impl<'a> FileRequestHandler<'a> {
         }
     }
 
-    pub fn hardlink(mut self, new_path: &str) -> ResultResponse<'a> {
+    fn hardlink(mut self, new_path: &str) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!("Hardlinking file: {} to {}", self.path, new_path);
@@ -235,7 +399,7 @@ impl<'a> FileRequestHandler<'a> {
         ));
     }
 
-    pub fn rename(self, new_path: &str) -> ResultResponse<'a> {
+    fn rename(self, new_path: &str) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!("Renaming file: {} to {}", self.path, new_path);
@@ -246,7 +410,7 @@ impl<'a> FileRequestHandler<'a> {
         return empty_response(self.response_buffer);
     }
 
-    pub fn read(mut self, offset: u64, size: u32) -> ResultResponse<'a> {
+    fn read(mut self, offset: u64, size: u32) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!(
@@ -274,7 +438,7 @@ impl<'a> FileRequestHandler<'a> {
         ));
     }
 
-    pub fn unlink(self) -> ResultResponse<'a> {
+    fn unlink(self) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         info!("Deleting file");
@@ -283,4 +447,68 @@ impl<'a> FileRequestHandler<'a> {
 
         return empty_response(self.response_buffer);
     }
+}
+
+fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
+    let mut hasher = Sha256::new();
+    for entry in WalkDir::new(data_dir).sort_by(|a, b| a.file_name().cmp(b.file_name())) {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            let mut file = fs::File::open(entry.path())?;
+
+            // TODO hash the path and file attributes too
+            io::copy(&mut file, &mut hasher)?;
+        }
+        // TODO handle other file types
+    }
+    return Ok(hasher.result().to_vec());
+}
+
+fn fsck<'a>(
+    context: &LocalContext,
+    mut builder: FlatBufferBuilder<'a>,
+) -> impl Future<
+    Item = (
+        FlatBufferBuilder<'a>,
+        ResponseType,
+        WIPOffset<UnionWIPOffset>,
+    ),
+    Error = ErrorCode,
+> {
+    let future_checksum = result(checksum(&context.data_dir).map_err(into_error_code));
+    let mut peer_futures = vec![];
+    for peer in context.peers.iter() {
+        let client = PeerClient::new(*peer);
+        peer_futures.push(client.filesystem_checksum().map_err(into_error_code));
+    }
+
+    futures::future::join_all(peer_futures)
+        .join(future_checksum)
+        .map(move |(peer_checksums, checksum)| {
+            for peer_checksum in peer_checksums {
+                if checksum != peer_checksum {
+                    let args = ErrorResponseArgs {
+                        error_code: ErrorCode::Corrupted,
+                    };
+                    let response_offset =
+                        ErrorResponse::create(&mut builder, &args).as_union_value();
+                    return (builder, ResponseType::ErrorResponse, response_offset);
+                }
+            }
+
+            return empty_response(builder).unwrap();
+        })
+}
+
+fn checksum_request<'a>(
+    local_context: &LocalContext,
+    mut builder: FlatBufferBuilder<'a>,
+) -> ResultResponse<'a> {
+    let checksum = checksum(&local_context.data_dir).map_err(|_| ErrorCode::Uncategorized)?;
+    let data_offset = builder.create_vector_direct(&checksum);
+    let mut response_builder = ReadResponseBuilder::new(&mut builder);
+    response_builder.add_data(data_offset);
+    let response_offset = response_builder.finish().as_union_value();
+
+    return Ok((builder, ResponseType::ReadResponse, response_offset));
 }
