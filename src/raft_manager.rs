@@ -6,7 +6,6 @@ use raft::{Config, RawNode};
 use std::sync::Mutex;
 
 use crate::generated::{get_root_as_generic_request, GenericRequest};
-use crate::local_storage::LocalStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::{handler, LocalContext};
 use crate::utils::is_write_request;
@@ -223,7 +222,6 @@ impl<'a> RaftManager<'a> {
 
                 let mut pending_responses = self.pending_responses.lock().unwrap();
 
-                let local_storage = LocalStorage::new(self.context.clone());
                 let request = get_root_as_generic_request(&entry.data);
                 let mut uuid = [0; 16];
                 uuid.copy_from_slice(&entry.context[0..16]);
@@ -231,17 +229,13 @@ impl<'a> RaftManager<'a> {
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     // TODO: dangerous. wait() could block!
-                    builder = handler(request, &local_storage, &self.context, builder)
-                        .wait()
-                        .unwrap();
+                    builder = handler(request, &self.context, builder).wait().unwrap();
                     sender.send(builder).ok().unwrap();
                 } else {
                     let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
                     // TODO: dangerous. wait() could block!
-                    handler(request, &local_storage, &self.context, builder)
-                        .wait()
-                        .unwrap();
+                    handler(request, &self.context, builder).wait().unwrap();
                 }
 
                 info!(

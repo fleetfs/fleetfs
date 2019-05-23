@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fs;
+use std::{fs, io};
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use futures::Stream;
@@ -9,7 +9,6 @@ use tokio::prelude::*;
 
 use crate::distributed_file::DistributedFileResponder;
 use crate::generated::*;
-use crate::local_storage::LocalStorage;
 use crate::peer_client::PeerClient;
 use crate::raft_manager::RaftManager;
 use crate::utils::{
@@ -19,14 +18,30 @@ use crate::utils::{
 use futures::future::{ok, result};
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
+use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
+use walkdir::WalkDir;
+
+fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
+    let mut hasher = Sha256::new();
+    for entry in WalkDir::new(data_dir).sort_by(|a, b| a.file_name().cmp(b.file_name())) {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            let mut file = fs::File::open(entry.path())?;
+
+            // TODO hash the path and file attributes too
+            io::copy(&mut file, &mut hasher)?;
+        }
+        // TODO handle other file types
+    }
+    return Ok(hasher.result().to_vec());
+}
 
 fn fsck<'a>(
-    local_storage: &LocalStorage,
     context: &LocalContext,
     mut builder: FlatBufferBuilder<'a>,
 ) -> impl Future<
@@ -37,7 +52,7 @@ fn fsck<'a>(
     ),
     Error = ErrorCode,
 > {
-    let future_checksum = result(local_storage.checksum().map_err(into_error_code));
+    let future_checksum = result(checksum(&context.data_dir).map_err(into_error_code));
     let mut peer_futures = vec![];
     for peer in context.peers.iter() {
         let client = PeerClient::new(*peer);
@@ -63,12 +78,10 @@ fn fsck<'a>(
 }
 
 fn checksum_request<'a>(
-    local_storage: &LocalStorage,
+    local_context: &LocalContext,
     mut builder: FlatBufferBuilder<'a>,
 ) -> ResultResponse<'a> {
-    let checksum = local_storage
-        .checksum()
-        .map_err(|_| ErrorCode::Uncategorized)?;
+    let checksum = checksum(&local_context.data_dir).map_err(|_| ErrorCode::Uncategorized)?;
     let data_offset = builder.create_vector_direct(&checksum);
     let mut response_builder = ReadResponseBuilder::new(&mut builder);
     response_builder.add_data(data_offset);
@@ -158,7 +171,6 @@ pub fn raft_message_handler<'a, 'b>(
 
 pub fn handler<'a, 'b>(
     request: GenericRequest<'a>,
-    local_storage: &LocalStorage,
     context: &LocalContext,
     builder: FlatBufferBuilder<'b>,
 ) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
@@ -175,10 +187,10 @@ pub fn handler<'a, 'b>(
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => {
-            response = Box::new(fsck(local_storage, context, builder));
+            response = Box::new(fsck(context, builder));
         }
         RequestType::FilesystemChecksumRequest => {
-            response = Box::new(result(checksum_request(local_storage, builder)));
+            response = Box::new(result(checksum_request(context, builder)));
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
@@ -402,8 +414,7 @@ impl Node {
                         let read_after_sync = after_sync
                             .map(move |_| {
                                 let request = get_root_as_generic_request(&frame);
-                                let local_storage = LocalStorage::new(cloned2.clone());
-                                handler(request, &local_storage, &cloned2, builder)
+                                handler(request, &cloned2, builder)
                             })
                             .flatten();
                         builder_future = Box::new(read_after_sync);
