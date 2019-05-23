@@ -10,7 +10,9 @@ use tokio::prelude::*;
 use crate::file_handler::file_request_handler;
 use crate::generated::*;
 use crate::raft_manager::RaftManager;
-use crate::utils::{empty_response, is_raft_request, is_write_request, WritableFlatBuffer};
+use crate::utils::{
+    empty_response, finalize_response, is_raft_request, is_write_request, WritableFlatBuffer,
+};
 use futures::future::{ok, result};
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
@@ -89,13 +91,7 @@ pub fn raft_message_handler<'a, 'b>(
     }
 
     response.map(|(mut builder, response_type, response_offset)| {
-        let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-        generic_response_builder.add_response_type(response_type);
-        generic_response_builder.add_response(response_offset);
-
-        let final_response_offset = generic_response_builder.finish();
-        builder.finish_size_prefixed(final_response_offset, None);
-
+        finalize_response(&mut builder, response_type, response_offset);
         builder
     })
 }
@@ -200,13 +196,11 @@ impl Node {
                         let args = ErrorResponseArgs { error_code };
                         let response_offset =
                             ErrorResponse::create(&mut builder, &args).as_union_value();
-                        let mut generic_response_builder =
-                            GenericResponseBuilder::new(&mut builder);
-                        generic_response_builder.add_response_type(ResponseType::ErrorResponse);
-                        generic_response_builder.add_response(response_offset);
-
-                        let final_response_offset = generic_response_builder.finish();
-                        builder.finish_size_prefixed(final_response_offset, None);
+                        finalize_response(
+                            &mut builder,
+                            ResponseType::ErrorResponse,
+                            response_offset,
+                        );
 
                         Ok(builder)
                     }));
