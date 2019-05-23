@@ -127,6 +127,7 @@ impl<'a> RaftManager<'a> {
         commit
     }
 
+    #[allow(clippy::useless_let_if_seq)]
     pub fn get_leader(&self) -> impl Future<Item = u64, Error = ()> {
         let raft_node = self.raft_node.lock().unwrap();
 
