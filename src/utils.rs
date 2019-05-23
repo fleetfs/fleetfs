@@ -81,6 +81,18 @@ pub fn finalize_request(
     builder.finish_size_prefixed(finish_offset, None);
 }
 
+pub fn finalize_response(
+    builder: &mut FlatBufferBuilder,
+    response_type: ResponseType,
+    finish_offset: WIPOffset<UnionWIPOffset>,
+) {
+    let mut generic_response_builder = GenericResponseBuilder::new(builder);
+    generic_response_builder.add_response_type(response_type);
+    generic_response_builder.add_response(finish_offset);
+    let finish_offset = generic_response_builder.finish();
+    builder.finish_size_prefixed(finish_offset, None);
+}
+
 pub fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
     let response = flatbuffers::get_root::<GenericResponse>(buffer);
     if response.response_type() == ResponseType::ErrorResponse {

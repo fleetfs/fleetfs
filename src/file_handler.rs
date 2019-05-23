@@ -17,7 +17,7 @@ use log::warn;
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
-use crate::utils::{empty_response, into_error_code, ResultResponse};
+use crate::utils::{empty_response, finalize_response, into_error_code, ResultResponse};
 use futures::future::result;
 use futures::Future;
 use sha2::{Digest, Sha256};
@@ -170,13 +170,7 @@ pub fn file_request_handler<'a, 'b>(
     }
 
     response.map(|(mut builder, response_type, response_offset)| {
-        let mut generic_response_builder = GenericResponseBuilder::new(&mut builder);
-        generic_response_builder.add_response_type(response_type);
-        generic_response_builder.add_response(response_offset);
-
-        let final_response_offset = generic_response_builder.finish();
-        builder.finish_size_prefixed(final_response_offset, None);
-
+        finalize_response(&mut builder, response_type, response_offset);
         builder
     })
 }
