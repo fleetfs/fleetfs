@@ -4,43 +4,71 @@ use flatbuffers::FlatBufferBuilder;
 
 use crate::generated::*;
 use crate::utils::{finalize_request, response_or_error};
-use futures::stream::Stream;
+use byteorder::{ByteOrder, LittleEndian};
+use futures::future::ok;
 use futures::Future;
 use log::error;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
-use tokio::codec::length_delimited;
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
+
+// TODO: should have a larger pool for connections to the leader, and smaller for other peers
+const POOL_SIZE: usize = 8;
 
 pub struct PeerClient {
     server_ip_port: SocketAddr,
+    pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
 impl PeerClient {
     pub fn new(server_ip_port: SocketAddr) -> PeerClient {
-        PeerClient { server_ip_port }
+        PeerClient {
+            server_ip_port,
+            pool: Arc::new(Mutex::new(vec![])),
+        }
+    }
+
+    fn connect(&self) -> impl Future<Item = TcpStream, Error = std::io::Error> + Send {
+        let mut locked = self.pool.lock().unwrap();
+        let result: Box<Future<Item = TcpStream, Error = std::io::Error> + Send>;
+        if let Some(stream) = locked.pop() {
+            result = Box::new(ok(stream));
+        } else {
+            result = Box::new(TcpStream::connect(&self.server_ip_port));
+        }
+
+        result
+    }
+
+    fn return_connection(pool: Arc<Mutex<Vec<TcpStream>>>, connection: TcpStream) {
+        let mut locked = pool.lock().unwrap();
+        if locked.len() < POOL_SIZE {
+            locked.push(connection);
+        }
     }
 
     pub fn send_and_receive_length_prefixed(
         &self,
         data: Vec<u8>,
     ) -> impl Future<Item = Vec<u8>, Error = std::io::Error> {
-        // TODO: find a way to use a connection pool
-        let tcp_stream = TcpStream::connect(&self.server_ip_port);
+        let pool = self.pool.clone();
 
-        tcp_stream
+        self.connect()
             .map(move |tcp_stream| {
                 tokio::io::write_all(tcp_stream, data)
                     .map(|(stream, _)| {
-                        let reader = length_delimited::Builder::new()
-                            .little_endian()
-                            .new_read(stream);
-
-                        reader
-                            .take(1)
-                            .map(|response| response.to_vec())
-                            .collect()
-                            .map(|mut x| x.pop().unwrap())
+                        let response_size = vec![0; 4];
+                        tokio::io::read_exact(stream, response_size)
+                            .map(|(stream, response_size_buffer)| {
+                                let size = LittleEndian::read_u32(&response_size_buffer);
+                                let buffer = vec![0; size as usize];
+                                tokio::io::read_exact(stream, buffer).map(|(stream, data)| {
+                                    PeerClient::return_connection(pool, stream);
+                                    data
+                                })
+                            })
+                            .flatten()
                     })
                     .flatten()
             })
