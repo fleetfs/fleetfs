@@ -115,7 +115,7 @@ impl LocalContext {
 
 pub struct Node {
     context: LocalContext,
-    raft_manager: RaftManager<'static>,
+    raft_manager: RaftManager,
     port: u16,
 }
 

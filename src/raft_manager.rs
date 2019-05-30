@@ -19,9 +19,17 @@ use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
 
-pub struct RaftManager<'a> {
+pub struct RaftManager {
     raft_node: Mutex<RawNode<MemStorage>>,
-    pending_responses: Mutex<HashMap<u128, (FlatBufferBuilder<'a>, Sender<FlatBufferBuilder<'a>>)>>,
+    pending_responses: Mutex<
+        HashMap<
+            u128,
+            (
+                FlatBufferBuilder<'static>,
+                Sender<FlatBufferBuilder<'static>>,
+            ),
+        >,
+    >,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     leader_requests: Mutex<Vec<Sender<u64>>>,
     applied_index: Mutex<u64>,
@@ -30,8 +38,8 @@ pub struct RaftManager<'a> {
     context: LocalContext,
 }
 
-impl<'a> RaftManager<'a> {
-    pub fn new(context: LocalContext) -> RaftManager<'a> {
+impl RaftManager {
+    pub fn new(context: LocalContext) -> RaftManager {
         let node_id = context.node_id;
         let mut peer_ids: Vec<u64> = context
             .peers
@@ -280,8 +288,8 @@ impl<'a> RaftManager<'a> {
     pub fn propose(
         &self,
         request: GenericRequest,
-        builder: FlatBufferBuilder<'a>,
-    ) -> impl Future<Item = FlatBufferBuilder<'a>, Error = ()> {
+        builder: FlatBufferBuilder<'static>,
+    ) -> impl Future<Item = FlatBufferBuilder<'static>, Error = ()> {
         assert!(is_write_request(request.request_type()));
         let uuid: u128 = rand::thread_rng().gen();
 

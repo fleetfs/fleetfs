@@ -46,14 +46,14 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
     }
 }
 
-pub struct NodeClient<'a> {
+pub struct NodeClient {
     tcp_client: TcpClient,
     response_buffer: CachedThreadLocal<RefCell<Vec<u8>>>,
-    request_builder: CachedThreadLocal<RefCell<FlatBufferBuilder<'a>>>,
+    request_builder: CachedThreadLocal<RefCell<FlatBufferBuilder<'static>>>,
 }
 
-impl<'a> NodeClient<'a> {
-    pub fn new(server_ip_port: SocketAddr) -> NodeClient<'a> {
+impl NodeClient {
+    pub fn new(server_ip_port: SocketAddr) -> NodeClient {
         NodeClient {
             tcp_client: TcpClient::new(server_ip_port),
             response_buffer: CachedThreadLocal::new(),
@@ -61,7 +61,7 @@ impl<'a> NodeClient<'a> {
         }
     }
 
-    fn get_or_create_builder(&self) -> RefMut<FlatBufferBuilder<'a>> {
+    fn get_or_create_builder(&self) -> RefMut<FlatBufferBuilder<'static>> {
         let mut builder = self
             .request_builder
             .get_or(|| Box::new(RefCell::new(FlatBufferBuilder::new())))
