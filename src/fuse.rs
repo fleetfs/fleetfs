@@ -247,10 +247,12 @@ impl FilesystemMT for FleetFUSE {
     ) -> ResultWrite {
         debug!("write() called with {:?}", path);
         let path = path.to_str().unwrap();
-        return self
+        let response = self
             .client
             .write(path, &data, offset)
             .map_err(into_fuse_error);
+        debug!("write() response {:?}", response);
+        response
     }
 
     fn flush(&self, _req: RequestInfo, path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {

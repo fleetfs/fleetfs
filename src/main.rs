@@ -14,8 +14,10 @@ use std::net::SocketAddr;
 use crate::generated::ErrorCode;
 
 pub mod client;
+pub mod data_storage;
 pub mod file_handler;
 pub mod fuse;
+pub mod metadata_storage;
 pub mod peer_client;
 pub mod raft_manager;
 pub mod storage_node;

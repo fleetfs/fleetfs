@@ -5,8 +5,10 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
+use crate::data_storage::DataStorage;
 use crate::file_handler::file_request_handler;
 use crate::generated::{get_root_as_generic_request, GenericRequest};
+use crate::metadata_storage::MetadataStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
 use crate::utils::is_write_request;
@@ -36,6 +38,8 @@ pub struct RaftManager {
     peers: HashMap<u64, PeerClient>,
     node_id: u64,
     context: LocalContext,
+    data_storage: DataStorage,
+    metadata_storage: MetadataStorage,
 }
 
 impl RaftManager {
@@ -51,7 +55,7 @@ impl RaftManager {
 
         let raft_config = Config {
             id: node_id,
-            peers: peer_ids,
+            peers: peer_ids.clone(),
             learners: vec![],
             election_tick: 10 * 3,
             heartbeat_tick: 3,
@@ -77,8 +81,20 @@ impl RaftManager {
                 .map(|peer| (u64::from(peer.port()), PeerClient::new(*peer)))
                 .collect(),
             node_id,
-            context,
+            context: context.clone(),
+            data_storage: DataStorage::new(node_id, &peer_ids, &context),
+            metadata_storage: MetadataStorage::new(),
         }
+    }
+
+    // TODO: remove this method
+    pub fn data_storage(&self) -> &DataStorage {
+        &self.data_storage
+    }
+
+    // TODO: remove this method
+    pub fn metadata_storage(&self) -> &MetadataStorage {
+        &self.metadata_storage
     }
 
     pub fn apply_messages(&self, messages: &[Message]) -> raft::Result<()> {
@@ -237,17 +253,29 @@ impl RaftManager {
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     // TODO: dangerous. wait() could block!
-                    builder = file_request_handler(request, &self.context, builder)
-                        .wait()
-                        .unwrap();
+                    builder = file_request_handler(
+                        request,
+                        &self.data_storage,
+                        &self.metadata_storage,
+                        &self.context,
+                        builder,
+                    )
+                    .wait()
+                    .unwrap();
                     sender.send(builder).ok().unwrap();
                 } else {
                     let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
                     // TODO: dangerous. wait() could block!
-                    file_request_handler(request, &self.context, builder)
-                        .wait()
-                        .unwrap();
+                    file_request_handler(
+                        request,
+                        &self.data_storage,
+                        &self.metadata_storage,
+                        &self.context,
+                        builder,
+                    )
+                    .wait()
+                    .unwrap();
                 }
 
                 info!(

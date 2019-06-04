@@ -1,11 +1,7 @@
 use std::ffi::CString;
 use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::Seek;
-use std::io::SeekFrom;
 use std::io::Write;
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -14,7 +10,9 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use log::info;
 use log::warn;
 
+use crate::data_storage::{DataStorage, BLOCK_SIZE};
 use crate::generated::*;
+use crate::metadata_storage::MetadataStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, finalize_response, into_error_code, ResultResponse};
@@ -23,8 +21,26 @@ use futures::Future;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
+    let data_offset = builder.create_vector_direct(data);
+    let mut response_builder = ReadResponseBuilder::new(&mut builder);
+    response_builder.add_data(data_offset);
+    let response_offset = response_builder.finish().as_union_value();
+
+    return Ok((builder, ResponseType::ReadResponse, response_offset));
+}
+
+fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultResponse {
+    let mut response_builder = WrittenResponseBuilder::new(&mut builder);
+    response_builder.add_bytes_written(length);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((builder, ResponseType::WrittenResponse, offset));
+}
+
 pub fn file_request_handler<'a, 'b>(
     request: GenericRequest<'a>,
+    data_storage: &DataStorage,
+    metadata_storage: &MetadataStorage,
     context: &LocalContext,
     builder: FlatBufferBuilder<'b>,
 ) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
@@ -48,13 +64,25 @@ pub fn file_request_handler<'a, 'b>(
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
-            let file = FileRequestHandler::new(
-                read_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
+            let read_result = data_storage.read(
+                read_request.path(),
+                read_request.offset(),
+                read_request.read_size(),
+            );
+            response =
+                Box::new(read_result.map(move |data| to_read_response(builder, &data).unwrap()))
+        }
+        RequestType::ReadRawRequest => {
+            let read_request = request.request_as_read_raw_request().unwrap();
+            let read_result = data_storage.read_raw(
+                read_request.path(),
+                read_request.offset(),
+                read_request.read_size(),
             );
             response = Box::new(result(
-                file.read(read_request.offset(), read_request.read_size()),
+                read_result
+                    .map(move |data| to_read_response(builder, &data).unwrap())
+                    .map_err(into_error_code),
             ));
         }
         RequestType::HardlinkRequest => {
@@ -64,6 +92,10 @@ pub fn file_request_handler<'a, 'b>(
                 context.data_dir.clone(),
                 builder,
             );
+            metadata_storage.hardlink(
+                &file.path,
+                hardlink_request.new_path().trim_start_matches('/'),
+            );
             response = Box::new(result(file.hardlink(&hardlink_request.new_path())));
         }
         RequestType::RenameRequest => {
@@ -72,6 +104,10 @@ pub fn file_request_handler<'a, 'b>(
                 rename_request.path().to_string(),
                 context.data_dir.clone(),
                 builder,
+            );
+            metadata_storage.rename(
+                &file.path,
+                rename_request.new_path().trim_start_matches('/'),
             );
             response = Box::new(result(file.rename(&rename_request.new_path())));
         }
@@ -91,6 +127,7 @@ pub fn file_request_handler<'a, 'b>(
                 context.data_dir.clone(),
                 builder,
             );
+            metadata_storage.truncate(&file.path, truncate_request.new_length());
             response = Box::new(result(file.truncate(truncate_request.new_length())));
         }
         RequestType::UnlinkRequest => {
@@ -100,17 +137,27 @@ pub fn file_request_handler<'a, 'b>(
                 context.data_dir.clone(),
                 builder,
             );
+            metadata_storage.unlink(&file.path);
             response = Box::new(result(file.unlink()));
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
-            let file = FileRequestHandler::new(
-                write_request.path().to_string(),
-                context.data_dir.clone(),
-                builder,
+            metadata_storage.write(
+                write_request.path().trim_start_matches('/'),
+                write_request.offset(),
+                write_request.data().len() as u32,
             );
+            let write_result = data_storage.write_local_blocks(
+                write_request.path(),
+                write_request.offset(),
+                write_request.data(),
+            );
+            // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
+            let total_bytes = write_request.data().len() as u32;
             response = Box::new(result(
-                file.write(write_request.offset(), write_request.data()),
+                write_result
+                    .map(move |_| to_write_response(builder, total_bytes).unwrap())
+                    .map_err(into_error_code),
             ));
         }
         RequestType::UtimensRequest => {
@@ -143,7 +190,7 @@ pub fn file_request_handler<'a, 'b>(
                 context.data_dir.clone(),
                 builder,
             );
-            response = Box::new(result(file.getattr()));
+            response = Box::new(result(file.getattr(metadata_storage)));
         }
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
@@ -152,6 +199,7 @@ pub fn file_request_handler<'a, 'b>(
                 context.data_dir.clone(),
                 builder,
             );
+            metadata_storage.mkdir(&file.path);
             response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
                 let file = FileRequestHandler::new(
                     mkdir_request.path().to_string(),
@@ -159,7 +207,7 @@ pub fn file_request_handler<'a, 'b>(
                     builder,
                 );
                 // TODO: probably possible to hit a distributed race here
-                file.getattr()
+                file.getattr(metadata_storage)
                     .expect("getattr failed on newly created file")
             })));
         }
@@ -206,24 +254,6 @@ impl<'a> FileRequestHandler<'a> {
         file.set_len(new_length).map_err(into_error_code)?;
 
         return empty_response(self.response_buffer);
-    }
-
-    fn write(mut self, offset: u64, data: &[u8]) -> ResultResponse<'a> {
-        let local_path = self.to_local_path(&self.path);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&local_path)
-            .map_err(into_error_code)?;
-
-        file.seek(SeekFrom::Start(offset))
-            .map_err(into_error_code)?;
-
-        file.write_all(data).map_err(into_error_code)?;
-        let mut response_builder = WrittenResponseBuilder::new(&mut self.response_buffer);
-        response_builder.add_bytes_written(data.len() as u32);
-        let offset = response_builder.finish().as_union_value();
-        return Ok((self.response_buffer, ResponseType::WrittenResponse, offset));
     }
 
     fn mkdir(self, _mode: u16) -> Result<FlatBufferBuilder<'a>, ErrorCode> {
@@ -278,15 +308,17 @@ impl<'a> FileRequestHandler<'a> {
         ));
     }
 
-    fn getattr(mut self) -> ResultResponse<'a> {
+    fn getattr(mut self, metadata_storage: &MetadataStorage) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let path = Path::new(&self.local_data_dir).join(&self.path);
         let metadata = fs::metadata(path).map_err(into_error_code)?;
 
+        let length = metadata_storage.get_length(&self.path).unwrap();
+
         let mut builder = FileMetadataResponseBuilder::new(&mut self.response_buffer);
-        builder.add_size_bytes(metadata.len());
-        builder.add_size_blocks(metadata.st_blocks());
+        builder.add_size_bytes(length);
+        builder.add_size_blocks(length / BLOCK_SIZE);
         let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
         builder.add_last_access_time(&atime);
         let mtime = Timestamp::new(metadata.st_mtime(), metadata.st_mtime_nsec() as i32);
@@ -404,34 +436,6 @@ impl<'a> FileRequestHandler<'a> {
         return empty_response(self.response_buffer);
     }
 
-    fn read(mut self, offset: u64, size: u32) -> ResultResponse<'a> {
-        assert_ne!(self.path.len(), 0);
-
-        info!(
-            "Reading file: {}. data_dir={}",
-            self.path, self.local_data_dir
-        );
-        let path = Path::new(&self.local_data_dir).join(&self.path);
-        let file = File::open(&path).map_err(into_error_code)?;
-
-        let mut contents = vec![0; size as usize];
-        let bytes_read = file
-            .read_at(&mut contents, offset)
-            .map_err(into_error_code)?;
-        contents.truncate(bytes_read);
-
-        let data_offset = self.response_buffer.create_vector_direct(&contents);
-        let mut response_builder = ReadResponseBuilder::new(&mut self.response_buffer);
-        response_builder.add_data(data_offset);
-        let response_offset = response_builder.finish().as_union_value();
-
-        return Ok((
-            self.response_buffer,
-            ResponseType::ReadResponse,
-            response_offset,
-        ));
-    }
-
     fn unlink(self) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
@@ -448,10 +452,14 @@ fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
     for entry in WalkDir::new(data_dir).sort_by(|a, b| a.file_name().cmp(b.file_name())) {
         let entry = entry?;
         if entry.file_type().is_file() {
-            let mut file = fs::File::open(entry.path())?;
-
-            // TODO hash the path and file attributes too
-            io::copy(&mut file, &mut hasher)?;
+            // TODO hash the data and file attributes too
+            let path_bytes = entry
+                .path()
+                .to_str()
+                .unwrap()
+                .trim_start_matches(data_dir)
+                .as_bytes();
+            hasher.write_all(path_bytes).unwrap();
         }
         // TODO handle other file types
     }

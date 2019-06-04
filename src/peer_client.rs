@@ -131,4 +131,30 @@ impl PeerClient {
                     .to_vec()
             })
     }
+
+    pub fn read_raw(
+        &self,
+        path: &str,
+        offset: u64,
+        size: u32,
+    ) -> impl Future<Item = Vec<u8>, Error = std::io::Error> {
+        let mut builder = FlatBufferBuilder::new();
+        let builder_path = builder.create_string(path);
+        let mut request_builder = ReadRawRequestBuilder::new(&mut builder);
+        request_builder.add_offset(offset);
+        request_builder.add_read_size(size);
+        request_builder.add_path(builder_path);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ReadRawRequest, finish_offset);
+
+        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
+            .map(|response| {
+                response_or_error(&response)
+                    .unwrap()
+                    .response_as_read_response()
+                    .unwrap()
+                    .data()
+                    .to_vec()
+            })
+    }
 }
