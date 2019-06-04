@@ -42,6 +42,7 @@ pub fn raft_message_handler<'a, 'b>(
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
+        RequestType::ReadRawRequest => unreachable!(),
         RequestType::HardlinkRequest => unreachable!(),
         RequestType::RenameRequest => unreachable!(),
         RequestType::ChmodRequest => unreachable!(),
@@ -174,6 +175,7 @@ impl Node {
                     } else {
                         // Sync to ensure replicas serve latest data
                         let cloned_raft2 = cloned_raft.clone();
+                        let cloned_raft3 = cloned_raft.clone();
                         let cloned2 = cloned.clone();
                         let after_sync = cloned_raft
                             .get_latest_commit_from_leader()
@@ -183,7 +185,13 @@ impl Node {
                         let read_after_sync = after_sync
                             .map(move |_| {
                                 let request = get_root_as_generic_request(&frame);
-                                file_request_handler(request, &cloned2, builder)
+                                file_request_handler(
+                                    request,
+                                    cloned_raft3.data_storage(),
+                                    cloned_raft3.metadata_storage(),
+                                    &cloned2,
+                                    builder,
+                                )
                             })
                             .flatten();
                         builder_future = Box::new(read_after_sync);

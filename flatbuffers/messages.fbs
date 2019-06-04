@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType {ReadRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
+union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, GetLeaderRequest}
@@ -24,6 +24,13 @@ table FilesystemChecksumRequest {
 }
 
 table FilesystemCheckRequest {
+}
+
+// Reads only the blocks of data on this node
+table ReadRawRequest {
+  offset: ulong;
+  read_size: uint;
+  path: string (required);
 }
 
 table ReadRequest {

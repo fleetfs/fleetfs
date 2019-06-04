@@ -28,6 +28,7 @@ pub fn into_error_code(error: std::io::Error) -> ErrorCode {
 pub fn is_raft_request(request_type: RequestType) -> bool {
     match request_type {
         RequestType::ReadRequest => false,
+        RequestType::ReadRawRequest => false,
         RequestType::ReaddirRequest => false,
         RequestType::GetattrRequest => false,
         RequestType::FilesystemCheckRequest => false,
@@ -47,9 +48,11 @@ pub fn is_raft_request(request_type: RequestType) -> bool {
     }
 }
 
+// TODO: refactor flatbuffer message union to encode read/write/raft...etc
 pub fn is_write_request(request_type: RequestType) -> bool {
     match request_type {
         RequestType::ReadRequest => false,
+        RequestType::ReadRawRequest => false,
         RequestType::ReaddirRequest => false,
         RequestType::GetattrRequest => false,
         RequestType::FilesystemCheckRequest => false,
