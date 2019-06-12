@@ -14,4 +14,4 @@ profile:
 test:
 	docker build -t fleetfs:tests -f Dockerfile.integration_tests .
 	# Additional permissions are needed to be able to mount FUSE
-	docker run --rm -it --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined fleetfs:tests
+	docker run --rm -it --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined -v "$(shell pwd)/logs:/code/logs" fleetfs:tests
