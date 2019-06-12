@@ -5,7 +5,7 @@ use std::path::Path;
 use fuse_mt;
 use fuse_mt::{
     CreatedEntry, FileAttr, FilesystemMT, RequestInfo, ResultCreate, ResultData, ResultEmpty,
-    ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr,
+    ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr, Statfs,
 };
 use libc;
 use log::debug;
@@ -301,8 +301,18 @@ impl FilesystemMT for FleetFUSE {
     }
 
     fn statfs(&self, _req: RequestInfo, _path: &Path) -> ResultStatfs {
-        warn!("statfs() not implemented");
-        Err(libc::ENOSYS)
+        warn!("statfs() implementation is a stub");
+        // TODO: real implementation of this
+        Ok(Statfs {
+            blocks: 10,
+            bfree: 10,
+            bavail: 10,
+            files: 1,
+            ffree: 10,
+            bsize: 4096,
+            namelen: 128,
+            frsize: 4096,
+        })
     }
 
     fn setxattr(
