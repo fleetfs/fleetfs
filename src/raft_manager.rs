@@ -1,4 +1,4 @@
-use log::info;
+use log::{error, info};
 use raft::eraftpb::Message;
 use raft::prelude::EntryType;
 use raft::storage::MemStorage;
@@ -7,11 +7,13 @@ use std::sync::Mutex;
 
 use crate::data_storage::DataStorage;
 use crate::file_handler::file_request_handler;
-use crate::generated::{get_root_as_generic_request, GenericRequest};
+use crate::generated::{
+    get_root_as_generic_request, ErrorResponse, ErrorResponseArgs, GenericRequest, ResponseType,
+};
 use crate::metadata_storage::MetadataStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
-use crate::utils::is_write_request;
+use crate::utils::{finalize_response, is_write_request};
 use flatbuffers::FlatBufferBuilder;
 use futures::future::ok;
 use futures::sync::oneshot;
@@ -249,11 +251,11 @@ impl RaftManager {
                 let request = get_root_as_generic_request(&entry.data);
                 let mut uuid = [0; 16];
                 uuid.copy_from_slice(&entry.context[0..16]);
-                if let Some((mut builder, sender)) =
+                if let Some((builder, sender)) =
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     // TODO: dangerous. wait() could block!
-                    builder = file_request_handler(
+                    match file_request_handler(
                         request,
                         &self.data_storage,
                         &self.metadata_storage,
@@ -261,13 +263,36 @@ impl RaftManager {
                         builder,
                     )
                     .wait()
-                    .unwrap();
-                    sender.send(builder).ok().unwrap();
+                    {
+                        Ok(builder) => sender.send(builder).ok().unwrap(),
+                        // TODO: handle this somehow. If not all nodes failed, then the filesystem
+                        // is probably corrupted, since some will have applied the write, but not all
+                        // There should only be a few types of messages that can fail here. truncate is one,
+                        // since you can call it with LONG_MAX or some other value that balloons
+                        // the message into a huge write. Probably most other messages can't fail
+                        Err(error_code) => {
+                            error!(
+                                "Commit failed {:?} {:?}",
+                                error_code,
+                                request.request_type()
+                            );
+                            let mut builder = FlatBufferBuilder::new();
+                            let args = ErrorResponseArgs { error_code };
+                            let response_offset =
+                                ErrorResponse::create(&mut builder, &args).as_union_value();
+                            finalize_response(
+                                &mut builder,
+                                ResponseType::ErrorResponse,
+                                response_offset,
+                            );
+                            sender.send(builder).ok().unwrap()
+                        }
+                    }
                 } else {
                     let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
                     // TODO: dangerous. wait() could block!
-                    file_request_handler(
+                    if let Err(err) = file_request_handler(
                         request,
                         &self.data_storage,
                         &self.metadata_storage,
@@ -275,7 +300,14 @@ impl RaftManager {
                         builder,
                     )
                     .wait()
-                    .unwrap();
+                    {
+                        // TODO: handle this somehow. If not all nodes failed, then the filesystem
+                        // is probably corrupted, since some will have applied the write, but not all.
+                        // There should only be a few types of messages that can fail here. truncate is one,
+                        // since you can call it with LONG_MAX or some other value that balloons
+                        // the message into a huge write. Probably most other messages can't fail
+                        error!("Commit failed {:?} {:?}", err, request.request_type());
+                    }
                 }
 
                 info!(

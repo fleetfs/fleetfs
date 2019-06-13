@@ -21,6 +21,14 @@ pub fn empty_response(mut buffer: FlatBufferBuilder) -> ResultResponse {
 pub fn into_error_code(error: std::io::Error) -> ErrorCode {
     match error.kind() {
         ErrorKind::NotFound => ErrorCode::DoesNotExist,
+        ErrorKind::Other => {
+            if let Some(code) = error.raw_os_error() {
+                if code == libc::EFBIG {
+                    return ErrorCode::FileTooLarge;
+                }
+            }
+            return ErrorCode::Uncategorized;
+        }
         _ => ErrorCode::Uncategorized,
     }
 }
