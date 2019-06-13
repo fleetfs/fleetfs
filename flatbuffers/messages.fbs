@@ -93,6 +93,7 @@ root_type GenericRequest;
 enum ErrorCode: byte {
   DefaultValueNotAnError = 0,
   DoesNotExist,
+  FileTooLarge,
   Corrupted,
   RaftFailure,
   Uncategorized
