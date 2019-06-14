@@ -5,13 +5,14 @@ use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
 use crate::utils::into_error_code;
 use futures::future::join_all;
+use log::info;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io;
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 pub const BLOCK_SIZE: u64 = 512;
 
@@ -223,6 +224,14 @@ impl DataStorage {
         file.set_len(local_bytes)?;
 
         Ok(())
+    }
+
+    pub fn rmdir(&self, path: &str) -> Result<(), ErrorCode> {
+        assert_ne!(path.len(), 0);
+
+        info!("Removing directory");
+        let local_path = self.to_local_path(path);
+        fs::remove_dir(local_path).map_err(into_error_code)
     }
 }
 

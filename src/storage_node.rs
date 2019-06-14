@@ -48,6 +48,7 @@ pub fn raft_message_handler<'a, 'b>(
         RequestType::ChmodRequest => unreachable!(),
         RequestType::TruncateRequest => unreachable!(),
         RequestType::UnlinkRequest => unreachable!(),
+        RequestType::RmdirRequest => unreachable!(),
         RequestType::WriteRequest => unreachable!(),
         RequestType::UtimensRequest => unreachable!(),
         RequestType::ReaddirRequest => unreachable!(),

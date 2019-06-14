@@ -60,6 +60,13 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
+    pub fn rmdir(&self, path: &str) {
+        let mut file_lengths = self.file_lengths.lock().unwrap();
+
+        file_lengths.remove(path);
+    }
+
+    // TODO: should have some error handling
     pub fn write(&self, path: &str, offset: u64, length: u32) {
         let mut file_lengths = self.file_lengths.lock().unwrap();
 

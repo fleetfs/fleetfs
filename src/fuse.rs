@@ -161,9 +161,11 @@ impl FilesystemMT for FleetFUSE {
         self.client.unlink(path).map_err(into_fuse_error)
     }
 
-    fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
-        warn!("rmdir() not implemented");
-        Err(libc::ENOSYS)
+    fn rmdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr) -> ResultEmpty {
+        debug!("rmdir() called with {:?} {:?}", parent, name);
+        let path = Path::new(parent).join(name);
+        let path = path.to_str().unwrap();
+        self.client.rmdir(path).map_err(into_fuse_error)
     }
 
     fn symlink(
