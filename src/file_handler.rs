@@ -140,6 +140,14 @@ pub fn file_request_handler<'a, 'b>(
             metadata_storage.unlink(&file.path);
             response = Box::new(result(file.unlink()));
         }
+        RequestType::RmdirRequest => {
+            let rmdir_request = request.request_as_rmdir_request().unwrap();
+            metadata_storage.rmdir(rmdir_request.path());
+            let rmdir_result = data_storage
+                .rmdir(rmdir_request.path())
+                .map(|_| empty_response(builder).unwrap());
+            response = Box::new(result(rmdir_result));
+        }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
             metadata_storage.write(
