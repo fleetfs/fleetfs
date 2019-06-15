@@ -201,10 +201,12 @@ pub fn file_request_handler<'a, 'b>(
                 builder,
             );
             response = Box::new(result(file.utimens(
+                utimens_request.uid(),
                 utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
+                metadata_storage,
             )));
         }
         RequestType::ReaddirRequest => {
@@ -383,7 +385,7 @@ impl<'a> FileRequestHandler<'a> {
         }
 
         if mask != 0 {
-            return Err(ErrorCode::PermissionDenied);
+            return Err(ErrorCode::AccessDenied);
         }
 
         return empty_response(self.response_buffer);
@@ -438,14 +440,32 @@ impl<'a> FileRequestHandler<'a> {
 
     fn utimens(
         self,
+        uid: u32,
         atime_secs: i64,
         atime_nanos: i32,
         mtime_secs: i64,
         mtime_nanos: i32,
+        metadata_storage: &MetadataStorage,
     ) -> ResultResponse<'a> {
         assert_ne!(self.path.len(), 0);
 
         let local_path = self.to_local_path(&self.path);
+        let metadata = fs::metadata(&local_path).map_err(into_error_code)?;
+
+        // TODO: hacky, because metadata storage only receives changes via chown. Not the original owner
+        let file_uid = metadata_storage
+            .get_uid(&self.path)
+            .unwrap_or_else(|| metadata.st_uid());
+
+        // Non-owners are only allowed to change atime & mtime to current:
+        // http://man7.org/linux/man-pages/man2/utimensat.2.html
+        if file_uid != uid
+            && uid != 0
+            && (atime_nanos != libc::UTIME_NOW as i32 || mtime_nanos != libc::UTIME_NOW as i32)
+        {
+            return Err(ErrorCode::OperationNotPermitted);
+        }
+
         filetime::set_file_times(
             local_path,
             FileTime::from_unix_time(atime_secs, atime_nanos as u32),

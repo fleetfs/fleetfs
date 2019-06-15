@@ -95,6 +95,7 @@ table ChmodRequest {
 
 table UtimensRequest {
   path: string (required);
+  uid: uint;
   atime: Timestamp;
   mtime: Timestamp;
 }
@@ -115,7 +116,8 @@ enum ErrorCode: byte {
   DefaultValueNotAnError = 0,
   DoesNotExist,
   FileTooLarge,
-  PermissionDenied,
+  AccessDenied,
+  OperationNotPermitted,
   Corrupted,
   RaftFailure,
   Uncategorized

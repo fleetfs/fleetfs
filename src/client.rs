@@ -152,6 +152,7 @@ impl NodeClient {
     pub fn utimens(
         &self,
         path: &str,
+        uid: u32,
         atime_secs: i64,
         atime_nanos: i32,
         mtime_secs: i64,
@@ -163,6 +164,7 @@ impl NodeClient {
         let builder_path = builder.create_string(path);
         let mut request_builder = UtimensRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
+        request_builder.add_uid(uid);
         let atime = Timestamp::new(atime_secs, atime_nanos);
         request_builder.add_atime(&atime);
         let mtime = Timestamp::new(mtime_secs, mtime_nanos);

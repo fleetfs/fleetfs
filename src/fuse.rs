@@ -35,7 +35,8 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::Corrupted => libc::EIO,
         ErrorCode::RaftFailure => libc::EIO,
         ErrorCode::FileTooLarge => libc::EFBIG,
-        ErrorCode::PermissionDenied => libc::EACCES,
+        ErrorCode::AccessDenied => libc::EACCES,
+        ErrorCode::OperationNotPermitted => libc::EPERM,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
@@ -110,7 +111,7 @@ impl FilesystemMT for FleetFUSE {
 
     fn utimens(
         &self,
-        _req: RequestInfo,
+        req: RequestInfo,
         path: &Path,
         _fh: Option<u64>,
         atime: Option<Timespec>,
@@ -121,10 +122,11 @@ impl FilesystemMT for FleetFUSE {
             .client
             .utimens(
                 path.to_str().unwrap(),
+                req.uid,
                 atime.map(|x| x.sec).unwrap_or(0),
-                atime.map(|x| x.nsec).unwrap_or(0),
+                atime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),
                 mtime.map(|x| x.sec).unwrap_or(0),
-                mtime.map(|x| x.nsec).unwrap_or(0),
+                mtime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),
             )
             .map_err(into_fuse_error);
     }
