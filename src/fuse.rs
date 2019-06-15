@@ -138,14 +138,20 @@ impl FilesystemMT for FleetFUSE {
 
     fn mknod(
         &self,
-        _req: RequestInfo,
-        _parent: &Path,
-        _name: &OsStr,
-        _mode: u32,
+        req: RequestInfo,
+        parent: &Path,
+        name: &OsStr,
+        mode: u32,
         _rdev: u32,
     ) -> ResultEntry {
-        warn!("mknod() not implemented");
-        Err(libc::ENOSYS)
+        if (mode & libc::S_IFREG) == 0 {
+            // TODO
+            warn!("mknod() implementation is incomplete. Only supports regular files");
+            Err(libc::ENOSYS)
+        } else {
+            self.create(req, parent, name, mode, 0)
+                .map(|created| (created.ttl, created.attr))
+        }
     }
 
     fn mkdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
