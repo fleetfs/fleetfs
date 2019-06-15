@@ -28,7 +28,7 @@ mount | grep fleetfs
 
 set +e
 cd ${DIR}
-prove -rv /code/pjdfstest/tests | tee /code/logs/pjdfs.log
+prove -rf /code/pjdfstest/tests | tee /code/logs/pjdfs.log
 
 rm -rf ${DATA_DIR}
 rm -rf ${DATA_DIR2}
