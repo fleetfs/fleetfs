@@ -131,9 +131,11 @@ impl FilesystemMT for FleetFUSE {
             .map_err(into_fuse_error);
     }
 
-    fn readlink(&self, _req: RequestInfo, _path: &Path) -> ResultData {
-        warn!("readlink() not implemented");
-        Err(libc::ENOSYS)
+    fn readlink(&self, _req: RequestInfo, path: &Path) -> ResultData {
+        debug!("read() called on {:?}", path);
+        self.client
+            .readlink(path.to_str().unwrap())
+            .map_err(into_fuse_error)
     }
 
     fn mknod(
@@ -178,15 +180,19 @@ impl FilesystemMT for FleetFUSE {
         self.client.rmdir(path).map_err(into_fuse_error)
     }
 
-    fn symlink(
-        &self,
-        _req: RequestInfo,
-        _parent: &Path,
-        _name: &OsStr,
-        _target: &Path,
-    ) -> ResultEntry {
-        warn!("symlink() not implemented");
-        Err(libc::ENOSYS)
+    fn symlink(&self, req: RequestInfo, parent: &Path, name: &OsStr, target: &Path) -> ResultEntry {
+        debug!("symlink() called with {:?} {:?} {:?}", parent, name, target);
+        let path = Path::new(parent).join(name);
+        self.truncate(req, &path, None, 0)?;
+        self.write(
+            req,
+            &path,
+            0,
+            0,
+            Vec::from(target.to_str().unwrap().to_string()),
+            0,
+        )?;
+        self.getattr(req, &path, None)
     }
 
     fn rename(
