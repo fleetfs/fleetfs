@@ -1,7 +1,9 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 use crate::generated::*;
-use std::io::ErrorKind;
+use std::fs::File;
+use std::io;
+use std::io::{BufRead, BufReader, ErrorKind};
 
 pub type ResultResponse<'a> = Result<
     (
@@ -137,4 +139,14 @@ impl<'a> AsRef<[u8]> for WritableFlatBuffer<'a> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.finished_data()
     }
+}
+
+pub fn fuse_allow_other_enabled() -> io::Result<bool> {
+    let file = File::open("/etc/fuse.conf")?;
+    for line in BufReader::new(file).lines() {
+        if line?.trim_start().starts_with("user_allow_other") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
