@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
+use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -223,6 +224,18 @@ impl DataStorage {
         let file = File::create(&local_path).expect("Couldn't create file");
         file.set_len(local_bytes)?;
 
+        Ok(())
+    }
+
+    pub fn fsync(&self, path: &str) -> Result<(), ErrorCode> {
+        assert_ne!(path.len(), 0);
+
+        info!("Fsync'ing {}", path);
+        let local_path = self.to_local_path(path);
+        let file = File::open(local_path).map_err(into_error_code)?;
+        unsafe {
+            libc::fsync(file.into_raw_fd());
+        }
         Ok(())
     }
 
