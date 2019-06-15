@@ -12,6 +12,7 @@ use std::ffi::OsStr;
 use std::net::SocketAddr;
 
 use crate::generated::ErrorCode;
+use crate::utils::fuse_allow_other_enabled;
 
 pub mod client;
 pub mod data_storage;
@@ -159,12 +160,20 @@ fn main() -> Result<(), ErrorCode> {
             &server_ip_port, &mount_point
         );
         let mut fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o")];
+        let mut options = "fsname=fleetfs,auto_unmount".to_string();
         if direct_io {
             println!("Using Direct IO");
-            fuse_args.push(&OsStr::new("fsname=fleetfs,direct_io,auto_unmount,allow_other"))
-        } else {
-            fuse_args.push(&OsStr::new("fsname=fleetfs,auto_unmount,allow_other"))
+            options.push_str(",direct_io");
         }
+        if let Ok(enabled) = fuse_allow_other_enabled() {
+            if enabled {
+                options.push_str(",allow_other");
+            }
+        } else {
+            eprintln!("Unable to read /etc/fuse.conf");
+        }
+
+        fuse_args.push(&OsStr::new(&options));
         let fs = FleetFUSE::new(server_ip_port);
         fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mount_point, &fuse_args).unwrap();
     }
