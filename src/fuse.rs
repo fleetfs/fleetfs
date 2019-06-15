@@ -35,6 +35,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::Corrupted => libc::EIO,
         ErrorCode::RaftFailure => libc::EIO,
         ErrorCode::FileTooLarge => libc::EFBIG,
+        ErrorCode::PermissionDenied => libc::EACCES,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
@@ -347,9 +348,13 @@ impl FilesystemMT for FleetFUSE {
         Err(libc::ENOSYS)
     }
 
-    fn access(&self, _req: RequestInfo, _path: &Path, _mask: u32) -> ResultEmpty {
-        warn!("access() not implemented");
-        Err(libc::ENOSYS)
+    fn access(&self, req: RequestInfo, path: &Path, mask: u32) -> ResultEmpty {
+        debug!("access() called with {:?} {:?}", path, mask);
+        let path = path.to_str().unwrap();
+        // TODO: use getgrouplist() to look up all the groups for this user
+        self.client
+            .access(path, req.uid, &[req.gid], mask)
+            .map_err(into_fuse_error)
     }
 
     fn create(

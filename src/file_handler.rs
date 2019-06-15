@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use filetime::FileTime;
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use log::info;
 use log::warn;
 
@@ -97,6 +97,20 @@ pub fn file_request_handler<'a, 'b>(
                 hardlink_request.new_path().trim_start_matches('/'),
             );
             response = Box::new(result(file.hardlink(&hardlink_request.new_path())));
+        }
+        RequestType::AccessRequest => {
+            let access_request = request.request_as_access_request().unwrap();
+            let file = FileRequestHandler::new(
+                access_request.path().to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.access(
+                access_request.uid(),
+                &access_request.gids(),
+                access_request.mask(),
+                metadata_storage,
+            )));
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
@@ -325,6 +339,54 @@ impl<'a> FileRequestHandler<'a> {
             ResponseType::DirectoryListingResponse,
             offset,
         ));
+    }
+
+    fn access(
+        self,
+        uid: u32,
+        gids: &Vector<'_, u32>,
+        mut mask: u32,
+        metadata_storage: &MetadataStorage,
+    ) -> ResultResponse<'a> {
+        if self.path.is_empty() {
+            // TODO: currently let everyone access the root
+            return empty_response(self.response_buffer);
+        }
+
+        let path = self.to_local_path(&self.path);
+        let metadata = fs::metadata(path).map_err(into_error_code)?;
+
+        // F_OK tests for existence of file
+        if mask == libc::F_OK as u32 {
+            return empty_response(self.response_buffer);
+        }
+
+        // TODO: hacky, because metadata storage only receives changes via chown. Not the original owner
+        let file_uid = metadata_storage
+            .get_uid(&self.path)
+            .unwrap_or_else(|| metadata.st_uid());
+        let file_gid = metadata_storage
+            .get_gid(&self.path)
+            .unwrap_or_else(|| metadata.st_gid());
+
+        let mode = metadata.st_mode();
+        // Process "other" permissions
+        mask -= mask & mode;
+        for i in 0..gids.len() {
+            if gids.get(i) == file_gid {
+                mask -= mask & (mode >> 3);
+                break;
+            }
+        }
+        if file_uid == uid {
+            mask -= mask & (mode >> 6);
+        }
+
+        if mask != 0 {
+            return Err(ErrorCode::PermissionDenied);
+        }
+
+        return empty_response(self.response_buffer);
     }
 
     fn getattr(mut self, metadata_storage: &MetadataStorage) -> ResultResponse<'a> {
