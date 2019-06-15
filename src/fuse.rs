@@ -287,9 +287,10 @@ impl FilesystemMT for FleetFUSE {
         Ok(())
     }
 
-    fn fsync(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
-        warn!("fsync() not implemented");
-        Err(libc::ENOSYS)
+    fn fsync(&self, _req: RequestInfo, path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
+        debug!("fsync() called with {:?}", path);
+        let path = path.to_str().unwrap();
+        self.client.fsync(path).map_err(into_fuse_error)
     }
 
     fn opendir(&self, _req: RequestInfo, path: &Path, _flags: u32) -> ResultOpen {
@@ -308,9 +309,10 @@ impl FilesystemMT for FleetFUSE {
         Ok(())
     }
 
-    fn fsyncdir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
-        warn!("fsyncdir() not implemented");
-        Err(libc::ENOSYS)
+    fn fsyncdir(&self, _req: RequestInfo, path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
+        debug!("fsyncdir() called with {:?}", path);
+        let path = path.to_str().unwrap();
+        self.client.fsync(path).map_err(into_fuse_error)
     }
 
     fn statfs(&self, _req: RequestInfo, _path: &Path) -> ResultStatfs {

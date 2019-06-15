@@ -155,6 +155,13 @@ pub fn file_request_handler<'a, 'b>(
             metadata_storage.truncate(&file.path, truncate_request.new_length());
             response = Box::new(result(file.truncate(truncate_request.new_length())));
         }
+        RequestType::FsyncRequest => {
+            let fsync_request = request.request_as_fsync_request().unwrap();
+            let fsync_result = data_storage
+                .fsync(fsync_request.path())
+                .map(|_| empty_response(builder).unwrap());
+            response = Box::new(result(fsync_result));
+        }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
             let file = FileRequestHandler::new(

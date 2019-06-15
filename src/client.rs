@@ -378,6 +378,21 @@ impl NodeClient {
             .bytes_written());
     }
 
+    pub fn fsync(&self, path: &str) -> Result<(), ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let mut request_builder = FsyncRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::FsyncRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
+    }
+
     pub fn unlink(&self, path: &str) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);

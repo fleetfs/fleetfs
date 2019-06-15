@@ -3,7 +3,8 @@ namespace generated;
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
-                   LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, AccessRequest}
+                   LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, AccessRequest,
+                   FsyncRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -52,6 +53,10 @@ table WriteRequest {
   path: string (required);
   offset: ulong;
   data: [ubyte] (required);
+}
+
+table FsyncRequest {
+  path: string (required);
 }
 
 table UnlinkRequest {
