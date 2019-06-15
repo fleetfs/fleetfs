@@ -7,6 +7,7 @@ use fuse_mt::{DirectoryEntry, FileAttr};
 use thread_local::CachedThreadLocal;
 use time::Timespec;
 
+use crate::data_storage::BLOCK_SIZE;
 use crate::generated::*;
 use crate::tcp_client::TcpClient;
 use crate::utils::{finalize_request, response_or_error};
@@ -283,6 +284,33 @@ impl NodeClient {
         response.response_as_empty_response().unwrap();
 
         return Ok(());
+    }
+
+    pub fn readlink(&self, path: &str) -> Result<Vec<u8>, ErrorCode> {
+        assert_ne!(path, "/");
+
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let mut request_builder = ReadRequestBuilder::new(&mut builder);
+        request_builder.add_offset(0);
+        request_builder.add_read_size(BLOCK_SIZE as u32);
+        request_builder.add_path(builder_path);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = match self.send(builder.finished_data(), &mut buffer) {
+            Ok(response) => response,
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        Ok(response
+            .response_as_read_response()
+            .unwrap()
+            .data()
+            .to_vec())
     }
 
     pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(
