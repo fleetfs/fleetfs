@@ -5,7 +5,7 @@ use std::path::Path;
 use fuse_mt;
 use fuse_mt::{
     CreatedEntry, FileAttr, FilesystemMT, RequestInfo, ResultCreate, ResultData, ResultEmpty,
-    ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr, Statfs,
+    ResultEntry, ResultOpen, ResultReaddir, ResultStatfs, ResultWrite, ResultXattr, Statfs, Xattr,
 };
 use libc;
 use log::debug;
@@ -339,29 +339,65 @@ impl FilesystemMT for FleetFUSE {
     fn setxattr(
         &self,
         _req: RequestInfo,
-        _path: &Path,
-        _name: &OsStr,
-        _value: &[u8],
+        path: &Path,
+        name: &OsStr,
+        value: &[u8],
         _flags: u32,
         _position: u32,
     ) -> ResultEmpty {
-        warn!("setxattr() not implemented");
-        Err(libc::ENOSYS)
+        debug!("setxattr() called with {:?} {:?} {:?}", path, name, value);
+        let path = path.to_str().unwrap();
+        self.client
+            .setxattr(path, name.to_str().unwrap(), value)
+            .map_err(into_fuse_error)
     }
 
-    fn getxattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr, _size: u32) -> ResultXattr {
-        warn!("getxattr() not implemented");
-        Err(libc::ENOSYS)
+    fn getxattr(&self, _req: RequestInfo, path: &Path, name: &OsStr, size: u32) -> ResultXattr {
+        debug!("getxattr() called with {:?} {:?}", path, name);
+        let path = path.to_str().unwrap();
+        if size == 0 {
+            self.client
+                .getxattr(path, name.to_str().unwrap())
+                .map(|data| Xattr::Size(data.len() as u32))
+                .map_err(into_fuse_error)
+        } else {
+            self.client
+                .getxattr(path, name.to_str().unwrap())
+                .map(Xattr::Data)
+                .map_err(into_fuse_error)
+        }
     }
 
-    fn listxattr(&self, _req: RequestInfo, _path: &Path, _size: u32) -> ResultXattr {
-        warn!("listxattr() not implemented");
-        Err(libc::ENOSYS)
+    fn listxattr(&self, _req: RequestInfo, path: &Path, size: u32) -> ResultXattr {
+        debug!("listxattr() called with {:?}", path);
+        let path = path.to_str().unwrap();
+        let result = self
+            .client
+            .listxattr(path)
+            .map(|xattrs| {
+                let mut bytes = vec![];
+                // Convert to concatenated null-terminated strings
+                for attr in xattrs {
+                    bytes.extend(attr.as_bytes());
+                    bytes.push(0);
+                }
+                bytes
+            })
+            .map_err(into_fuse_error);
+
+        if size == 0 {
+            result.map(|data| Xattr::Size(data.len() as u32))
+        } else {
+            result.map(Xattr::Data)
+        }
     }
 
-    fn removexattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr) -> ResultEmpty {
-        warn!("removexattr() not implemented");
-        Err(libc::ENOSYS)
+    fn removexattr(&self, _req: RequestInfo, path: &Path, name: &OsStr) -> ResultEmpty {
+        debug!("removexattr() called with {:?} {:?}", path, name);
+        let path = path.to_str().unwrap();
+        self.client
+            .removexattr(path, name.to_str().unwrap())
+            .map_err(into_fuse_error)
     }
 
     fn access(&self, req: RequestInfo, path: &Path, mask: u32) -> ResultEmpty {

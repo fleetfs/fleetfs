@@ -196,6 +196,48 @@ else
     exit
 fi
 
+touch ${DIR}/xattr.txt
+xattr -w user.test hello_world ${DIR}/xattr.txt
+if [[ $(xattr -p user.test ${DIR}/xattr.txt) = "hello_world" ]]; then
+    echo -e "$GREEN OK 12 $NC"
+else
+    echo -e "$RED FAILED on xattr.txt $NC"
+    exit
+fi
+if [[ $(xattr -p user.test ${DIR2}/xattr.txt) = "hello_world" ]]; then
+    echo -e "$GREEN OK 12 replica $NC"
+else
+    echo -e "$RED FAILED on xattr.txt replica $NC"
+    exit
+fi
+
+if [[ $(xattr ${DIR}/xattr.txt) = "user.test" ]]; then
+    echo -e "$GREEN OK 13 $NC"
+else
+    echo -e "$RED FAILED on xattr.txt $NC"
+    exit
+fi
+if [[ $(xattr ${DIR2}/xattr.txt) = "user.test" ]]; then
+    echo -e "$GREEN OK 13 replica $NC"
+else
+    echo -e "$RED FAILED on xattr.txt replica $NC"
+    exit
+fi
+
+xattr -d user.test ${DIR}/xattr.txt
+if [[ $(xattr ${DIR}/xattr.txt) = "" ]]; then
+    echo -e "$GREEN OK 14 $NC"
+else
+    echo -e "$RED FAILED on remove xattr.txt $NC"
+    exit
+fi
+if [[ $(xattr ${DIR2}/xattr.txt) = "" ]]; then
+    echo -e "$GREEN OK 14 replica $NC"
+else
+    echo -e "$RED FAILED on remove xattr.txt replica $NC"
+    exit
+fi
+
 kill $FUSE_PID
 wait $FUSE_PID
 
