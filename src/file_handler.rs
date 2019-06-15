@@ -21,6 +21,19 @@ use futures::Future;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+fn to_xattrs_response<'a, T: AsRef<str>>(
+    mut builder: FlatBufferBuilder<'a>,
+    xattrs: &[T],
+) -> ResultResponse<'a> {
+    let refs: Vec<&str> = xattrs.iter().map(AsRef::as_ref).collect();
+    let offset = builder.create_vector_of_strings(&refs);
+    let mut response_builder = XattrsResponseBuilder::new(&mut builder);
+    response_builder.add_xattrs(offset);
+    let response_offset = response_builder.finish().as_union_value();
+
+    return Ok((builder, ResponseType::XattrsResponse, response_offset));
+}
+
 fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
     let data_offset = builder.create_vector_direct(data);
     let mut response_builder = ReadResponseBuilder::new(&mut builder);
@@ -161,6 +174,35 @@ pub fn file_request_handler<'a, 'b>(
                 .fsync(fsync_request.path())
                 .map(|_| empty_response(builder).unwrap());
             response = Box::new(result(fsync_result));
+        }
+        RequestType::GetXattrRequest => {
+            let get_xattr_request = request.request_as_get_xattr_request().unwrap();
+            // TODO: handle key doesn't exist
+            let data = metadata_storage
+                .get_xattr(get_xattr_request.path(), get_xattr_request.key())
+                .unwrap_or_else(|| vec![]);
+            response = Box::new(result(to_read_response(builder, &data)));
+        }
+        RequestType::ListXattrsRequest => {
+            let list_xattrs_request = request.request_as_list_xattrs_request().unwrap();
+            // TODO: handle key doesn't exist
+            let attrs = metadata_storage.list_xattrs(list_xattrs_request.path());
+            response = Box::new(result(to_xattrs_response(builder, &attrs)));
+        }
+        RequestType::SetXattrRequest => {
+            let set_xattr_request = request.request_as_set_xattr_request().unwrap();
+            // TODO: handle key doesn't exist
+            metadata_storage.set_xattr(
+                set_xattr_request.path(),
+                set_xattr_request.key(),
+                set_xattr_request.value(),
+            );
+            response = Box::new(result(empty_response(builder)));
+        }
+        RequestType::RemoveXattrRequest => {
+            let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
+            metadata_storage.remove_xattr(remove_xattr_request.path(), remove_xattr_request.key());
+            response = Box::new(result(empty_response(builder)));
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();

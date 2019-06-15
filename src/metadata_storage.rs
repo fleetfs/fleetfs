@@ -10,6 +10,7 @@ pub struct MetadataStorage {
     file_lengths: Mutex<HashMap<String, u64>>,
     uids: Mutex<HashMap<String, u32>>,
     gids: Mutex<HashMap<String, u32>>,
+    xattrs: Mutex<HashMap<String, HashMap<String, Vec<u8>>>>,
 }
 
 impl MetadataStorage {
@@ -18,7 +19,40 @@ impl MetadataStorage {
             file_lengths: Mutex::new(HashMap::new()),
             uids: Mutex::new(HashMap::new()),
             gids: Mutex::new(HashMap::new()),
+            xattrs: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn get_xattr(&self, path: &str, key: &str) -> Option<Vec<u8>> {
+        let xattrs = self.xattrs.lock().unwrap();
+        xattrs.get(path)?.get(key).cloned()
+    }
+
+    pub fn list_xattrs(&self, path: &str) -> Vec<String> {
+        let xattrs = self.xattrs.lock().unwrap();
+        xattrs
+            .get(path)
+            .map(|attrs| attrs.keys().cloned().collect())
+            .unwrap_or_else(|| vec![])
+    }
+
+    pub fn set_xattr(&self, path: &str, key: &str, value: &[u8]) {
+        let mut xattrs = self.xattrs.lock().unwrap();
+        if xattrs.contains_key(path) {
+            xattrs
+                .get_mut(path)
+                .unwrap()
+                .insert(key.to_string(), value.to_vec());
+        } else {
+            let mut attrs = HashMap::new();
+            attrs.insert(key.to_string(), value.to_vec());
+            xattrs.insert(path.to_string(), attrs);
+        }
+    }
+
+    pub fn remove_xattr(&self, path: &str, key: &str) {
+        let mut xattrs = self.xattrs.lock().unwrap();
+        xattrs.get_mut(path).map(|attrs| attrs.remove(key));
     }
 
     // TODO: should have some error handling

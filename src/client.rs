@@ -150,6 +150,81 @@ impl NodeClient {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
+    pub fn getxattr(&self, path: &str, key: &str) -> Result<Vec<u8>, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let builder_key = builder.create_string(key);
+        let mut request_builder = GetXattrRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_key(builder_key);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::GetXattrRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let data = response.response_as_read_response().unwrap().data();
+
+        return Ok(data.to_vec());
+    }
+
+    pub fn listxattr(&self, path: &str) -> Result<Vec<String>, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let mut request_builder = ListXattrsRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ListXattrsRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let xattrs_response = response.response_as_xattrs_response().unwrap();
+        let xattrs = xattrs_response.xattrs();
+
+        let mut attrs = vec![];
+        for i in 0..xattrs.len() {
+            let attr = xattrs.get(i);
+            attrs.push(attr.to_string());
+        }
+
+        return Ok(attrs);
+    }
+
+    pub fn setxattr(&self, path: &str, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let builder_key = builder.create_string(key);
+        let builder_value = builder.create_vector_direct(value);
+        let mut request_builder = SetXattrRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_key(builder_key);
+        request_builder.add_value(builder_value);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::SetXattrRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        response.response_as_empty_response().unwrap();
+
+        Ok(())
+    }
+
+    pub fn removexattr(&self, path: &str, key: &str) -> Result<(), ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let builder_key = builder.create_string(key);
+        let mut request_builder = RemoveXattrRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        request_builder.add_key(builder_key);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::RemoveXattrRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        response.response_as_empty_response().unwrap();
+
+        Ok(())
+    }
+
     pub fn utimens(
         &self,
         path: &str,

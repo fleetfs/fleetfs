@@ -4,7 +4,7 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, AccessRequest,
-                   FsyncRequest}
+                   FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -25,6 +25,26 @@ table FilesystemChecksumRequest {
 }
 
 table FilesystemCheckRequest {
+}
+
+table ListXattrsRequest {
+  path: string (required);
+}
+
+table GetXattrRequest {
+  path: string (required);
+  key: string (required);
+}
+
+table SetXattrRequest {
+  path: string (required);
+  key: string (required);
+  value: [ubyte] (required);
+}
+
+table RemoveXattrRequest {
+  path: string (required);
+  key: string (required);
 }
 
 // Reads only the blocks of data on this node
@@ -186,8 +206,12 @@ table NodeIdResponse {
   node_id: ulong;
 }
 
+table XattrsResponse {
+  xattrs: [string] (required);
+}
+
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse, NodeIdResponse }
+                     WrittenResponse, LatestCommitResponse, NodeIdResponse, XattrsResponse }
 
 table GenericResponse {
   response: ResponseType;
