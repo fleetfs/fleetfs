@@ -3,16 +3,21 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::data_storage::BLOCK_SIZE;
+use crate::generated::ErrorCode;
 
 // TODO: add persistence
 pub struct MetadataStorage {
     file_lengths: Mutex<HashMap<String, u64>>,
+    uids: Mutex<HashMap<String, u32>>,
+    gids: Mutex<HashMap<String, u32>>,
 }
 
 impl MetadataStorage {
     pub fn new() -> MetadataStorage {
         MetadataStorage {
             file_lengths: Mutex::new(HashMap::new()),
+            uids: Mutex::new(HashMap::new()),
+            gids: Mutex::new(HashMap::new()),
         }
     }
 
@@ -21,6 +26,32 @@ impl MetadataStorage {
         let file_lengths = self.file_lengths.lock().unwrap();
 
         file_lengths.get(path).cloned()
+    }
+
+    pub fn get_uid(&self, path: &str) -> Option<u32> {
+        let uids = self.uids.lock().unwrap();
+
+        uids.get(path).cloned()
+    }
+
+    pub fn get_gid(&self, path: &str) -> Option<u32> {
+        let gids = self.gids.lock().unwrap();
+
+        gids.get(path).cloned()
+    }
+
+    // TODO: should have some error handling
+    pub fn chown(&self, path: &str, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
+        if let Some(uid) = uid {
+            let mut uids = self.uids.lock().unwrap();
+            uids.insert(path.to_string(), uid);
+        }
+        if let Some(gid) = gid {
+            let mut gids = self.gids.lock().unwrap();
+            gids.insert(path.to_string(), gid);
+        }
+
+        Ok(())
     }
 
     pub fn hardlink(&self, path: &str, new_path: &str) {

@@ -195,6 +195,33 @@ impl NodeClient {
         return Ok(());
     }
 
+    pub fn chown(&self, path: &str, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
+        assert_ne!(path, "/");
+
+        let mut builder = self.get_or_create_builder();
+        let builder_path = builder.create_string(path);
+        let mut request_builder = ChownRequestBuilder::new(&mut builder);
+        request_builder.add_path(builder_path);
+        let uid_struct;
+        let gid_struct;
+        if let Some(uid) = uid {
+            uid_struct = OptionalUInt::new(uid);
+            request_builder.add_uid(&uid_struct);
+        }
+        if let Some(gid) = gid {
+            gid_struct = OptionalUInt::new(gid);
+            request_builder.add_gid(&gid_struct);
+        }
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ChownRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        response.response_as_empty_response().unwrap();
+
+        return Ok(());
+    }
+
     pub fn hardlink(&self, path: &str, new_path: &str) -> Result<FileAttr, ErrorCode> {
         assert_ne!(path, "/");
 
