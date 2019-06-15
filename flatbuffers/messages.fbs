@@ -3,7 +3,7 @@ namespace generated;
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
-                   LatestCommitRequest, GetLeaderRequest, RmdirRequest}
+                   LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -69,6 +69,16 @@ table TruncateRequest {
 
 table ReaddirRequest {
   path: string (required);
+}
+
+struct OptionalUInt {
+  value: uint;
+}
+
+table ChownRequest {
+  path: string (required);
+  uid: OptionalUInt;
+  gid: OptionalUInt;
 }
 
 table ChmodRequest {

@@ -120,6 +120,17 @@ pub fn file_request_handler<'a, 'b>(
             );
             response = Box::new(result(file.chmod(chmod_request.mode())));
         }
+        RequestType::ChownRequest => {
+            let chown_request = request.request_as_chown_request().unwrap();
+            let chown_result = metadata_storage
+                .chown(
+                    chown_request.path(),
+                    chown_request.uid().map(OptionalUInt::value),
+                    chown_request.gid().map(OptionalUInt::value),
+                )
+                .map(|_| empty_response(builder).unwrap());
+            response = Box::new(result(chown_result));
+        }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
             let file = FileRequestHandler::new(
@@ -342,8 +353,17 @@ impl<'a> FileRequestHandler<'a> {
         }
         builder.add_mode(metadata.st_mode() as u16);
         builder.add_hard_links(metadata.st_nlink() as u32);
-        builder.add_user_id(metadata.st_uid());
-        builder.add_group_id(metadata.st_gid());
+        // TODO: hacky, because metadata storage only receives changes via chown. Not the original owner
+        if let Some(uid) = metadata_storage.get_uid(&self.path) {
+            builder.add_user_id(uid);
+        } else {
+            builder.add_user_id(metadata.st_uid());
+        }
+        if let Some(gid) = metadata_storage.get_gid(&self.path) {
+            builder.add_group_id(gid);
+        } else {
+            builder.add_group_id(metadata.st_gid());
+        }
         builder.add_device_id(metadata.st_rdev() as u32);
 
         let offset = builder.finish().as_union_value();

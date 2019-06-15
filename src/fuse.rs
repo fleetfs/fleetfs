@@ -91,13 +91,14 @@ impl FilesystemMT for FleetFUSE {
     fn chown(
         &self,
         _req: RequestInfo,
-        _path: &Path,
+        path: &Path,
         _fh: Option<u64>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
     ) -> ResultEmpty {
-        warn!("chown() not implemented");
-        Err(libc::ENOSYS)
+        debug!("chown() called with {:?} {:?} {:?}", path, uid, gid);
+        let path = path.to_str().unwrap();
+        self.client.chown(path, uid, gid).map_err(into_fuse_error)
     }
 
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
