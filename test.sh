@@ -238,6 +238,21 @@ else
     exit
 fi
 
+touch ${DIR}/nobody.txt
+chown nobody:nogroup ${DIR}/nobody.txt
+if [[ $(stat -c'%U:%G' ${DIR}/nobody.txt) = "nobody:nogroup" ]]; then
+    echo -e "$GREEN OK 15 $NC"
+else
+    echo -e "$RED FAILED on chown nobody.txt $NC"
+    exit
+fi
+if [[ $(stat -c'%U:%G' ${DIR2}/nobody.txt) = "nobody:nogroup" ]]; then
+    echo -e "$GREEN OK 15 replica $NC"
+else
+    echo -e "$RED FAILED on chown nobody.txt replica $NC"
+    exit
+fi
+
 kill $FUSE_PID
 wait $FUSE_PID
 
