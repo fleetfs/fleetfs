@@ -411,7 +411,7 @@ impl FilesystemMT for FleetFUSE {
 
     fn create(
         &self,
-        _req: RequestInfo,
+        req: RequestInfo,
         parent: &Path,
         name: &OsStr,
         _mode: u32,
@@ -423,26 +423,17 @@ impl FilesystemMT for FleetFUSE {
         self.client
             .write(path.to_str().unwrap(), &[], 0)
             .map_err(into_fuse_error)?;
-        // TODO
-        Ok(CreatedEntry {
-            ttl: Timespec { sec: 0, nsec: 0 },
-            attr: FileAttr {
-                size: 0,
-                blocks: 0,
-                atime: Timespec { sec: 0, nsec: 0 },
-                mtime: Timespec { sec: 0, nsec: 0 },
-                ctime: Timespec { sec: 0, nsec: 0 },
-                crtime: Timespec { sec: 0, nsec: 0 },
-                kind: fuse_mt::FileType::RegularFile,
-                perm: 0,
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
+        self.client
+            .chown(path.to_str().unwrap(), Some(req.uid), Some(req.gid))
+            .map_err(into_fuse_error)?;
+        self.client
+            .getattr(path.to_str().unwrap())
+            .map(|attr| CreatedEntry {
+                ttl: Timespec { sec: 0, nsec: 0 },
+                attr,
+                fh: 0,
                 flags: 0,
-            },
-            fh: 0,
-            flags: 0,
-        })
+            })
+            .map_err(into_fuse_error)
     }
 }
