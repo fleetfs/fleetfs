@@ -29,6 +29,8 @@ mount | grep fleetfs
 set +e
 cd ${DIR}
 prove -rf /code/pjdfstest/tests | tee /code/logs/pjdfs.log
+echo "Total failed:"
+cat /code/logs/pjdfs.log | egrep -o 'Failed: [0-9]+' | egrep -o '[0-9]+' | paste -s -d+ | bc
 
 rm -rf ${DATA_DIR}
 rm -rf ${DATA_DIR2}

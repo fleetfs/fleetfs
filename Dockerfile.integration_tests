@@ -1,6 +1,6 @@
 FROM ubuntu:18.04
 
-RUN apt update && apt install -y git build-essential autoconf curl cmake libfuse-dev pkg-config fuse
+RUN apt update && apt install -y git build-essential autoconf curl cmake libfuse-dev pkg-config fuse bc
 
 RUN mkdir -p /code/pjdfstest && cd /code && git clone https://github.com/pjd/pjdfstest && cd pjdfstest \
   && git checkout 6da93d2e57a0691551d694921e51845585f7681a && autoreconf -ifs && ./configure && make pjdfstest
