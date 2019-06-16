@@ -6,16 +6,16 @@ use raft::{Config, RawNode};
 use std::sync::Mutex;
 
 use crate::data_storage::DataStorage;
-use crate::file_handler::file_request_handler;
-use crate::generated::{
-    get_root_as_generic_request, ErrorResponse, ErrorResponseArgs, GenericRequest, ResponseType,
-};
+use crate::file_handler::FileRequestHandler;
+use crate::generated::*;
 use crate::metadata_storage::MetadataStorage;
 use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
-use crate::utils::{finalize_response, is_write_request};
-use flatbuffers::FlatBufferBuilder;
-use futures::future::ok;
+use crate::utils::{
+    empty_response, finalize_response, into_error_code, is_write_request, to_write_response,
+};
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use futures::future::{ok, result};
 use futures::sync::oneshot;
 use futures::sync::oneshot::Sender;
 use futures::Future;
@@ -260,7 +260,7 @@ impl RaftManager {
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     // TODO: dangerous. wait() could block!
-                    match file_request_handler(
+                    match commit_write(
                         request,
                         &self.data_storage,
                         &self.metadata_storage,
@@ -297,7 +297,7 @@ impl RaftManager {
                     let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
                     // TODO: dangerous. wait() could block!
-                    if let Err(err) = file_request_handler(
+                    if let Err(err) = commit_write(
                         request,
                         &self.data_storage,
                         &self.metadata_storage,
@@ -371,4 +371,202 @@ impl RaftManager {
 
         return receiver.map_err(|_| ());
     }
+}
+
+pub fn commit_write<'a, 'b>(
+    request: GenericRequest<'a>,
+    data_storage: &DataStorage,
+    metadata_storage: &MetadataStorage,
+    context: &LocalContext,
+    builder: FlatBufferBuilder<'b>,
+) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
+    let response: Box<
+        Future<
+                Item = (
+                    FlatBufferBuilder<'b>,
+                    ResponseType,
+                    WIPOffset<UnionWIPOffset>,
+                ),
+                Error = ErrorCode,
+            > + Send,
+    >;
+
+    match request.request_type() {
+        RequestType::HardlinkRequest => {
+            let hardlink_request = request.request_as_hardlink_request().unwrap();
+            let file = FileRequestHandler::new(
+                hardlink_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            metadata_storage.hardlink(
+                &file.path,
+                hardlink_request.new_path().trim_start_matches('/'),
+            );
+            response = Box::new(result(
+                file.hardlink(&hardlink_request.new_path().trim_start_matches('/')),
+            ));
+        }
+        RequestType::RenameRequest => {
+            let rename_request = request.request_as_rename_request().unwrap();
+            let file = FileRequestHandler::new(
+                rename_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            metadata_storage.rename(
+                &file.path,
+                rename_request.new_path().trim_start_matches('/'),
+            );
+            response = Box::new(result(
+                file.rename(&rename_request.new_path().trim_start_matches('/')),
+            ));
+        }
+        RequestType::ChmodRequest => {
+            let chmod_request = request.request_as_chmod_request().unwrap();
+            let file = FileRequestHandler::new(
+                chmod_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.chmod(chmod_request.mode())));
+        }
+        RequestType::ChownRequest => {
+            let chown_request = request.request_as_chown_request().unwrap();
+            let chown_result = metadata_storage
+                .chown(
+                    chown_request.path().trim_start_matches('/'),
+                    chown_request.uid().map(OptionalUInt::value),
+                    chown_request.gid().map(OptionalUInt::value),
+                )
+                .map(|_| empty_response(builder).unwrap());
+            response = Box::new(result(chown_result));
+        }
+        RequestType::TruncateRequest => {
+            let truncate_request = request.request_as_truncate_request().unwrap();
+            let file = FileRequestHandler::new(
+                truncate_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            metadata_storage.truncate(&file.path, truncate_request.new_length());
+            response = Box::new(result(file.truncate(truncate_request.new_length())));
+        }
+        RequestType::FsyncRequest => {
+            let fsync_request = request.request_as_fsync_request().unwrap();
+            let fsync_result = data_storage
+                .fsync(fsync_request.path().trim_start_matches('/'))
+                .map(|_| empty_response(builder).unwrap());
+            response = Box::new(result(fsync_result));
+        }
+        RequestType::SetXattrRequest => {
+            let set_xattr_request = request.request_as_set_xattr_request().unwrap();
+            // TODO: handle key doesn't exist
+            metadata_storage.set_xattr(
+                set_xattr_request.path().trim_start_matches('/'),
+                set_xattr_request.key(),
+                set_xattr_request.value(),
+            );
+            response = Box::new(result(empty_response(builder)));
+        }
+        RequestType::RemoveXattrRequest => {
+            let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
+            metadata_storage.remove_xattr(
+                remove_xattr_request.path().trim_start_matches('/'),
+                remove_xattr_request.key(),
+            );
+            response = Box::new(result(empty_response(builder)));
+        }
+        RequestType::UnlinkRequest => {
+            let unlink_request = request.request_as_unlink_request().unwrap();
+            let file = FileRequestHandler::new(
+                unlink_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            metadata_storage.unlink(&file.path);
+            response = Box::new(result(file.unlink()));
+        }
+        RequestType::RmdirRequest => {
+            let rmdir_request = request.request_as_rmdir_request().unwrap();
+            metadata_storage.rmdir(rmdir_request.path().trim_start_matches('/'));
+            let rmdir_result = data_storage
+                .rmdir(rmdir_request.path().trim_start_matches('/'))
+                .map(|_| empty_response(builder).unwrap());
+            response = Box::new(result(rmdir_result));
+        }
+        RequestType::WriteRequest => {
+            let write_request = request.request_as_write_request().unwrap();
+            metadata_storage.write(
+                write_request.path().trim_start_matches('/'),
+                write_request.offset(),
+                write_request.data().len() as u32,
+            );
+            let write_result = data_storage.write_local_blocks(
+                write_request.path().trim_start_matches('/'),
+                write_request.offset(),
+                write_request.data(),
+            );
+            // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
+            let total_bytes = write_request.data().len() as u32;
+            response = Box::new(result(
+                write_result
+                    .map(move |_| to_write_response(builder, total_bytes).unwrap())
+                    .map_err(into_error_code),
+            ));
+        }
+        RequestType::UtimensRequest => {
+            let utimens_request = request.request_as_utimens_request().unwrap();
+            let file = FileRequestHandler::new(
+                utimens_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            response = Box::new(result(file.utimens(
+                utimens_request.uid(),
+                utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
+                utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
+                utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
+                utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
+                metadata_storage,
+            )));
+        }
+        RequestType::MkdirRequest => {
+            let mkdir_request = request.request_as_mkdir_request().unwrap();
+            let file = FileRequestHandler::new(
+                mkdir_request.path().trim_start_matches('/').to_string(),
+                context.data_dir.clone(),
+                builder,
+            );
+            metadata_storage.mkdir(&file.path);
+            response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
+                let file = FileRequestHandler::new(
+                    mkdir_request.path().trim_start_matches('/').to_string(),
+                    context.data_dir.clone(),
+                    builder,
+                );
+                // TODO: probably possible to hit a distributed race here
+                file.getattr(metadata_storage)
+                    .expect("getattr failed on newly created file")
+            })));
+        }
+        RequestType::FilesystemCheckRequest => unreachable!(),
+        RequestType::FilesystemChecksumRequest => unreachable!(),
+        RequestType::ReadRequest => unreachable!(),
+        RequestType::ReadRawRequest => unreachable!(),
+        RequestType::AccessRequest => unreachable!(),
+        RequestType::ReaddirRequest => unreachable!(),
+        RequestType::GetattrRequest => unreachable!(),
+        RequestType::GetXattrRequest => unreachable!(),
+        RequestType::ListXattrsRequest => unreachable!(),
+        RequestType::RaftRequest => unreachable!(),
+        RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::GetLeaderRequest => unreachable!(),
+        RequestType::NONE => unreachable!(),
+    }
+
+    response.map(|(mut builder, response_type, response_offset)| {
+        finalize_response(&mut builder, response_type, response_offset);
+        builder
+    })
 }
