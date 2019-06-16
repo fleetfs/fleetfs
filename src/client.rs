@@ -7,8 +7,8 @@ use fuse_mt::{DirectoryEntry, FileAttr};
 use thread_local::CachedThreadLocal;
 use time::Timespec;
 
-use crate::data_storage::BLOCK_SIZE;
 use crate::generated::*;
+use crate::storage::data_storage::BLOCK_SIZE;
 use crate::tcp_client::TcpClient;
 use crate::utils::{finalize_request, response_or_error};
 

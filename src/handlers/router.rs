@@ -1,7 +1,7 @@
 use crate::file_handler::FileRequestHandler;
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
-use crate::raft_manager::RaftManager;
+use crate::storage::raft_manager::RaftManager;
 use crate::utils::{finalize_response, into_error_code, to_read_response, to_xattrs_response};
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use futures::future::result;

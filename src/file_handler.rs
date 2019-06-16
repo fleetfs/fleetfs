@@ -9,9 +9,9 @@ use flatbuffers::{FlatBufferBuilder, Vector, WIPOffset};
 use log::info;
 use log::warn;
 
-use crate::data_storage::BLOCK_SIZE;
 use crate::generated::*;
-use crate::metadata_storage::MetadataStorage;
+use crate::storage::data_storage::BLOCK_SIZE;
+use crate::storage::metadata_storage::MetadataStorage;
 use crate::utils::{empty_response, into_error_code, ResultResponse};
 
 // Handles one request/response

@@ -15,13 +15,11 @@ use crate::generated::ErrorCode;
 use crate::utils::fuse_allow_other_enabled;
 
 pub mod client;
-pub mod data_storage;
 pub mod file_handler;
 pub mod fuse;
 pub mod handlers;
-pub mod metadata_storage;
 pub mod peer_client;
-pub mod raft_manager;
+pub mod storage;
 pub mod storage_node;
 pub mod tcp_client;
 pub mod utils;

@@ -1,7 +1,7 @@
 use crate::generated::*;
 use crate::handlers::raft_handler::raft_handler;
 use crate::handlers::router::request_router;
-use crate::raft_manager::RaftManager;
+use crate::storage::raft_manager::RaftManager;
 use crate::utils::{finalize_response, is_raft_request, is_write_request};
 use bytes::BytesMut;
 use flatbuffers::FlatBufferBuilder;
