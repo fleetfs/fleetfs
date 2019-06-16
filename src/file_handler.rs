@@ -78,7 +78,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
             let read_result = data_storage.read(
-                read_request.path(),
+                read_request.path().trim_start_matches('/'),
                 read_request.offset(),
                 read_request.read_size(),
             );
@@ -88,7 +88,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::ReadRawRequest => {
             let read_request = request.request_as_read_raw_request().unwrap();
             let read_result = data_storage.read_raw(
-                read_request.path(),
+                read_request.path().trim_start_matches('/'),
                 read_request.offset(),
                 read_request.read_size(),
             );
@@ -101,7 +101,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
             let file = FileRequestHandler::new(
-                hardlink_request.path().to_string(),
+                hardlink_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -109,12 +109,14 @@ pub fn file_request_handler<'a, 'b>(
                 &file.path,
                 hardlink_request.new_path().trim_start_matches('/'),
             );
-            response = Box::new(result(file.hardlink(&hardlink_request.new_path())));
+            response = Box::new(result(
+                file.hardlink(&hardlink_request.new_path().trim_start_matches('/')),
+            ));
         }
         RequestType::AccessRequest => {
             let access_request = request.request_as_access_request().unwrap();
             let file = FileRequestHandler::new(
-                access_request.path().to_string(),
+                access_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -128,7 +130,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
             let file = FileRequestHandler::new(
-                rename_request.path().to_string(),
+                rename_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -136,12 +138,14 @@ pub fn file_request_handler<'a, 'b>(
                 &file.path,
                 rename_request.new_path().trim_start_matches('/'),
             );
-            response = Box::new(result(file.rename(&rename_request.new_path())));
+            response = Box::new(result(
+                file.rename(&rename_request.new_path().trim_start_matches('/')),
+            ));
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
             let file = FileRequestHandler::new(
-                chmod_request.path().to_string(),
+                chmod_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -151,7 +155,7 @@ pub fn file_request_handler<'a, 'b>(
             let chown_request = request.request_as_chown_request().unwrap();
             let chown_result = metadata_storage
                 .chown(
-                    chown_request.path(),
+                    chown_request.path().trim_start_matches('/'),
                     chown_request.uid().map(OptionalUInt::value),
                     chown_request.gid().map(OptionalUInt::value),
                 )
@@ -161,7 +165,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
             let file = FileRequestHandler::new(
-                truncate_request.path().to_string(),
+                truncate_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -171,7 +175,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::FsyncRequest => {
             let fsync_request = request.request_as_fsync_request().unwrap();
             let fsync_result = data_storage
-                .fsync(fsync_request.path())
+                .fsync(fsync_request.path().trim_start_matches('/'))
                 .map(|_| empty_response(builder).unwrap());
             response = Box::new(result(fsync_result));
         }
@@ -179,21 +183,25 @@ pub fn file_request_handler<'a, 'b>(
             let get_xattr_request = request.request_as_get_xattr_request().unwrap();
             // TODO: handle key doesn't exist
             let data = metadata_storage
-                .get_xattr(get_xattr_request.path(), get_xattr_request.key())
+                .get_xattr(
+                    get_xattr_request.path().trim_start_matches('/'),
+                    get_xattr_request.key(),
+                )
                 .unwrap_or_else(|| vec![]);
             response = Box::new(result(to_read_response(builder, &data)));
         }
         RequestType::ListXattrsRequest => {
             let list_xattrs_request = request.request_as_list_xattrs_request().unwrap();
             // TODO: handle key doesn't exist
-            let attrs = metadata_storage.list_xattrs(list_xattrs_request.path());
+            let attrs =
+                metadata_storage.list_xattrs(list_xattrs_request.path().trim_start_matches('/'));
             response = Box::new(result(to_xattrs_response(builder, &attrs)));
         }
         RequestType::SetXattrRequest => {
             let set_xattr_request = request.request_as_set_xattr_request().unwrap();
             // TODO: handle key doesn't exist
             metadata_storage.set_xattr(
-                set_xattr_request.path(),
+                set_xattr_request.path().trim_start_matches('/'),
                 set_xattr_request.key(),
                 set_xattr_request.value(),
             );
@@ -201,13 +209,16 @@ pub fn file_request_handler<'a, 'b>(
         }
         RequestType::RemoveXattrRequest => {
             let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
-            metadata_storage.remove_xattr(remove_xattr_request.path(), remove_xattr_request.key());
+            metadata_storage.remove_xattr(
+                remove_xattr_request.path().trim_start_matches('/'),
+                remove_xattr_request.key(),
+            );
             response = Box::new(result(empty_response(builder)));
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
             let file = FileRequestHandler::new(
-                unlink_request.path().to_string(),
+                unlink_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -216,9 +227,9 @@ pub fn file_request_handler<'a, 'b>(
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request.request_as_rmdir_request().unwrap();
-            metadata_storage.rmdir(rmdir_request.path());
+            metadata_storage.rmdir(rmdir_request.path().trim_start_matches('/'));
             let rmdir_result = data_storage
-                .rmdir(rmdir_request.path())
+                .rmdir(rmdir_request.path().trim_start_matches('/'))
                 .map(|_| empty_response(builder).unwrap());
             response = Box::new(result(rmdir_result));
         }
@@ -230,7 +241,7 @@ pub fn file_request_handler<'a, 'b>(
                 write_request.data().len() as u32,
             );
             let write_result = data_storage.write_local_blocks(
-                write_request.path(),
+                write_request.path().trim_start_matches('/'),
                 write_request.offset(),
                 write_request.data(),
             );
@@ -245,7 +256,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
             let file = FileRequestHandler::new(
-                utimens_request.path().to_string(),
+                utimens_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -261,7 +272,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
             let file = FileRequestHandler::new(
-                readdir_request.path().to_string(),
+                readdir_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -270,7 +281,7 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
             let file = FileRequestHandler::new(
-                getattr_request.path().to_string(),
+                getattr_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
@@ -279,14 +290,14 @@ pub fn file_request_handler<'a, 'b>(
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
             let file = FileRequestHandler::new(
-                mkdir_request.path().to_string(),
+                mkdir_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
             metadata_storage.mkdir(&file.path);
             response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
                 let file = FileRequestHandler::new(
-                    mkdir_request.path().to_string(),
+                    mkdir_request.path().trim_start_matches('/').to_string(),
                     context.data_dir.clone(),
                     builder,
                 );
