@@ -15,19 +15,19 @@ use crate::storage::metadata_storage::MetadataStorage;
 use crate::utils::{empty_response, into_error_code, ResultResponse};
 
 // Handles one request/response
-pub struct FileRequestHandler<'a> {
+pub struct FileStorage<'a> {
     pub path: String,
     local_data_dir: String,
     response_buffer: FlatBufferBuilder<'a>,
 }
 
-impl<'a> FileRequestHandler<'a> {
+impl<'a> FileStorage<'a> {
     pub fn new(
         path: String,
         local_data_dir: String,
         builder: FlatBufferBuilder<'a>,
-    ) -> FileRequestHandler<'a> {
-        FileRequestHandler {
+    ) -> FileStorage<'a> {
+        FileStorage {
             // XXX: hack
             path: path.trim_start_matches('/').to_string(),
             local_data_dir,

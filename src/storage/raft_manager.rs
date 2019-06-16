@@ -5,10 +5,10 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
-use crate::file_handler::FileRequestHandler;
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage::data_storage::DataStorage;
+use crate::storage::file_storage::FileStorage;
 use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage_node::LocalContext;
 use crate::utils::{
@@ -394,7 +394,7 @@ pub fn commit_write<'a, 'b>(
     match request.request_type() {
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 hardlink_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -409,7 +409,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 rename_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -424,7 +424,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 chmod_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -444,7 +444,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 truncate_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -479,7 +479,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 unlink_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -517,7 +517,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 utimens_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -533,14 +533,14 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 mkdir_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
             );
             metadata_storage.mkdir(&file.path);
             response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
-                let file = FileRequestHandler::new(
+                let file = FileStorage::new(
                     mkdir_request.path().trim_start_matches('/').to_string(),
                     context.data_dir.clone(),
                     builder,
