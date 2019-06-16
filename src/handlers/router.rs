@@ -1,6 +1,6 @@
-use crate::file_handler::FileRequestHandler;
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
+use crate::storage::file_storage::FileStorage;
 use crate::storage::raft_manager::RaftManager;
 use crate::utils::{finalize_response, into_error_code, to_read_response, to_xattrs_response};
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
@@ -60,7 +60,7 @@ pub fn request_router<'a, 'b>(
         RequestType::HardlinkRequest => unreachable!(),
         RequestType::AccessRequest => {
             let access_request = request.request_as_access_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 access_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -103,7 +103,7 @@ pub fn request_router<'a, 'b>(
         RequestType::UtimensRequest => unreachable!(),
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 readdir_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,
@@ -112,7 +112,7 @@ pub fn request_router<'a, 'b>(
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = FileRequestHandler::new(
+            let file = FileStorage::new(
                 getattr_request.path().trim_start_matches('/').to_string(),
                 context.data_dir.clone(),
                 builder,

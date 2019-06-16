@@ -15,7 +15,6 @@ use crate::generated::ErrorCode;
 use crate::utils::fuse_allow_other_enabled;
 
 pub mod client;
-pub mod file_handler;
 pub mod fuse;
 pub mod handlers;
 pub mod peer_client;
