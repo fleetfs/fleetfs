@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 use tokio::prelude::*;
 
 use crate::handlers::client_request_handler;
-use crate::raft_manager::RaftManager;
+use crate::storage::raft_manager::RaftManager;
 use crate::utils::WritableFlatBuffer;
 use std::net::SocketAddr;
 use std::path::Path;

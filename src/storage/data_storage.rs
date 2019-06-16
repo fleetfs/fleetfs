@@ -250,7 +250,7 @@ impl DataStorage {
 
 #[cfg(test)]
 mod tests {
-    use crate::data_storage::{
+    use crate::storage::data_storage::{
         stores_index, to_global_index, to_local_index_ceiling, to_local_index_floor, BLOCK_SIZE,
     };
 

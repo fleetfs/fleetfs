@@ -1,5 +1,5 @@
 use crate::generated::*;
-use crate::raft_manager::RaftManager;
+use crate::storage::raft_manager::RaftManager;
 use crate::utils::{empty_response, finalize_response};
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use futures::future::{ok, result};

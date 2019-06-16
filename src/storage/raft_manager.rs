@@ -5,11 +5,11 @@ use raft::storage::MemStorage;
 use raft::{Config, RawNode};
 use std::sync::Mutex;
 
-use crate::data_storage::DataStorage;
 use crate::file_handler::FileRequestHandler;
 use crate::generated::*;
-use crate::metadata_storage::MetadataStorage;
 use crate::peer_client::PeerClient;
+use crate::storage::data_storage::DataStorage;
+use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage_node::LocalContext;
 use crate::utils::{
     empty_response, finalize_response, into_error_code, is_write_request, to_write_response,

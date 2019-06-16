@@ -2,8 +2,8 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::data_storage::BLOCK_SIZE;
 use crate::generated::ErrorCode;
+use crate::storage::data_storage::BLOCK_SIZE;
 
 // TODO: add persistence
 pub struct MetadataStorage {
