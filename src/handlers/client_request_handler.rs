@@ -1,6 +1,6 @@
-use crate::file_handler::file_request_handler;
 use crate::generated::*;
 use crate::handlers::raft_handler::raft_handler;
+use crate::handlers::router::request_router;
 use crate::raft_manager::RaftManager;
 use crate::utils::{finalize_response, is_raft_request, is_write_request};
 use bytes::BytesMut;
@@ -17,6 +17,7 @@ pub fn client_request_handler(
     let request = get_root_as_generic_request(&frame);
     builder.reset();
     let builder_future: Box<Future<Item = FlatBufferBuilder, Error = ErrorCode> + Send>;
+    // TODO: merge these three branches, so that request_router handles all of them
     if is_raft_request(request.request_type()) {
         builder_future = Box::new(raft_handler(request, &raft, builder));
     } else if is_write_request(request.request_type()) {
@@ -36,13 +37,7 @@ pub fn client_request_handler(
         let read_after_sync = after_sync
             .map(move |_| {
                 let request = get_root_as_generic_request(&frame);
-                file_request_handler(
-                    request,
-                    cloned_raft.data_storage(),
-                    cloned_raft.metadata_storage(),
-                    &cloned_raft.local_context(),
-                    builder,
-                )
+                request_router(request, cloned_raft, builder)
             })
             .flatten();
         builder_future = Box::new(read_after_sync);
