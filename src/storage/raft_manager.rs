@@ -7,9 +7,7 @@ use std::sync::Mutex;
 
 use crate::generated::*;
 use crate::peer_client::PeerClient;
-use crate::storage::data_storage::DataStorage;
 use crate::storage::file_storage::FileStorage;
-use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage_node::LocalContext;
 use crate::utils::{
     empty_response, finalize_response, into_error_code, is_write_request, to_write_response,
@@ -40,8 +38,7 @@ pub struct RaftManager {
     peers: HashMap<u64, PeerClient>,
     node_id: u64,
     context: LocalContext,
-    data_storage: DataStorage,
-    metadata_storage: MetadataStorage,
+    file_storage: FileStorage,
 }
 
 impl RaftManager {
@@ -84,8 +81,7 @@ impl RaftManager {
                 .collect(),
             node_id,
             context: context.clone(),
-            data_storage: DataStorage::new(node_id, &peer_ids, &context),
-            metadata_storage: MetadataStorage::new(),
+            file_storage: FileStorage::new(node_id, &peer_ids, &context),
         }
     }
 
@@ -95,13 +91,8 @@ impl RaftManager {
     }
 
     // TODO: remove this method
-    pub fn data_storage(&self) -> &DataStorage {
-        &self.data_storage
-    }
-
-    // TODO: remove this method
-    pub fn metadata_storage(&self) -> &MetadataStorage {
-        &self.metadata_storage
+    pub fn file_storage(&self) -> &FileStorage {
+        &self.file_storage
     }
 
     pub fn apply_messages(&self, messages: &[Message]) -> raft::Result<()> {
@@ -260,15 +251,7 @@ impl RaftManager {
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     // TODO: dangerous. wait() could block!
-                    match commit_write(
-                        request,
-                        &self.data_storage,
-                        &self.metadata_storage,
-                        &self.context,
-                        builder,
-                    )
-                    .wait()
-                    {
+                    match commit_write(request, &self.file_storage, builder).wait() {
                         Ok(builder) => sender.send(builder).ok().unwrap(),
                         // TODO: handle this somehow. If not all nodes failed, then the filesystem
                         // is probably corrupted, since some will have applied the write, but not all
@@ -297,15 +280,7 @@ impl RaftManager {
                     let builder = FlatBufferBuilder::new();
                     // TODO: pass None for builder to avoid this useless allocation
                     // TODO: dangerous. wait() could block!
-                    if let Err(err) = commit_write(
-                        request,
-                        &self.data_storage,
-                        &self.metadata_storage,
-                        &self.context,
-                        builder,
-                    )
-                    .wait()
-                    {
+                    if let Err(err) = commit_write(request, &self.file_storage, builder).wait() {
                         // TODO: handle this somehow. If not all nodes failed, then the filesystem
                         // is probably corrupted, since some will have applied the write, but not all.
                         // There should only be a few types of messages that can fail here. truncate is one,
@@ -375,9 +350,7 @@ impl RaftManager {
 
 pub fn commit_write<'a, 'b>(
     request: GenericRequest<'a>,
-    data_storage: &DataStorage,
-    metadata_storage: &MetadataStorage,
-    context: &LocalContext,
+    file_storage: &FileStorage,
     builder: FlatBufferBuilder<'b>,
 ) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
     let response: Box<
@@ -394,46 +367,29 @@ pub fn commit_write<'a, 'b>(
     match request.request_type() {
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let file = FileStorage::new(
-                hardlink_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            metadata_storage.hardlink(
-                &file.path,
-                hardlink_request.new_path().trim_start_matches('/'),
-            );
-            response = Box::new(result(
-                file.hardlink(&hardlink_request.new_path().trim_start_matches('/')),
-            ));
+            let path = file_storage.lookup(hardlink_request.path());
+            let new_path = file_storage.lookup(hardlink_request.new_path());
+            response = Box::new(result(file_storage.hardlink(&path, &new_path, builder)));
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
-            let file = FileStorage::new(
-                rename_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            metadata_storage.rename(
-                &file.path,
-                rename_request.new_path().trim_start_matches('/'),
-            );
-            response = Box::new(result(
-                file.rename(&rename_request.new_path().trim_start_matches('/')),
-            ));
+            let path = file_storage.lookup(rename_request.path());
+            let new_path = file_storage.lookup(rename_request.new_path());
+            response = Box::new(result(file_storage.rename(&path, &new_path, builder)));
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
-            let file = FileStorage::new(
-                chmod_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
+            let path = file_storage.lookup(chmod_request.path());
+            response = Box::new(result(file_storage.chmod(
+                &path,
+                chmod_request.mode(),
                 builder,
-            );
-            response = Box::new(result(file.chmod(chmod_request.mode())));
+            )));
         }
         RequestType::ChownRequest => {
             let chown_request = request.request_as_chown_request().unwrap();
-            let chown_result = metadata_storage
+            let chown_result = file_storage
+                .get_metadata_storage()
                 .chown(
                     chown_request.path().trim_start_matches('/'),
                     chown_request.uid().map(OptionalUInt::value),
@@ -444,17 +400,17 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
-            let file = FileStorage::new(
-                truncate_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
+            let path = file_storage.lookup(truncate_request.path());
+            response = Box::new(result(file_storage.truncate(
+                &path,
+                truncate_request.new_length(),
                 builder,
-            );
-            metadata_storage.truncate(&file.path, truncate_request.new_length());
-            response = Box::new(result(file.truncate(truncate_request.new_length())));
+            )));
         }
         RequestType::FsyncRequest => {
             let fsync_request = request.request_as_fsync_request().unwrap();
-            let fsync_result = data_storage
+            let fsync_result = file_storage
+                .get_data_storage()
                 .fsync(fsync_request.path().trim_start_matches('/'))
                 .map(|_| empty_response(builder).unwrap());
             response = Box::new(result(fsync_result));
@@ -462,7 +418,7 @@ pub fn commit_write<'a, 'b>(
         RequestType::SetXattrRequest => {
             let set_xattr_request = request.request_as_set_xattr_request().unwrap();
             // TODO: handle key doesn't exist
-            metadata_storage.set_xattr(
+            file_storage.get_metadata_storage().set_xattr(
                 set_xattr_request.path().trim_start_matches('/'),
                 set_xattr_request.key(),
                 set_xattr_request.value(),
@@ -471,7 +427,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::RemoveXattrRequest => {
             let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
-            metadata_storage.remove_xattr(
+            file_storage.get_metadata_storage().remove_xattr(
                 remove_xattr_request.path().trim_start_matches('/'),
                 remove_xattr_request.key(),
             );
@@ -479,30 +435,28 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
-            let file = FileStorage::new(
-                unlink_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            metadata_storage.unlink(&file.path);
-            response = Box::new(result(file.unlink()));
+            let path = file_storage.lookup(unlink_request.path());
+            response = Box::new(result(file_storage.unlink(&path, builder)));
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request.request_as_rmdir_request().unwrap();
-            metadata_storage.rmdir(rmdir_request.path().trim_start_matches('/'));
-            let rmdir_result = data_storage
+            file_storage
+                .get_metadata_storage()
+                .rmdir(rmdir_request.path().trim_start_matches('/'));
+            let rmdir_result = file_storage
+                .get_data_storage()
                 .rmdir(rmdir_request.path().trim_start_matches('/'))
                 .map(|_| empty_response(builder).unwrap());
             response = Box::new(result(rmdir_result));
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
-            metadata_storage.write(
+            file_storage.get_metadata_storage().write(
                 write_request.path().trim_start_matches('/'),
                 write_request.offset(),
                 write_request.data().len() as u32,
             );
-            let write_result = data_storage.write_local_blocks(
+            let write_result = file_storage.get_data_storage().write_local_blocks(
                 write_request.path().trim_start_matches('/'),
                 write_request.offset(),
                 write_request.data(),
@@ -517,38 +471,30 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
-            let file = FileStorage::new(
-                utimens_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.utimens(
+            let path = file_storage.lookup(utimens_request.path());
+            response = Box::new(result(file_storage.utimens(
+                &path,
                 utimens_request.uid(),
                 utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
                 utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
-                metadata_storage,
+                builder,
             )));
         }
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let file = FileStorage::new(
-                mkdir_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            metadata_storage.mkdir(&file.path);
-            response = Box::new(result(file.mkdir(mkdir_request.mode()).map(|builder| {
-                let file = FileStorage::new(
-                    mkdir_request.path().trim_start_matches('/').to_string(),
-                    context.data_dir.clone(),
-                    builder,
-                );
-                // TODO: probably possible to hit a distributed race here
-                file.getattr(metadata_storage)
-                    .expect("getattr failed on newly created file")
-            })));
+            let path = file_storage.lookup(mkdir_request.path());
+            response = Box::new(result(
+                file_storage
+                    .mkdir(&path, mkdir_request.mode(), builder)
+                    .map(move |builder| {
+                        // TODO: probably possible to hit a distributed race here
+                        file_storage
+                            .getattr(&path, builder)
+                            .expect("getattr failed on newly created file")
+                    }),
+            ));
         }
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),

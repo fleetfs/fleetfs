@@ -1,6 +1,5 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
-use crate::storage::file_storage::FileStorage;
 use crate::storage::raft_manager::RaftManager;
 use crate::utils::{finalize_response, into_error_code, to_read_response, to_xattrs_response};
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
@@ -23,9 +22,10 @@ pub fn request_router<'a, 'b>(
                 Error = ErrorCode,
             > + Send,
     >;
-    let data_storage = raft.data_storage();
-    let metadata_storage = raft.metadata_storage();
     let context = raft.local_context();
+    let file = raft.file_storage();
+    let data_storage = file.get_data_storage();
+    let metadata_storage = file.get_metadata_storage();
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => {
@@ -60,16 +60,14 @@ pub fn request_router<'a, 'b>(
         RequestType::HardlinkRequest => unreachable!(),
         RequestType::AccessRequest => {
             let access_request = request.request_as_access_request().unwrap();
-            let file = FileStorage::new(
-                access_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
+            let path = file.lookup(access_request.path());
             response = Box::new(result(file.access(
+                &path,
                 access_request.uid(),
                 &access_request.gids(),
                 access_request.mask(),
                 metadata_storage,
+                builder,
             )));
         }
         RequestType::RenameRequest => unreachable!(),
@@ -103,21 +101,13 @@ pub fn request_router<'a, 'b>(
         RequestType::UtimensRequest => unreachable!(),
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let file = FileStorage::new(
-                readdir_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.readdir()));
+            let path = file.lookup(readdir_request.path());
+            response = Box::new(result(file.readdir(&path, builder)));
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let file = FileStorage::new(
-                getattr_request.path().trim_start_matches('/').to_string(),
-                context.data_dir.clone(),
-                builder,
-            );
-            response = Box::new(result(file.getattr(metadata_storage)));
+            let path = file.lookup(getattr_request.path());
+            response = Box::new(result(file.getattr(&path, builder)));
         }
         RequestType::MkdirRequest => unreachable!(),
         RequestType::RaftRequest => unreachable!(),
