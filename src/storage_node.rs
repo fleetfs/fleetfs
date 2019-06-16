@@ -7,11 +7,9 @@ use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::file_handler::file_request_handler;
-use crate::generated::*;
-use crate::handlers::raft_handler::raft_handler;
+use crate::handlers::client_request_handler;
 use crate::raft_manager::RaftManager;
-use crate::utils::{finalize_response, is_raft_request, is_write_request, WritableFlatBuffer};
+use crate::utils::WritableFlatBuffer;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -63,7 +61,6 @@ impl Node {
         let address = ([127, 0, 0, 1], self.port).into();
         let listener = TcpListener::bind(&address).expect("unable to bind API listener");
 
-        let context = self.context.clone();
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();
         let server = listener
@@ -75,64 +72,11 @@ impl Node {
                     .little_endian()
                     .new_read(reader);
 
-                let cloned = context.clone();
                 let cloned_raft = raft_manager.clone();
                 let builder = FlatBufferBuilder::new();
-                let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
-                    let request = get_root_as_generic_request(&frame);
-                    builder.reset();
-                    let builder_future: Box<
-                        Future<Item = FlatBufferBuilder, Error = ErrorCode> + Send,
-                    >;
-                    if is_raft_request(request.request_type()) {
-                        builder_future = Box::new(raft_handler(request, &cloned_raft, builder));
-                    } else if is_write_request(request.request_type()) {
-                        builder_future = Box::new(
-                            cloned_raft
-                                .propose(request, builder)
-                                .map_err(|_| ErrorCode::Uncategorized),
-                        );
-                    } else {
-                        // Sync to ensure replicas serve latest data
-                        let cloned_raft2 = cloned_raft.clone();
-                        let cloned_raft3 = cloned_raft.clone();
-                        let cloned2 = cloned.clone();
-                        let after_sync = cloned_raft
-                            .get_latest_commit_from_leader()
-                            .map(move |latest_commit| cloned_raft2.sync(latest_commit))
-                            .flatten()
-                            .map_err(|_| ErrorCode::Uncategorized);
-                        let read_after_sync = after_sync
-                            .map(move |_| {
-                                let request = get_root_as_generic_request(&frame);
-                                file_request_handler(
-                                    request,
-                                    cloned_raft3.data_storage(),
-                                    cloned_raft3.metadata_storage(),
-                                    &cloned2,
-                                    builder,
-                                )
-                            })
-                            .flatten();
-                        builder_future = Box::new(read_after_sync);
-                    }
-                    let builder_future2: Box<
-                        Future<Item = FlatBufferBuilder, Error = std::io::Error> + Send,
-                    >;
-                    builder_future2 = Box::new(builder_future.or_else(|error_code| {
-                        let mut builder = FlatBufferBuilder::new();
-                        let args = ErrorResponseArgs { error_code };
-                        let response_offset =
-                            ErrorResponse::create(&mut builder, &args).as_union_value();
-                        finalize_response(
-                            &mut builder,
-                            ResponseType::ErrorResponse,
-                            response_offset,
-                        );
-
-                        Ok(builder)
-                    }));
-                    builder_future2
+                let conn = reader.fold((writer, builder), move |(writer, builder), frame| {
+                    let response = client_request_handler(builder, frame, cloned_raft.clone());
+                    response
                         .map(|builder| {
                             let writable = WritableFlatBuffer::new(builder);
                             tokio::io::write_all(writer, writable)

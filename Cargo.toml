@@ -26,6 +26,7 @@ walkdir = "2.2"
 raft = "0.5"
 protobuf = "2"
 rand = "0.6"
+bytes = "0.4"
 
 [profile.release]
 debug = true

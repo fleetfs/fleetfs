@@ -90,6 +90,11 @@ impl RaftManager {
     }
 
     // TODO: remove this method
+    pub fn local_context(&self) -> &LocalContext {
+        &self.context
+    }
+
+    // TODO: remove this method
     pub fn data_storage(&self) -> &DataStorage {
         &self.data_storage
     }
