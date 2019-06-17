@@ -22,7 +22,8 @@ pub struct MetadataStorage {
     // Maybe we should revisit that design?
     // Maps directory inodes to maps of name -> inode
     directories: Mutex<HashMap<Inode, HashMap<String, Inode>>>,
-    // TODO: this needs to be coordinated across replicas
+    // Raft guarantees that operations are performed in the same order across all nodes
+    // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
 }
 
