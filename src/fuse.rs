@@ -14,6 +14,7 @@ use time::Timespec;
 
 use crate::client::NodeClient;
 use crate::generated::ErrorCode;
+use crate::storage::ROOT_INODE;
 use std::os::raw::c_int;
 
 pub struct FleetFUSE {
@@ -38,6 +39,21 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::AccessDenied => libc::EACCES,
         ErrorCode::OperationNotPermitted => libc::EPERM,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
+    }
+}
+
+impl FleetFUSE {
+    fn lookup_path(&self, path: &str) -> Result<u64, libc::c_int> {
+        let mut components = Path::new(path).components();
+        // Skip root
+        components.next();
+        let mut inode = ROOT_INODE;
+        for component in components {
+            let name = component.as_os_str().to_str().unwrap().to_string();
+            inode = self.client.lookup(inode, &name).map_err(into_fuse_error)?;
+        }
+
+        Ok(inode)
     }
 }
 

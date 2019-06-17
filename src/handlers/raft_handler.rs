@@ -28,6 +28,7 @@ pub fn raft_handler<'a, 'b>(
         RequestType::FilesystemChecksumRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),
+        RequestType::LookupRequest => unreachable!(),
         RequestType::GetXattrRequest => unreachable!(),
         RequestType::ListXattrsRequest => unreachable!(),
         RequestType::SetXattrRequest => unreachable!(),

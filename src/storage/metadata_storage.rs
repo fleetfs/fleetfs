@@ -7,7 +7,7 @@ use crate::generated::ErrorCode;
 use crate::storage::data_storage::BLOCK_SIZE;
 use std::path::Path;
 
-const ROOT_INODE: u64 = 0;
+pub const ROOT_INODE: u64 = 0;
 
 type Inode = u64;
 
@@ -42,15 +42,19 @@ impl MetadataStorage {
         }
     }
 
-    fn lookup(&self, path: &str) -> Option<Inode> {
+    pub fn lookup(&self, parent: Inode, name: &str) -> Option<Inode> {
+        let directories = self.directories.lock().unwrap();
+        directories.get(&parent).unwrap().get(name).cloned()
+    }
+
+    fn lookup_path(&self, path: &str) -> Option<Inode> {
         if path.is_empty() {
             return Some(ROOT_INODE);
         }
 
         let parent = self.lookup_parent(path)?;
         let basename = basename(path);
-        let directories = self.directories.lock().unwrap();
-        directories.get(&parent).unwrap().get(&basename).cloned()
+        self.lookup(parent, &basename)
     }
 
     fn lookup_parent(&self, path: &str) -> Option<Inode> {
@@ -59,19 +63,19 @@ impl MetadataStorage {
             .map(|x| x.to_str().unwrap().to_string())
         {
             None => Some(ROOT_INODE),
-            Some(parent) => self.lookup(&parent),
+            Some(parent) => self.lookup_path(&parent),
         }
     }
 
     pub fn get_xattr(&self, path: &str, key: &str) -> Option<Vec<u8>> {
         let xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
         xattrs.get(&inode)?.get(key).cloned()
     }
 
     pub fn list_xattrs(&self, path: &str) -> Vec<String> {
         let xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
         xattrs
             .get(&inode)
             .map(|attrs| attrs.keys().cloned().collect())
@@ -80,7 +84,7 @@ impl MetadataStorage {
 
     pub fn set_xattr(&self, path: &str, key: &str, value: &[u8]) {
         let mut xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
         if xattrs.contains_key(&inode) {
             xattrs
                 .get_mut(&inode)
@@ -95,35 +99,35 @@ impl MetadataStorage {
 
     pub fn remove_xattr(&self, path: &str, key: &str) {
         let mut xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
         xattrs.get_mut(&inode).map(|attrs| attrs.remove(key));
     }
 
     // TODO: should have some error handling
     pub fn get_length(&self, path: &str) -> Option<u64> {
         let file_lengths = self.file_lengths.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         file_lengths.get(&inode).cloned()
     }
 
     pub fn get_uid(&self, path: &str) -> Option<u32> {
         let uids = self.uids.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         uids.get(&inode).cloned()
     }
 
     pub fn get_gid(&self, path: &str) -> Option<u32> {
         let gids = self.gids.lock().unwrap();
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         gids.get(&inode).cloned()
     }
 
     // TODO: should have some error handling
     pub fn chown(&self, path: &str, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
         if let Some(uid) = uid {
             let mut uids = self.uids.lock().unwrap();
             uids.insert(inode, uid);
@@ -139,7 +143,7 @@ impl MetadataStorage {
     pub fn hardlink(&self, path: &str, new_path: &str) {
         // TODO: need to switch this to use inodes. This doesn't have the right semantics, since
         // it only copies the size on creation
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         let new_parent = self.lookup_parent(new_path).unwrap();
         let new_basename = basename(new_path);
@@ -185,14 +189,14 @@ impl MetadataStorage {
 
     // TODO: should have some error handling
     pub fn truncate(&self, path: &str, new_length: u64) {
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
         let mut file_lengths = self.file_lengths.lock().unwrap();
         file_lengths.insert(inode, new_length);
     }
 
     // TODO: should have some error handling
     pub fn unlink(&self, path: &str) {
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         let mut file_lengths = self.file_lengths.lock().unwrap();
         file_lengths.remove(&inode);
@@ -205,7 +209,7 @@ impl MetadataStorage {
 
     // TODO: should have some error handling
     pub fn rmdir(&self, path: &str) {
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         let mut file_lengths = self.file_lengths.lock().unwrap();
         file_lengths.remove(&inode);
@@ -219,7 +223,7 @@ impl MetadataStorage {
         // TODO: awful hack, because client doesn't create files properly
         self.create(path);
 
-        let inode = self.lookup(path).unwrap();
+        let inode = self.lookup_path(path).unwrap();
 
         let mut file_lengths = self.file_lengths.lock().unwrap();
 
@@ -228,7 +232,7 @@ impl MetadataStorage {
     }
 
     pub fn create(&self, path: &str) {
-        if self.lookup(path).is_none() {
+        if self.lookup_path(path).is_none() {
             let parent = self.lookup_parent(path).unwrap();
             let basename = basename(path);
             let mut directories = self.directories.lock().unwrap();

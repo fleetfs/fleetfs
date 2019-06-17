@@ -135,6 +135,22 @@ impl NodeClient {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
+    pub fn lookup(&self, parent: u64, name: &str) -> Result<u64, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_name = builder.create_string(name);
+        let mut request_builder = LookupRequestBuilder::new(&mut builder);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::LookupRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let inode_response = response.response_as_inode_response().unwrap();
+
+        return Ok(inode_response.inode());
+    }
+
     pub fn getattr(&self, path: &str) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);

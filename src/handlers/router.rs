@@ -1,9 +1,11 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::storage::raft_manager::RaftManager;
-use crate::utils::{finalize_response, into_error_code, to_read_response, to_xattrs_response};
+use crate::utils::{
+    finalize_response, into_error_code, to_inode_response, to_read_response, to_xattrs_response,
+};
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
-use futures::future::result;
+use futures::future::{err, result};
 use futures::Future;
 use std::sync::Arc;
 
@@ -75,6 +77,17 @@ pub fn request_router<'a, 'b>(
         RequestType::ChownRequest => unreachable!(),
         RequestType::TruncateRequest => unreachable!(),
         RequestType::FsyncRequest => unreachable!(),
+        RequestType::LookupRequest => {
+            let lookup_request = request.request_as_lookup_request().unwrap();
+            // TODO: handle key doesn't exist
+            if let Some(inode) =
+                metadata_storage.lookup(lookup_request.parent(), lookup_request.name())
+            {
+                response = Box::new(result(to_inode_response(builder, inode)));
+            } else {
+                response = Box::new(err(ErrorCode::DoesNotExist));
+            }
+        }
         RequestType::GetXattrRequest => {
             let get_xattr_request = request.request_as_get_xattr_request().unwrap();
             // TODO: handle key doesn't exist
