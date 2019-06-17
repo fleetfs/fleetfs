@@ -108,7 +108,7 @@ struct OptionalUInt {
 }
 
 table ChownRequest {
-  path: string (required);
+  inode: ulong;
   uid: OptionalUInt;
   gid: OptionalUInt;
 }

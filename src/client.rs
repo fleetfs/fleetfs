@@ -9,6 +9,7 @@ use time::Timespec;
 
 use crate::generated::*;
 use crate::storage::data_storage::BLOCK_SIZE;
+use crate::storage::ROOT_INODE;
 use crate::tcp_client::TcpClient;
 use crate::utils::{finalize_request, response_or_error};
 
@@ -312,13 +313,12 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn chown(&self, path: &str, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
-        assert_ne!(path, "/");
+    pub fn chown(&self, inode: u64, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = ChownRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         let uid_struct;
         let gid_struct;
         if let Some(uid) = uid {
