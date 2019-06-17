@@ -126,8 +126,7 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
-    pub fn chown(&self, path: &str, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
-        let inode = self.lookup_path(path).unwrap();
+    pub fn chown(&self, inode: Inode, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
         if let Some(uid) = uid {
             let mut uids = self.uids.lock().unwrap();
             uids.insert(inode, uid);

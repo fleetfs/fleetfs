@@ -116,7 +116,8 @@ impl FilesystemMT for FleetFUSE {
     ) -> ResultEmpty {
         debug!("chown() called with {:?} {:?} {:?}", path, uid, gid);
         let path = path.to_str().unwrap();
-        self.client.chown(path, uid, gid).map_err(into_fuse_error)
+        let inode = self.lookup_path(path)?;
+        self.client.chown(inode, uid, gid).map_err(into_fuse_error)
     }
 
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
@@ -439,8 +440,9 @@ impl FilesystemMT for FleetFUSE {
         self.client
             .write(path.to_str().unwrap(), &[], 0)
             .map_err(into_fuse_error)?;
+        let inode = self.lookup_path(path.to_str().unwrap())?;
         self.client
-            .chown(path.to_str().unwrap(), Some(req.uid), Some(req.gid))
+            .chown(inode, Some(req.uid), Some(req.gid))
             .map_err(into_fuse_error)?;
         self.client
             .getattr(path.to_str().unwrap())

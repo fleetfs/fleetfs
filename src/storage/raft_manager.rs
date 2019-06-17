@@ -376,7 +376,7 @@ pub fn commit_write<'a, 'b>(
             response = file_storage
                 .get_metadata_storage()
                 .chown(
-                    chown_request.path().trim_start_matches('/'),
+                    chown_request.inode(),
                     chown_request.uid().map(OptionalUInt::value),
                     chown_request.gid().map(OptionalUInt::value),
                 )
