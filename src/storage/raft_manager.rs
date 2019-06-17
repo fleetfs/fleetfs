@@ -398,7 +398,7 @@ pub fn commit_write<'a, 'b>(
             let set_xattr_request = request.request_as_set_xattr_request().unwrap();
             // TODO: handle key doesn't exist
             file_storage.get_metadata_storage().set_xattr(
-                set_xattr_request.path().trim_start_matches('/'),
+                set_xattr_request.inode(),
                 set_xattr_request.key(),
                 set_xattr_request.value(),
             );
@@ -406,10 +406,9 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::RemoveXattrRequest => {
             let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
-            file_storage.get_metadata_storage().remove_xattr(
-                remove_xattr_request.path().trim_start_matches('/'),
-                remove_xattr_request.key(),
-            );
+            file_storage
+                .get_metadata_storage()
+                .remove_xattr(remove_xattr_request.inode(), remove_xattr_request.key());
             response = empty_response(builder);
         }
         RequestType::UnlinkRequest => {

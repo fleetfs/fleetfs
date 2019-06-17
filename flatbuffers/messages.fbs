@@ -28,22 +28,22 @@ table FilesystemCheckRequest {
 }
 
 table ListXattrsRequest {
-  path: string (required);
+  inode: ulong;
 }
 
 table GetXattrRequest {
-  path: string (required);
+  inode: ulong;
   key: string (required);
 }
 
 table SetXattrRequest {
-  path: string (required);
+  inode: ulong;
   key: string (required);
   value: [ubyte] (required);
 }
 
 table RemoveXattrRequest {
-  path: string (required);
+  inode: ulong;
   key: string (required);
 }
 

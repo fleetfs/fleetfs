@@ -167,12 +167,11 @@ impl NodeClient {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn getxattr(&self, path: &str, key: &str) -> Result<Vec<u8>, ErrorCode> {
+    pub fn getxattr(&self, inode: u64, key: &str) -> Result<Vec<u8>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let builder_key = builder.create_string(key);
         let mut request_builder = GetXattrRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         request_builder.add_key(builder_key);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::GetXattrRequest, finish_offset);
@@ -184,11 +183,10 @@ impl NodeClient {
         return Ok(data.to_vec());
     }
 
-    pub fn listxattr(&self, path: &str) -> Result<Vec<String>, ErrorCode> {
+    pub fn listxattr(&self, inode: u64) -> Result<Vec<String>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = ListXattrsRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ListXattrsRequest, finish_offset);
 
@@ -206,13 +204,12 @@ impl NodeClient {
         return Ok(attrs);
     }
 
-    pub fn setxattr(&self, path: &str, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
+    pub fn setxattr(&self, inode: u64, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let builder_key = builder.create_string(key);
         let builder_value = builder.create_vector_direct(value);
         let mut request_builder = SetXattrRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         request_builder.add_key(builder_key);
         request_builder.add_value(builder_value);
         let finish_offset = request_builder.finish().as_union_value();
@@ -225,12 +222,11 @@ impl NodeClient {
         Ok(())
     }
 
-    pub fn removexattr(&self, path: &str, key: &str) -> Result<(), ErrorCode> {
+    pub fn removexattr(&self, inode: u64, key: &str) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let builder_key = builder.create_string(key);
         let mut request_builder = RemoveXattrRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         request_builder.add_key(builder_key);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RemoveXattrRequest, finish_offset);
