@@ -44,6 +44,7 @@ pub fn is_raft_request(request_type: RequestType) -> bool {
         RequestType::GetattrRequest => false,
         RequestType::FilesystemCheckRequest => false,
         RequestType::FilesystemChecksumRequest => false,
+        RequestType::LookupRequest => false,
         RequestType::GetXattrRequest => false,
         RequestType::ListXattrsRequest => false,
         RequestType::SetXattrRequest => false,
@@ -76,6 +77,7 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::GetattrRequest => false,
         RequestType::FilesystemCheckRequest => false,
         RequestType::FilesystemChecksumRequest => false,
+        RequestType::LookupRequest => false,
         RequestType::GetXattrRequest => false,
         RequestType::ListXattrsRequest => false,
         RequestType::SetXattrRequest => true,
@@ -181,6 +183,14 @@ pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> 
     let response_offset = response_builder.finish().as_union_value();
 
     return Ok((builder, ResponseType::ReadResponse, response_offset));
+}
+
+pub fn to_inode_response(mut builder: FlatBufferBuilder, inode: u64) -> ResultResponse {
+    let mut response_builder = InodeResponseBuilder::new(&mut builder);
+    response_builder.add_inode(inode);
+    let response_offset = response_builder.finish().as_union_value();
+
+    return Ok((builder, ResponseType::InodeResponse, response_offset));
 }
 
 pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultResponse {

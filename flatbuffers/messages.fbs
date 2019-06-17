@@ -1,7 +1,7 @@
 namespace generated;
 
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
-                   UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest,
+                   UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, AccessRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest}
@@ -135,6 +135,11 @@ table RenameRequest {
   new_path: string (required);
 }
 
+table LookupRequest {
+  parent: ulong;
+  name: string (required);
+}
+
 root_type GenericRequest;
 
 enum ErrorCode: byte {
@@ -206,12 +211,16 @@ table NodeIdResponse {
   node_id: ulong;
 }
 
+table InodeResponse {
+  inode: ulong;
+}
+
 table XattrsResponse {
   xattrs: [string] (required);
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse, NodeIdResponse, XattrsResponse }
+                     WrittenResponse, LatestCommitResponse, NodeIdResponse, XattrsResponse, InodeResponse }
 
 table GenericResponse {
   response: ResponseType;
