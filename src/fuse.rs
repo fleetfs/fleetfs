@@ -364,22 +364,24 @@ impl FilesystemMT for FleetFUSE {
     ) -> ResultEmpty {
         debug!("setxattr() called with {:?} {:?} {:?}", path, name, value);
         let path = path.to_str().unwrap();
+        let inode = self.lookup_path(path)?;
         self.client
-            .setxattr(path, name.to_str().unwrap(), value)
+            .setxattr(inode, name.to_str().unwrap(), value)
             .map_err(into_fuse_error)
     }
 
     fn getxattr(&self, _req: RequestInfo, path: &Path, name: &OsStr, size: u32) -> ResultXattr {
         debug!("getxattr() called with {:?} {:?}", path, name);
         let path = path.to_str().unwrap();
+        let inode = self.lookup_path(path)?;
         if size == 0 {
             self.client
-                .getxattr(path, name.to_str().unwrap())
+                .getxattr(inode, name.to_str().unwrap())
                 .map(|data| Xattr::Size(data.len() as u32))
                 .map_err(into_fuse_error)
         } else {
             self.client
-                .getxattr(path, name.to_str().unwrap())
+                .getxattr(inode, name.to_str().unwrap())
                 .map(Xattr::Data)
                 .map_err(into_fuse_error)
         }
@@ -388,9 +390,10 @@ impl FilesystemMT for FleetFUSE {
     fn listxattr(&self, _req: RequestInfo, path: &Path, size: u32) -> ResultXattr {
         debug!("listxattr() called with {:?}", path);
         let path = path.to_str().unwrap();
+        let inode = self.lookup_path(path)?;
         let result = self
             .client
-            .listxattr(path)
+            .listxattr(inode)
             .map(|xattrs| {
                 let mut bytes = vec![];
                 // Convert to concatenated null-terminated strings
@@ -412,8 +415,9 @@ impl FilesystemMT for FleetFUSE {
     fn removexattr(&self, _req: RequestInfo, path: &Path, name: &OsStr) -> ResultEmpty {
         debug!("removexattr() called with {:?} {:?}", path, name);
         let path = path.to_str().unwrap();
+        let inode = self.lookup_path(path)?;
         self.client
-            .removexattr(path, name.to_str().unwrap())
+            .removexattr(inode, name.to_str().unwrap())
             .map_err(into_fuse_error)
     }
 

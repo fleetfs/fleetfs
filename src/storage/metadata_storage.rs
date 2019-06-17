@@ -68,24 +68,21 @@ impl MetadataStorage {
         }
     }
 
-    pub fn get_xattr(&self, path: &str, key: &str) -> Option<Vec<u8>> {
+    pub fn get_xattr(&self, inode: Inode, key: &str) -> Option<Vec<u8>> {
         let xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup_path(path).unwrap();
         xattrs.get(&inode)?.get(key).cloned()
     }
 
-    pub fn list_xattrs(&self, path: &str) -> Vec<String> {
+    pub fn list_xattrs(&self, inode: Inode) -> Vec<String> {
         let xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup_path(path).unwrap();
         xattrs
             .get(&inode)
             .map(|attrs| attrs.keys().cloned().collect())
             .unwrap_or_else(|| vec![])
     }
 
-    pub fn set_xattr(&self, path: &str, key: &str, value: &[u8]) {
+    pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) {
         let mut xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup_path(path).unwrap();
         if xattrs.contains_key(&inode) {
             xattrs
                 .get_mut(&inode)
@@ -98,9 +95,8 @@ impl MetadataStorage {
         }
     }
 
-    pub fn remove_xattr(&self, path: &str, key: &str) {
+    pub fn remove_xattr(&self, inode: Inode, key: &str) {
         let mut xattrs = self.xattrs.lock().unwrap();
-        let inode = self.lookup_path(path).unwrap();
         xattrs.get_mut(&inode).map(|attrs| attrs.remove(key));
     }
 

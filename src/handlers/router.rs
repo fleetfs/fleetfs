@@ -92,18 +92,14 @@ pub fn request_router<'a, 'b>(
             let get_xattr_request = request.request_as_get_xattr_request().unwrap();
             // TODO: handle key doesn't exist
             let data = metadata_storage
-                .get_xattr(
-                    get_xattr_request.path().trim_start_matches('/'),
-                    get_xattr_request.key(),
-                )
+                .get_xattr(get_xattr_request.inode(), get_xattr_request.key())
                 .unwrap_or_else(|| vec![]);
             response = Box::new(result(to_read_response(builder, &data)));
         }
         RequestType::ListXattrsRequest => {
             let list_xattrs_request = request.request_as_list_xattrs_request().unwrap();
             // TODO: handle key doesn't exist
-            let attrs =
-                metadata_storage.list_xattrs(list_xattrs_request.path().trim_start_matches('/'));
+            let attrs = metadata_storage.list_xattrs(list_xattrs_request.inode());
             response = Box::new(result(to_xattrs_response(builder, &attrs)));
         }
         RequestType::SetXattrRequest => unreachable!(),
