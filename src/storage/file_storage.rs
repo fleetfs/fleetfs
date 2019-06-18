@@ -94,7 +94,7 @@ impl FileStorage {
             let directory_entry = DirectoryEntry::create(
                 &mut builder,
                 &DirectoryEntryArgs {
-                    path: Some(name),
+                    name: Some(name),
                     kind: file_type,
                 },
             );

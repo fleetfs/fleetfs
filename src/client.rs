@@ -423,7 +423,7 @@ impl NodeClient {
         for i in 0..entries.len() {
             let entry = entries.get(i);
             result.push(DirectoryEntry {
-                name: OsString::from(entry.path()),
+                name: OsString::from(entry.name()),
                 kind: file_type_to_fuse_type(entry.kind()),
             });
         }
