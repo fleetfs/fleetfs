@@ -120,11 +120,13 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn mkdir(&self, path: &str, mode: u16) -> Result<FileAttr, ErrorCode> {
+    pub fn mkdir(&self, path: &str, uid: u32, gid: u32, mode: u16) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_path = builder.create_string(path);
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
         request_builder.add_path(builder_path);
+        request_builder.add_uid(uid);
+        request_builder.add_gid(gid);
         request_builder.add_mode(mode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);

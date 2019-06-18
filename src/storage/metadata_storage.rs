@@ -173,7 +173,7 @@ impl MetadataStorage {
         // TODO: update hardlink count
     }
 
-    pub fn mkdir(&self, path: &str) {
+    pub fn mkdir(&self, path: &str, uid: u32, gid: u32, mode: u16) {
         let inode = self.allocate_inode();
         let parent = self.lookup_parent(path).unwrap();
         let basename = basename(path);
@@ -190,10 +190,10 @@ impl MetadataStorage {
             last_modified: Timestamp::new(0, 0),
             last_metadata_changed: Timestamp::new(0, 0),
             kind: FileKind::Directory,
-            mode: 0o755,
+            mode,
             hardlinks: 2,
-            uid: 0, // TODO
-            gid: 0,
+            uid,
+            gid,
             xattrs: Default::default(),
         };
         let mut metadata = self.metadata.lock().unwrap();

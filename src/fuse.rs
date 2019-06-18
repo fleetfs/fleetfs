@@ -173,12 +173,12 @@ impl FilesystemMT for FleetFUSE {
         }
     }
 
-    fn mkdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
+    fn mkdir(&self, req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
         debug!("mkdir() called with {:?} {:?}", parent, name);
         let path = Path::new(parent).join(name);
         return self
             .client
-            .mkdir(path.to_str().unwrap(), mode as u16)
+            .mkdir(path.to_str().unwrap(), req.uid, req.gid, mode as u16)
             .map(|file_attr| (Timespec { sec: 0, nsec: 0 }, file_attr))
             .map_err(into_fuse_error);
     }
@@ -435,7 +435,7 @@ impl FilesystemMT for FleetFUSE {
         req: RequestInfo,
         parent: &Path,
         name: &OsStr,
-        _mode: u32,
+        mode: u32,
         _flags: u32,
     ) -> ResultCreate {
         debug!("create() called with {:?} {:?}", parent, name);
@@ -447,6 +447,9 @@ impl FilesystemMT for FleetFUSE {
         let inode = self.lookup_path(path.to_str().unwrap())?;
         self.client
             .chown(inode, Some(req.uid), Some(req.gid))
+            .map_err(into_fuse_error)?;
+        self.client
+            .chmod(path.to_str().unwrap(), mode)
             .map_err(into_fuse_error)?;
         self.client
             .getattr(path.to_str().unwrap())

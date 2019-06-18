@@ -461,7 +461,13 @@ pub fn commit_write<'a, 'b>(
             let mkdir_request = request.request_as_mkdir_request().unwrap();
             let path = file_storage.lookup(mkdir_request.path());
             response = file_storage
-                .mkdir(&path, mkdir_request.mode(), builder)
+                .mkdir(
+                    &path,
+                    mkdir_request.uid(),
+                    mkdir_request.gid(),
+                    mkdir_request.mode(),
+                    builder,
+                )
                 .map(move |builder| {
                     // TODO: probably possible to hit a distributed race here
                     file_storage
