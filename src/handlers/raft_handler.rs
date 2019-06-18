@@ -33,7 +33,6 @@ pub fn raft_handler<'a, 'b>(
         RequestType::ListXattrsRequest => unreachable!(),
         RequestType::SetXattrRequest => unreachable!(),
         RequestType::RemoveXattrRequest => unreachable!(),
-        RequestType::AccessRequest => unreachable!(),
         RequestType::HardlinkRequest => unreachable!(),
         RequestType::RenameRequest => unreachable!(),
         RequestType::ChmodRequest => unreachable!(),

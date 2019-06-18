@@ -27,3 +27,7 @@ Very very alpha. Expect FleetFS to eat your data :)
   * Cons: doubles network traffic inside FleetFS cluster, as nodes have to proxy traffic reading/writing
   to other nodes
   * Pros: better scalability, as client connection is handled by a single node. Also simplifies client code
+* Clients are trusted to make permission checks
+  * Context: FleetFS has no access to a central user store, so has to trust the user ids sent by the client
+  * Cons: security relies on the client
+  * Pros: client doesn't have to send exhaustive list of groups that user is part of to make permission checks
