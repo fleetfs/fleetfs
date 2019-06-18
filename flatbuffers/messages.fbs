@@ -121,7 +121,7 @@ table ChmodRequest {
 }
 
 table UtimensRequest {
-  path: string (required);
+  inode: ulong;
   uid: uint;
   atime: Timestamp;
   mtime: Timestamp;

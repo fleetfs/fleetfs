@@ -118,12 +118,11 @@ impl MetadataStorage {
 
     pub fn utimens(
         &self,
-        path: &str,
+        inode: Inode,
         uid: u32,
         atime: Option<&Timestamp>,
         mtime: Option<&Timestamp>,
     ) -> Result<(), ErrorCode> {
-        let inode = self.lookup_path(path).unwrap();
         let mut metadata = self.metadata.lock().unwrap();
 
         if let Some(inode_metadata) = metadata.get_mut(&inode) {
