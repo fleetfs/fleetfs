@@ -304,7 +304,8 @@ impl FilesystemMT for FleetFUSE {
     fn readdir(&self, _req: RequestInfo, path: &Path, _fh: u64) -> ResultReaddir {
         debug!("readdir() called with {:?}", path);
         let path = path.to_str().unwrap();
-        return self.client.readdir(path).map_err(into_fuse_error);
+        let inode = self.lookup_path(path)?;
+        return self.client.readdir(inode).map_err(into_fuse_error);
     }
 
     fn releasedir(&self, _req: RequestInfo, path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {

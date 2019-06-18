@@ -10,6 +10,7 @@ use std::path::Path;
 pub const ROOT_INODE: u64 = 0;
 
 type Inode = u64;
+type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
 
 #[derive(Clone)]
 pub struct InodeAttributes {
@@ -33,7 +34,7 @@ pub struct MetadataStorage {
     // because it's replicated to all nodes to allow better searching.
     // Maybe we should revisit that design?
     // Maps directory inodes to maps of name -> inode
-    directories: Mutex<HashMap<Inode, HashMap<String, Inode>>>,
+    directories: Mutex<HashMap<Inode, DirectoryDescriptor>>,
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
@@ -71,7 +72,11 @@ impl MetadataStorage {
 
     pub fn lookup(&self, parent: Inode, name: &str) -> Option<Inode> {
         let directories = self.directories.lock().unwrap();
-        directories.get(&parent).unwrap().get(name).cloned()
+        directories
+            .get(&parent)
+            .unwrap()
+            .get(name)
+            .map(|(inode, _)| *inode)
     }
 
     pub fn lookup_path(&self, path: &str) -> Option<Inode> {
@@ -117,6 +122,20 @@ impl MetadataStorage {
     pub fn remove_xattr(&self, inode: Inode, key: &str) {
         let mut metadata = self.metadata.lock().unwrap();
         metadata.get_mut(&inode).and_then(|x| x.xattrs.remove(key));
+    }
+
+    pub fn readdir(&self, inode: Inode) -> Result<Vec<(String, FileKind)>, ErrorCode> {
+        let directories = self.directories.lock().unwrap();
+
+        if let Some(entries) = directories.get(&inode) {
+            let result = entries
+                .iter()
+                .map(|(name, (_, kind))| (name.clone(), *kind))
+                .collect();
+            Ok(result)
+        } else {
+            Err(ErrorCode::DoesNotExist)
+        }
     }
 
     pub fn get_uid(&self, path: &str) -> Option<u32> {
@@ -195,16 +214,17 @@ impl MetadataStorage {
         // it only copies the size on creation
         let inode = self.lookup_path(path).unwrap();
 
+        let mut metadata = self.metadata.lock().unwrap();
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        inode_attrs.hardlinks += 1;
+
         let new_parent = self.lookup_parent(new_path).unwrap();
         let new_basename = basename(new_path);
         let mut directories = self.directories.lock().unwrap();
         directories
             .get_mut(&new_parent)
             .unwrap()
-            .insert(new_basename, inode);
-
-        let mut metadata = self.metadata.lock().unwrap();
-        metadata.get_mut(&inode).unwrap().hardlinks += 1;
+            .insert(new_basename, (inode, inode_attrs.kind));
     }
 
     pub fn mkdir(&self, path: &str, uid: u32, gid: u32, mode: u16) {
@@ -215,7 +235,7 @@ impl MetadataStorage {
         directories
             .get_mut(&parent)
             .unwrap()
-            .insert(basename, inode);
+            .insert(basename, (inode, FileKind::Directory));
         directories.insert(inode, HashMap::new());
 
         let inode_metadata = InodeAttributes {
@@ -240,7 +260,7 @@ impl MetadataStorage {
         let old_parent = self.lookup_parent(path).unwrap();
         let new_parent = self.lookup_parent(new_path).unwrap();
         let mut directories = self.directories.lock().unwrap();
-        let inode = directories
+        let entry = directories
             .get_mut(&old_parent)
             .unwrap()
             .remove(&old_basename)
@@ -248,7 +268,7 @@ impl MetadataStorage {
         directories
             .get_mut(&new_parent)
             .unwrap()
-            .insert(new_basename, inode);
+            .insert(new_basename, entry);
     }
 
     // TODO: should have some error handling
@@ -306,7 +326,7 @@ impl MetadataStorage {
             directories
                 .get_mut(&parent)
                 .unwrap()
-                .insert(basename, inode);
+                .insert(basename, (inode, FileKind::File));
 
             let inode_metadata = InodeAttributes {
                 size: 0,

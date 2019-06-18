@@ -95,7 +95,7 @@ table TruncateRequest {
 }
 
 table ReaddirRequest {
-  path: string (required);
+  inode: ulong;
 }
 
 table AccessRequest {

@@ -110,8 +110,7 @@ pub fn request_router<'a, 'b>(
         RequestType::UtimensRequest => unreachable!(),
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            let path = file.lookup(readdir_request.path());
-            response = Box::new(result(file.readdir(&path, builder)));
+            response = Box::new(result(file.readdir(readdir_request.inode(), builder)));
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
