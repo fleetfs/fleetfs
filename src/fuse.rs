@@ -135,10 +135,11 @@ impl FilesystemMT for FleetFUSE {
         mtime: Option<Timespec>,
     ) -> ResultEmpty {
         debug!("utimens() called with {:?}, {:?}, {:?}", path, atime, mtime);
+        let inode = self.lookup_path(path.to_str().unwrap())?;
         return self
             .client
             .utimens(
-                path.to_str().unwrap(),
+                inode,
                 req.uid,
                 atime.map(|x| x.sec).unwrap_or(0),
                 atime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),

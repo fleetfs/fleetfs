@@ -9,6 +9,7 @@ use log::info;
 use crate::generated::*;
 use crate::storage::data_storage::{DataStorage, BLOCK_SIZE};
 use crate::storage::metadata_storage::MetadataStorage;
+use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, into_error_code, ResultResponse};
 
@@ -202,14 +203,14 @@ impl FileStorage {
 
     pub fn utimens<'a>(
         &self,
-        path: &str,
+        inode: u64,
         uid: u32,
         atime: Option<&Timestamp>,
         mtime: Option<&Timestamp>,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        assert_ne!(path.len(), 0);
-        self.metadata_storage.utimens(path, uid, atime, mtime)?;
+        assert_ne!(inode, ROOT_INODE);
+        self.metadata_storage.utimens(inode, uid, atime, mtime)?;
         return empty_response(builder);
     }
 
