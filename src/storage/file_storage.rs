@@ -175,12 +175,10 @@ impl FileStorage {
 
     pub fn getattr<'a>(
         &self,
-        path: &str,
+        inode: u64,
         mut builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        assert_ne!(path.len(), 0);
-
-        if let Some(attributes) = self.metadata_storage.get_attributes(path) {
+        if let Some(attributes) = self.metadata_storage.get_attributes(inode) {
             let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
             response_builder.add_size_bytes(attributes.size);
             response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);

@@ -467,8 +467,12 @@ pub fn commit_write<'a, 'b>(
                 )
                 .map(move |builder| {
                     // TODO: probably possible to hit a distributed race here
+                    let inode = file_storage
+                        .get_metadata_storage()
+                        .lookup_path(&path)
+                        .unwrap();
                     file_storage
-                        .getattr(&path, builder)
+                        .getattr(inode, builder)
                         .expect("getattr failed on newly created file")
                 });
         }

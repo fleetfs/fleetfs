@@ -61,7 +61,7 @@ table ReadRequest {
 }
 
 table GetattrRequest {
-  path: string (required);
+  inode: ulong;
 }
 
 table MkdirRequest {
