@@ -123,6 +123,19 @@ impl MetadataStorage {
         metadata.get(&inode).map(|x| x.gid)
     }
 
+    pub fn utimens(&self, path: &str, atime: Option<Timestamp>, mtime: Option<Timestamp>) {
+        let inode = self.lookup_path(path).unwrap();
+        let mut metadata = self.metadata.lock().unwrap();
+
+        let inode_metadata = metadata.get_mut(&inode).unwrap();
+        if let Some(atime) = atime {
+            inode_metadata.last_accessed = atime;
+        }
+        if let Some(mtime) = mtime {
+            inode_metadata.last_modified = mtime;
+        }
+    }
+
     // TODO: should have some error handling
     pub fn chmod(&self, path: &str, mode: u32) {
         let inode = self.lookup_path(path).unwrap();
