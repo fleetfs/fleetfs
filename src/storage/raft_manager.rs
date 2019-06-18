@@ -450,10 +450,8 @@ pub fn commit_write<'a, 'b>(
             response = file_storage.utimens(
                 &path,
                 utimens_request.uid(),
-                utimens_request.atime().map(Timestamp::seconds).unwrap_or(0),
-                utimens_request.atime().map(Timestamp::nanos).unwrap_or(0),
-                utimens_request.mtime().map(Timestamp::seconds).unwrap_or(0),
-                utimens_request.mtime().map(Timestamp::nanos).unwrap_or(0),
+                utimens_request.atime(),
+                utimens_request.mtime(),
                 builder,
             );
         }

@@ -1,13 +1,10 @@
-use std::ffi::CString;
 use std::fs;
 use std::fs::File;
 use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use filetime::FileTime;
 use flatbuffers::{FlatBufferBuilder, Vector, WIPOffset};
 use log::info;
-use log::warn;
 
 use crate::generated::*;
 use crate::storage::data_storage::{DataStorage, BLOCK_SIZE};
@@ -207,45 +204,12 @@ impl FileStorage {
         &self,
         path: &str,
         uid: u32,
-        atime_secs: i64,
-        atime_nanos: i32,
-        mtime_secs: i64,
-        mtime_nanos: i32,
+        atime: Option<&Timestamp>,
+        mtime: Option<&Timestamp>,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
-
-        self.metadata_storage.utimens(
-            path,
-            Some(Timestamp::new(atime_secs, atime_nanos)),
-            Some(Timestamp::new(mtime_secs, mtime_nanos)),
-        );
-
-        let local_path = self.to_local_path(path);
-        let metadata = fs::metadata(&local_path).map_err(into_error_code)?;
-
-        // TODO: hacky, because metadata storage only receives changes via chown. Not the original owner
-        let file_uid = self
-            .metadata_storage
-            .get_uid(path)
-            .unwrap_or_else(|| metadata.st_uid());
-
-        // Non-owners are only allowed to change atime & mtime to current:
-        // http://man7.org/linux/man-pages/man2/utimensat.2.html
-        if file_uid != uid
-            && uid != 0
-            && (atime_nanos != libc::UTIME_NOW as i32 || mtime_nanos != libc::UTIME_NOW as i32)
-        {
-            return Err(ErrorCode::OperationNotPermitted);
-        }
-
-        filetime::set_file_times(
-            local_path,
-            FileTime::from_unix_time(atime_secs, atime_nanos as u32),
-            FileTime::from_unix_time(mtime_secs, mtime_nanos as u32),
-        )
-        .map_err(into_error_code)?;
-
+        self.metadata_storage.utimens(path, uid, atime, mtime)?;
         return empty_response(builder);
     }
 
@@ -256,23 +220,8 @@ impl FileStorage {
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
-
         self.metadata_storage.chmod(path, mode);
-
-        let local_path = self.to_local_path(path);
-        let c_path =
-            CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
-        let exit_code;
-        unsafe { exit_code = libc::chmod(c_path.as_ptr(), mode) }
-        if exit_code == libc::EXIT_SUCCESS {
-            return empty_response(builder);
-        } else {
-            warn!(
-                "chmod failed on {:?}, {} with error {:?}",
-                local_path, mode, exit_code
-            );
-            return Err(ErrorCode::Uncategorized);
-        }
+        return empty_response(builder);
     }
 
     pub fn hardlink<'a>(

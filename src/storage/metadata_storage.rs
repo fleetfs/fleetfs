@@ -116,16 +116,39 @@ impl MetadataStorage {
         metadata.get(&inode).map(|x| x.gid)
     }
 
-    pub fn utimens(&self, path: &str, atime: Option<Timestamp>, mtime: Option<Timestamp>) {
+    pub fn utimens(
+        &self,
+        path: &str,
+        uid: u32,
+        atime: Option<&Timestamp>,
+        mtime: Option<&Timestamp>,
+    ) -> Result<(), ErrorCode> {
         let inode = self.lookup_path(path).unwrap();
         let mut metadata = self.metadata.lock().unwrap();
 
-        let inode_metadata = metadata.get_mut(&inode).unwrap();
-        if let Some(atime) = atime {
-            inode_metadata.last_accessed = atime;
-        }
-        if let Some(mtime) = mtime {
-            inode_metadata.last_modified = mtime;
+        if let Some(inode_metadata) = metadata.get_mut(&inode) {
+            // Non-owners are only allowed to change atime & mtime to current:
+            // http://man7.org/linux/man-pages/man2/utimensat.2.html
+            if inode_metadata.uid != uid
+                && uid != 0
+                && (atime.map_or(libc::UTIME_NOW as i32, Timestamp::nanos)
+                    != libc::UTIME_NOW as i32
+                    || mtime.map_or(libc::UTIME_NOW as i32, Timestamp::nanos)
+                        != libc::UTIME_NOW as i32)
+            {
+                return Err(ErrorCode::OperationNotPermitted);
+            }
+
+            if let Some(atime) = atime {
+                inode_metadata.last_accessed = *atime;
+            }
+            if let Some(mtime) = mtime {
+                inode_metadata.last_modified = *mtime;
+            }
+
+            Ok(())
+        } else {
+            Err(ErrorCode::DoesNotExist)
         }
     }
 
