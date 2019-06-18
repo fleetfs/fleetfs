@@ -3,7 +3,7 @@ use std::fs::File;
 use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use flatbuffers::{FlatBufferBuilder, Vector, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
 
 use crate::generated::*;
@@ -110,56 +110,6 @@ impl FileStorage {
 
         let offset = response_builder.finish().as_union_value();
         return Ok((builder, ResponseType::DirectoryListingResponse, offset));
-    }
-
-    pub fn access<'a>(
-        &self,
-        path: &str,
-        uid: u32,
-        gids: &Vector<'_, u32>,
-        mut mask: u32,
-        metadata_storage: &MetadataStorage,
-        builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
-        if path.is_empty() {
-            // TODO: currently let everyone access the root
-            return empty_response(builder);
-        }
-
-        let local_path = self.to_local_path(path);
-        let metadata = fs::metadata(local_path).map_err(into_error_code)?;
-
-        // F_OK tests for existence of file
-        if mask == libc::F_OK as u32 {
-            return empty_response(builder);
-        }
-
-        // TODO: hacky, because metadata storage only receives changes via chown. Not the original owner
-        let file_uid = metadata_storage
-            .get_uid(path)
-            .unwrap_or_else(|| metadata.st_uid());
-        let file_gid = metadata_storage
-            .get_gid(path)
-            .unwrap_or_else(|| metadata.st_gid());
-
-        let mode = metadata.st_mode();
-        // Process "other" permissions
-        mask -= mask & mode;
-        for i in 0..gids.len() {
-            if gids.get(i) == file_gid {
-                mask -= mask & (mode >> 3);
-                break;
-            }
-        }
-        if file_uid == uid {
-            mask -= mask & (mode >> 6);
-        }
-
-        if mask != 0 {
-            return Err(ErrorCode::AccessDenied);
-        }
-
-        return empty_response(builder);
     }
 
     pub fn getattr<'a>(

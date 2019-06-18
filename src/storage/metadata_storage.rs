@@ -138,20 +138,6 @@ impl MetadataStorage {
         }
     }
 
-    pub fn get_uid(&self, path: &str) -> Option<u32> {
-        let inode = self.lookup_path(path).unwrap();
-        let metadata = self.metadata.lock().unwrap();
-
-        metadata.get(&inode).map(|x| x.uid)
-    }
-
-    pub fn get_gid(&self, path: &str) -> Option<u32> {
-        let inode = self.lookup_path(path).unwrap();
-        let metadata = self.metadata.lock().unwrap();
-
-        metadata.get(&inode).map(|x| x.gid)
-    }
-
     pub fn utimens(
         &self,
         inode: Inode,

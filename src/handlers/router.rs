@@ -60,18 +60,6 @@ pub fn request_router<'a, 'b>(
             ));
         }
         RequestType::HardlinkRequest => unreachable!(),
-        RequestType::AccessRequest => {
-            let access_request = request.request_as_access_request().unwrap();
-            let path = file.lookup(access_request.path());
-            response = Box::new(result(file.access(
-                &path,
-                access_request.uid(),
-                &access_request.gids(),
-                access_request.mask(),
-                metadata_storage,
-                builder,
-            )));
-        }
         RequestType::RenameRequest => unreachable!(),
         RequestType::ChmodRequest => unreachable!(),
         RequestType::ChownRequest => unreachable!(),

@@ -402,13 +402,34 @@ impl FilesystemMT for FleetFUSE {
             .map_err(into_fuse_error)
     }
 
-    fn access(&self, req: RequestInfo, path: &Path, mask: u32) -> ResultEmpty {
+    // TODO: maybe mount with the "default_permissions" option. Then this wouldn't be called?
+    fn access(&self, req: RequestInfo, path: &Path, mut mask: u32) -> ResultEmpty {
         debug!("access() called with {:?} {:?}", path, mask);
         let path = path.to_str().unwrap();
+        let inode = self.lookup_path(path)?;
+        let attr = self.client.getattr(inode).map_err(into_fuse_error)?;
+
+        // F_OK tests for existence of file
+        if mask == libc::F_OK as u32 {
+            return Ok(());
+        }
+
+        // Process "other" permissions
+        let mode = u32::from(attr.perm);
+        mask -= mask & mode;
         // TODO: use getgrouplist() to look up all the groups for this user
-        self.client
-            .access(path, req.uid, &[req.gid], mask)
-            .map_err(into_fuse_error)
+        if req.gid == attr.gid {
+            mask -= mask & (mode >> 3);
+        }
+        if req.uid == attr.uid {
+            mask -= mask & (mode >> 6);
+        }
+
+        if mask != 0 {
+            return Err(libc::EACCES);
+        }
+
+        return Ok(());
     }
 
     fn create(

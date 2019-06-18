@@ -2,7 +2,7 @@ use std::cell::{RefCell, RefMut};
 use std::ffi::OsString;
 use std::net::SocketAddr;
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::FlatBufferBuilder;
 use fuse_mt::{DirectoryEntry, FileAttr};
 use thread_local::CachedThreadLocal;
 use time::Timespec;
@@ -278,29 +278,6 @@ impl NodeClient {
         request_builder.add_mode(mode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
-
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
-
-        return Ok(());
-    }
-
-    pub fn access(&self, path: &str, uid: u32, gids: &[u32], mask: u32) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
-        builder.start_vector::<WIPOffset<u32>>(gids.len());
-        for &gid in gids.iter() {
-            builder.push(gid);
-        }
-        let gids_offset = builder.end_vector(gids.len());
-        let mut request_builder = AccessRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
-        request_builder.add_gids(gids_offset);
-        request_builder.add_uid(uid);
-        request_builder.add_mask(mask);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::AccessRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
