@@ -79,10 +79,8 @@ impl FilesystemMT for FleetFUSE {
 
     fn chmod(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, mode: u32) -> ResultEmpty {
         debug!("chmod() called with {:?}, {:?}", path, mode);
-        return self
-            .client
-            .chmod(path.to_str().unwrap(), mode)
-            .map_err(into_fuse_error);
+        let inode = self.lookup_path(path.to_str().unwrap())?;
+        return self.client.chmod(inode, mode).map_err(into_fuse_error);
     }
 
     fn chown(
@@ -450,9 +448,7 @@ impl FilesystemMT for FleetFUSE {
         self.client
             .chown(inode, Some(req.uid), Some(req.gid))
             .map_err(into_fuse_error)?;
-        self.client
-            .chmod(path.to_str().unwrap(), mode)
-            .map_err(into_fuse_error)?;
+        self.client.chmod(inode, mode).map_err(into_fuse_error)?;
         let inode = self.lookup_path(path.to_str().unwrap())?;
         self.client
             .getattr(inode)
