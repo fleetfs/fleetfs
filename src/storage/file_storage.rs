@@ -85,27 +85,16 @@ impl FileStorage {
 
     pub fn readdir<'a>(
         &self,
-        path: &str,
+        inode: u64,
         mut builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        let path = Path::new(&self.local_data_dir).join(path);
-
         let mut entries = vec![];
-        for entry in fs::read_dir(path).unwrap() {
-            let entry = entry.unwrap();
-            let filename = entry.file_name().clone().to_str().unwrap().to_string();
-            let file_type = if entry.file_type().unwrap().is_file() {
-                FileKind::File
-            } else if entry.file_type().unwrap().is_dir() {
-                FileKind::Directory
-            } else {
-                unimplemented!()
-            };
-            let path = builder.create_string(&filename);
+        for (filename, file_type) in self.metadata_storage.readdir(inode)? {
+            let name = builder.create_string(&filename);
             let directory_entry = DirectoryEntry::create(
                 &mut builder,
                 &DirectoryEntryArgs {
-                    path: Some(path),
+                    path: Some(name),
                     kind: file_type,
                 },
             );

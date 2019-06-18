@@ -431,11 +431,10 @@ impl NodeClient {
         callback(Ok(data));
     }
 
-    pub fn readdir(&self, path: &str) -> Result<Vec<DirectoryEntry>, ErrorCode> {
+    pub fn readdir(&self, inode: u64) -> Result<Vec<DirectoryEntry>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReaddirRequest, finish_offset);
 
