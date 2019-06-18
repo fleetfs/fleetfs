@@ -66,6 +66,8 @@ table GetattrRequest {
 
 table MkdirRequest {
   path: string (required);
+  uid: uint;
+  gid: uint;
   mode: ushort;
 }
 

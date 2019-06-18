@@ -68,12 +68,14 @@ impl FileStorage {
     pub fn mkdir<'a>(
         &self,
         path: &str,
-        _mode: u16,
+        uid: u32,
+        gid: u32,
+        mode: u16,
         builder: FlatBufferBuilder<'a>,
     ) -> Result<FlatBufferBuilder<'a>, ErrorCode> {
         assert_ne!(path.len(), 0);
 
-        self.metadata_storage.mkdir(&path);
+        self.metadata_storage.mkdir(&path, uid, gid, mode);
 
         let path = Path::new(&self.local_data_dir).join(path);
         fs::create_dir(path).map_err(into_error_code)?;
