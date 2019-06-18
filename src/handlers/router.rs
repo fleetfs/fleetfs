@@ -115,8 +115,7 @@ pub fn request_router<'a, 'b>(
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            let path = file.lookup(getattr_request.path());
-            response = Box::new(result(file.getattr(&path, builder)));
+            response = Box::new(result(file.getattr(getattr_request.inode(), builder)));
         }
         RequestType::MkdirRequest => unreachable!(),
         RequestType::RaftRequest => unreachable!(),

@@ -154,11 +154,10 @@ impl NodeClient {
         return Ok(inode_response.inode());
     }
 
-    pub fn getattr(&self, path: &str) -> Result<FileAttr, ErrorCode> {
+    pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
 

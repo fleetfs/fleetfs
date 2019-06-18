@@ -45,8 +45,25 @@ impl MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            ROOT_INODE,
+            InodeAttributes {
+                size: 0,
+                last_accessed: Timestamp::new(0, 0),
+                last_modified: Timestamp::new(0, 0),
+                last_metadata_changed: Timestamp::new(0, 0),
+                kind: FileKind::Directory,
+                mode: 0o755,
+                hardlinks: 2,
+                uid: 0,
+                gid: 0,
+                xattrs: Default::default(),
+            },
+        );
+
         MetadataStorage {
-            metadata: Mutex::new(HashMap::new()),
+            metadata: Mutex::new(metadata),
             directories: Mutex::new(directories),
             next_inode: AtomicU64::new(ROOT_INODE + 1),
         }
@@ -57,7 +74,7 @@ impl MetadataStorage {
         directories.get(&parent).unwrap().get(name).cloned()
     }
 
-    fn lookup_path(&self, path: &str) -> Option<Inode> {
+    pub fn lookup_path(&self, path: &str) -> Option<Inode> {
         if path.is_empty() {
             return Some(ROOT_INODE);
         }
@@ -308,8 +325,7 @@ impl MetadataStorage {
         }
     }
 
-    pub fn get_attributes(&self, path: &str) -> Option<InodeAttributes> {
-        let inode = self.lookup_path(path)?;
+    pub fn get_attributes(&self, inode: Inode) -> Option<InodeAttributes> {
         // TODO: find a way to avoid this clone()
         self.metadata.lock().unwrap().get(&inode).cloned()
     }
