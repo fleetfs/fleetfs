@@ -268,6 +268,8 @@ impl FileStorage {
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
 
+        self.metadata_storage.chmod(path, mode);
+
         let local_path = self.to_local_path(path);
         let c_path =
             CString::new(local_path.to_str().unwrap().as_bytes()).expect("CString creation failed");
