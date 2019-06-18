@@ -182,44 +182,25 @@ impl FileStorage {
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
 
-        let local_path = Path::new(&self.local_data_dir).join(path);
-        let metadata = fs::metadata(local_path).map_err(into_error_code)?;
+        if let Some(attributes) = self.metadata_storage.get_attributes(path) {
+            let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
+            response_builder.add_size_bytes(attributes.size);
+            response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);
+            response_builder.add_last_access_time(&attributes.last_accessed);
+            response_builder.add_last_modified_time(&attributes.last_modified);
+            response_builder.add_last_metadata_modified_time(&attributes.last_metadata_changed);
+            response_builder.add_kind(attributes.kind);
+            response_builder.add_mode(attributes.mode);
+            response_builder.add_hard_links(attributes.hardlinks);
+            response_builder.add_user_id(attributes.uid);
+            response_builder.add_group_id(attributes.gid);
+            response_builder.add_device_id(0); // TODO
 
-        let length = self.metadata_storage.get_length(path).unwrap();
-
-        let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
-        response_builder.add_size_bytes(length);
-        response_builder.add_size_blocks(length / BLOCK_SIZE);
-        let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
-        response_builder.add_last_access_time(&atime);
-        let mtime = Timestamp::new(metadata.st_mtime(), metadata.st_mtime_nsec() as i32);
-        response_builder.add_last_modified_time(&mtime);
-        let ctime = Timestamp::new(metadata.st_ctime(), metadata.st_ctime_nsec() as i32);
-        response_builder.add_last_metadata_modified_time(&ctime);
-        if metadata.is_file() {
-            response_builder.add_kind(FileKind::File);
-        } else if metadata.is_dir() {
-            response_builder.add_kind(FileKind::Directory);
+            let offset = response_builder.finish().as_union_value();
+            return Ok((builder, ResponseType::FileMetadataResponse, offset));
         } else {
-            unimplemented!();
+            return Err(ErrorCode::DoesNotExist);
         }
-        response_builder.add_mode(metadata.st_mode() as u16);
-        response_builder.add_hard_links(metadata.st_nlink() as u32);
-        // TODO: hacky, because metadata storage only receives changes via chown. Not the original owner
-        if let Some(uid) = self.metadata_storage.get_uid(path) {
-            response_builder.add_user_id(uid);
-        } else {
-            response_builder.add_user_id(metadata.st_uid());
-        }
-        if let Some(gid) = self.metadata_storage.get_gid(path) {
-            response_builder.add_group_id(gid);
-        } else {
-            response_builder.add_group_id(metadata.st_gid());
-        }
-        response_builder.add_device_id(metadata.st_rdev() as u32);
-
-        let offset = response_builder.finish().as_union_value();
-        return Ok((builder, ResponseType::FileMetadataResponse, offset));
     }
 
     pub fn utimens<'a>(
