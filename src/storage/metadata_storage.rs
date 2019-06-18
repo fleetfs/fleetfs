@@ -11,7 +11,8 @@ pub const ROOT_INODE: u64 = 0;
 
 type Inode = u64;
 
-pub struct InodeMetadata {
+#[derive(Clone)]
+pub struct InodeAttributes {
     pub size: u64,
     pub last_accessed: Timestamp,
     pub last_modified: Timestamp,
@@ -27,7 +28,7 @@ pub struct InodeMetadata {
 
 // TODO: add persistence
 pub struct MetadataStorage {
-    metadata: Mutex<HashMap<Inode, InodeMetadata>>,
+    metadata: Mutex<HashMap<Inode, InodeAttributes>>,
     // Directory contents. This is considered metadata rather than data,
     // because it's replicated to all nodes to allow better searching.
     // Maybe we should revisit that design?
@@ -101,14 +102,6 @@ impl MetadataStorage {
         metadata.get_mut(&inode).and_then(|x| x.xattrs.remove(key));
     }
 
-    // TODO: should have some error handling
-    pub fn get_length(&self, path: &str) -> Option<u64> {
-        let inode = self.lookup_path(path).unwrap();
-        let metadata = self.metadata.lock().unwrap();
-
-        metadata.get(&inode).map(|x| x.size)
-    }
-
     pub fn get_uid(&self, path: &str) -> Option<u32> {
         let inode = self.lookup_path(path).unwrap();
         let metadata = self.metadata.lock().unwrap();
@@ -170,7 +163,9 @@ impl MetadataStorage {
             .get_mut(&new_parent)
             .unwrap()
             .insert(new_basename, inode);
-        // TODO: update hardlink count
+
+        let mut metadata = self.metadata.lock().unwrap();
+        metadata.get_mut(&inode).unwrap().hardlinks += 1;
     }
 
     pub fn mkdir(&self, path: &str, uid: u32, gid: u32, mode: u16) {
@@ -184,7 +179,7 @@ impl MetadataStorage {
             .insert(basename, inode);
         directories.insert(inode, HashMap::new());
 
-        let inode_metadata = InodeMetadata {
+        let inode_metadata = InodeAttributes {
             size: BLOCK_SIZE,
             last_accessed: Timestamp::new(0, 0),
             last_modified: Timestamp::new(0, 0),
@@ -228,15 +223,16 @@ impl MetadataStorage {
     pub fn unlink(&self, path: &str) {
         let inode = self.lookup_path(path).unwrap();
 
-        let mut metadata = self.metadata.lock().unwrap();
-        metadata.remove(&inode);
-
         let parent = self.lookup_parent(path).unwrap();
         let basename = basename(path);
         let mut directories = self.directories.lock().unwrap();
         directories.get_mut(&parent).unwrap().remove(&basename);
 
-        // TODO: update hardlink count
+        let mut metadata = self.metadata.lock().unwrap();
+        metadata.get_mut(&inode).unwrap().hardlinks -= 1;
+        if metadata.get(&inode).unwrap().hardlinks == 0 {
+            metadata.remove(&inode);
+        }
     }
 
     // TODO: should have some error handling
@@ -273,7 +269,7 @@ impl MetadataStorage {
                 .unwrap()
                 .insert(basename, inode);
 
-            let inode_metadata = InodeMetadata {
+            let inode_metadata = InodeAttributes {
                 size: 0,
                 last_accessed: Timestamp::new(0, 0),
                 last_modified: Timestamp::new(0, 0),
@@ -288,6 +284,12 @@ impl MetadataStorage {
             let mut metadata = self.metadata.lock().unwrap();
             metadata.insert(inode, inode_metadata);
         }
+    }
+
+    pub fn get_attributes(&self, path: &str) -> Option<InodeAttributes> {
+        let inode = self.lookup_path(path)?;
+        // TODO: find a way to avoid this clone()
+        self.metadata.lock().unwrap().get(&inode).cloned()
     }
 
     fn allocate_inode(&self) -> u64 {
