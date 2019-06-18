@@ -232,6 +232,12 @@ impl FileStorage {
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
 
+        self.metadata_storage.utimens(
+            path,
+            Some(Timestamp::new(atime_secs, atime_nanos)),
+            Some(Timestamp::new(mtime_secs, mtime_nanos)),
+        );
+
         let local_path = self.to_local_path(path);
         let metadata = fs::metadata(&local_path).map_err(into_error_code)?;
 
