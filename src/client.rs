@@ -268,13 +268,12 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn chmod(&self, path: &str, mode: u32) -> Result<(), ErrorCode> {
-        assert_ne!(path, "/");
+    pub fn chmod(&self, inode: u64, mode: u32) -> Result<(), ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = ChmodRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         request_builder.add_mode(mode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);

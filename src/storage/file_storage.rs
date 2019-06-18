@@ -153,12 +153,12 @@ impl FileStorage {
 
     pub fn chmod<'a>(
         &self,
-        path: &str,
+        inode: u64,
         mode: u32,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        assert_ne!(path.len(), 0);
-        self.metadata_storage.chmod(path, mode);
+        assert_ne!(inode, ROOT_INODE);
+        self.metadata_storage.chmod(inode, mode);
         return empty_response(builder);
     }
 

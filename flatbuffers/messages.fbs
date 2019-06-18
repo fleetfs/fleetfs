@@ -109,7 +109,7 @@ table ChownRequest {
 }
 
 table ChmodRequest {
-  path: string (required);
+  inode: ulong;
   mode: uint;
 }
 

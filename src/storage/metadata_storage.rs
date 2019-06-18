@@ -174,8 +174,7 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
-    pub fn chmod(&self, path: &str, mode: u32) {
-        let inode = self.lookup_path(path).unwrap();
+    pub fn chmod(&self, inode: Inode, mode: u32) {
         let mut metadata = self.metadata.lock().unwrap();
         metadata.get_mut(&inode).unwrap().mode = mode as u16;
     }

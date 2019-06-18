@@ -368,8 +368,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
-            let path = file_storage.lookup(chmod_request.path());
-            response = file_storage.chmod(&path, chmod_request.mode(), builder);
+            response = file_storage.chmod(chmod_request.inode(), chmod_request.mode(), builder);
         }
         RequestType::ChownRequest => {
             let chown_request = request.request_as_chown_request().unwrap();
