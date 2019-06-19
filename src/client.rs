@@ -3,7 +3,6 @@ use std::ffi::OsString;
 use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
-use fuse_mt::{DirectoryEntry, FileAttr};
 use thread_local::CachedThreadLocal;
 use time::Timespec;
 
@@ -12,17 +11,19 @@ use crate::storage::data_storage::BLOCK_SIZE;
 use crate::storage::ROOT_INODE;
 use crate::tcp_client::TcpClient;
 use crate::utils::{finalize_request, response_or_error};
+use fuse::FileAttr;
 
-fn file_type_to_fuse_type(file_type: FileKind) -> fuse_mt::FileType {
+fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
     match file_type {
-        FileKind::File => fuse_mt::FileType::RegularFile,
-        FileKind::Directory => fuse_mt::FileType::Directory,
+        FileKind::File => fuse::FileType::RegularFile,
+        FileKind::Directory => fuse::FileType::Directory,
         FileKind::DefaultValueNotAType => unreachable!(),
     }
 }
 
 fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
     FileAttr {
+        ino: metadata.inode(),
         size: metadata.size_bytes(),
         blocks: metadata.size_blocks(),
         atime: Timespec {
@@ -38,7 +39,7 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
             nsec: metadata.last_metadata_modified_time().nanos(),
         },
         crtime: Timespec { sec: 0, nsec: 0 },
-        kind: file_type_to_fuse_type(metadata.kind()),
+        kind: to_fuse_file_type(metadata.kind()),
         perm: metadata.mode(),
         nlink: metadata.hard_links(),
         uid: metadata.user_id(),
@@ -450,7 +451,7 @@ impl NodeClient {
         callback(Ok(data));
     }
 
-    pub fn readdir(&self, inode: u64) -> Result<Vec<DirectoryEntry>, ErrorCode> {
+    pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuse::FileType)>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
@@ -465,10 +466,11 @@ impl NodeClient {
         let entries = listing_response.entries();
         for i in 0..entries.len() {
             let entry = entries.get(i);
-            result.push(DirectoryEntry {
-                name: OsString::from(entry.name()),
-                kind: file_type_to_fuse_type(entry.kind()),
-            });
+            result.push((
+                entry.inode(),
+                OsString::from(entry.name()),
+                to_fuse_file_type(entry.kind()),
+            ));
         }
 
         return Ok(result);

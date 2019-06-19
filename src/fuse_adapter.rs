@@ -1,0 +1,560 @@
+use std::ffi::OsStr;
+use std::net::SocketAddr;
+use std::path::Path;
+
+use libc;
+use log::debug;
+use log::warn;
+use time::Timespec;
+
+use crate::client::NodeClient;
+use crate::generated::ErrorCode;
+use fuse::{
+    Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
+    ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
+};
+use libc::ENOSYS;
+use std::os::raw::c_int;
+
+pub struct FleetFUSE {
+    client: NodeClient,
+}
+
+impl FleetFUSE {
+    pub fn new(server_ip_port: SocketAddr) -> FleetFUSE {
+        FleetFUSE {
+            client: NodeClient::new(server_ip_port),
+        }
+    }
+}
+
+fn into_fuse_error(error: ErrorCode) -> c_int {
+    match error {
+        ErrorCode::DoesNotExist => libc::ENOENT,
+        ErrorCode::Uncategorized => libc::EIO,
+        ErrorCode::Corrupted => libc::EIO,
+        ErrorCode::RaftFailure => libc::EIO,
+        ErrorCode::FileTooLarge => libc::EFBIG,
+        ErrorCode::AccessDenied => libc::EACCES,
+        ErrorCode::OperationNotPermitted => libc::EPERM,
+        ErrorCode::AlreadyExists => libc::EEXIST,
+        ErrorCode::DefaultValueNotAnError => unreachable!(),
+    }
+}
+
+impl Filesystem for FleetFUSE {
+    fn init(&mut self, _req: &Request) -> Result<(), c_int> {
+        Ok(())
+    }
+
+    fn destroy(&mut self, _req: &Request) {}
+
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        // TODO: avoid this double lookup
+        match self.client.lookup(parent, name.to_str().unwrap()) {
+            Ok(inode) => match self.client.getattr(inode) {
+                Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+                Err(error_code) => reply.error(into_fuse_error(error_code)),
+            },
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {}
+
+    fn getattr(&mut self, _req: &Request, inode: u64, reply: ReplyAttr) {
+        debug!("getattr() called with {:?}", inode);
+        match self.client.getattr(inode) {
+            Ok(attr) => reply.attr(&Timespec { sec: 0, nsec: 0 }, &attr),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn setattr(
+        &mut self,
+        req: &Request,
+        inode: u64,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        size: Option<u64>,
+        atime: Option<Timespec>,
+        mtime: Option<Timespec>,
+        _fh: Option<u64>,
+        _crtime: Option<Timespec>,
+        _chgtime: Option<Timespec>,
+        _bkuptime: Option<Timespec>,
+        _flags: Option<u32>,
+        reply: ReplyAttr,
+    ) {
+        if let Some(mode) = mode {
+            debug!("chmod() called with {:?}, {:?}", inode, mode);
+            if let Err(error_code) = self.client.chmod(inode, mode) {
+                reply.error(into_fuse_error(error_code));
+                return;
+            }
+        }
+
+        if uid.is_some() || gid.is_some() {
+            debug!("chown() called with {:?} {:?} {:?}", inode, uid, gid);
+            if let Err(error_code) = self.client.chown(inode, uid, gid) {
+                reply.error(into_fuse_error(error_code));
+                return;
+            }
+        }
+
+        if let Some(size) = size {
+            debug!("truncate() called with {:?}", inode);
+            if let Err(error_code) = self.client.truncate(inode, size) {
+                reply.error(into_fuse_error(error_code));
+                return;
+            }
+        }
+
+        if atime.is_some() || mtime.is_some() {
+            debug!(
+                "utimens() called with {:?}, {:?}, {:?}",
+                inode, atime, mtime
+            );
+            if let Err(error_code) = self.client.utimens(
+                inode,
+                req.uid(),
+                atime.map(|x| x.sec).unwrap_or(0),
+                atime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),
+                mtime.map(|x| x.sec).unwrap_or(0),
+                mtime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),
+            ) {
+                reply.error(into_fuse_error(error_code));
+                return;
+            }
+        }
+
+        match self.client.getattr(inode) {
+            Ok(attr) => reply.attr(&Timespec { sec: 0, nsec: 0 }, &attr),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
+        debug!("readlink() called on {:?}", inode);
+        match self.client.readlink(inode) {
+            Ok(data) => reply.data(&data),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn mknod(
+        &mut self,
+        req: &Request,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        _rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        if (mode & libc::S_IFREG) == 0 {
+            // TODO
+            warn!("mknod() implementation is incomplete. Only supports regular files");
+            reply.error(libc::ENOSYS);
+        } else {
+            match self.client.create(
+                parent,
+                name.to_str().unwrap(),
+                req.uid(),
+                req.gid(),
+                mode as u16,
+            ) {
+                Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+                Err(error_code) => reply.error(into_fuse_error(error_code)),
+            }
+        }
+    }
+
+    fn mkdir(&mut self, req: &Request, parent: u64, name: &OsStr, mode: u32, reply: ReplyEntry) {
+        debug!("mkdir() called with {:?} {:?}", parent, name);
+        match self.client.mkdir(
+            parent,
+            name.to_str().unwrap(),
+            req.uid(),
+            req.gid(),
+            mode as u16,
+        ) {
+            Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!("unlink() called with {:?} {:?}", parent, name);
+        if let Err(error_code) = self.client.unlink(parent, name.to_str().unwrap()) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!("rmdir() called with {:?} {:?}", parent, name);
+        if let Err(error_code) = self.client.rmdir(parent, name.to_str().unwrap()) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    fn symlink(
+        &mut self,
+        req: &Request,
+        parent: u64,
+        name: &OsStr,
+        link: &Path,
+        reply: ReplyEntry,
+    ) {
+        debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
+        let name = name.to_str().unwrap();
+        // TODO: Error handling
+        let attrs = self
+            .client
+            .create(parent, name, req.uid(), req.gid(), 0o755)
+            .unwrap();
+        self.client.truncate(attrs.ino, 0).unwrap();
+        self.client
+            .write(attrs.ino, &Vec::from(link.to_str().unwrap().to_string()), 0)
+            .unwrap();
+
+        reply.entry(&Timespec { sec: 0, nsec: 0 }, &attrs, 0);
+    }
+
+    fn rename(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &OsStr,
+        new_parent: u64,
+        new_name: &OsStr,
+        reply: ReplyEmpty,
+    ) {
+        if let Err(error_code) = self.client.rename(
+            parent,
+            name.to_str().unwrap(),
+            new_parent,
+            new_name.to_str().unwrap(),
+        ) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    fn link(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        new_parent: u64,
+        new_name: &OsStr,
+        reply: ReplyEntry,
+    ) {
+        debug!(
+            "link() called for {}, {}, {:?}",
+            inode, new_parent, new_name
+        );
+        match self
+            .client
+            .hardlink(inode, new_parent, new_name.to_str().unwrap())
+        {
+            Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn open(&mut self, _req: &Request, inode: u64, _flags: u32, reply: ReplyOpen) {
+        debug!("open() called for {:?}", inode);
+        reply.opened(0, 0);
+    }
+
+    fn read(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        _fh: u64,
+        offset: i64,
+        size: u32,
+        reply: ReplyData,
+    ) {
+        debug!("read() called on {:?}", inode);
+        assert!(offset >= 0);
+        self.client
+            .read(inode, offset as u64, size, move |result| match result {
+                Ok(data) => reply.data(data),
+                Err(error_code) => reply.error(into_fuse_error(error_code)),
+            });
+    }
+
+    fn write(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        _fh: u64,
+        offset: i64,
+        data: &[u8],
+        _flags: u32,
+        reply: ReplyWrite,
+    ) {
+        debug!("write() called with {:?}", inode);
+        assert!(offset >= 0);
+        match self.client.write(inode, &data, offset as u64) {
+            Ok(written) => reply.written(written),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn flush(&mut self, _req: &Request, inode: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+        debug!("flush() called on {:?}", inode);
+        reply.error(ENOSYS);
+    }
+
+    fn release(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        _fh: u64,
+        _flags: u32,
+        _lock_owner: u64,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        debug!("release() called on {:?}", inode);
+        reply.ok();
+    }
+
+    fn fsync(&mut self, _req: &Request, inode: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+        debug!("fsync() called with {:?}", inode);
+        if let Err(error_code) = self.client.fsync(inode) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    fn opendir(&mut self, _req: &Request, inode: u64, _flags: u32, reply: ReplyOpen) {
+        debug!("opendir() called on {:?}", inode);
+        reply.opened(0, 0);
+    }
+
+    // TODO: send offset to server and do pagination
+    fn readdir(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
+        debug!("readdir() called with {:?}", inode);
+        assert!(offset >= 0);
+        match self.client.readdir(inode) {
+            Ok(entries) => {
+                for (index, entry) in entries.iter().skip(offset as usize).enumerate() {
+                    let (inode, name, file_type) = entry;
+
+                    let buffer_full: bool =
+                        reply.add(*inode, offset + index as i64 + 1, *file_type, name);
+
+                    if buffer_full {
+                        break;
+                    }
+                }
+
+                reply.ok();
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn releasedir(&mut self, _req: &Request, inode: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
+        debug!("releasedir() called on {:?}", inode);
+        reply.ok();
+    }
+
+    fn fsyncdir(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        _fh: u64,
+        _datasync: bool,
+        reply: ReplyEmpty,
+    ) {
+        debug!("fsyncdir() called with {:?}", inode);
+        if let Err(error_code) = self.client.fsync(inode) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+        warn!("statfs() implementation is a stub");
+        // TODO: real implementation of this
+        reply.statfs(10, 10, 10, 1, 10, 4096, 255, 4096);
+    }
+
+    fn setxattr(
+        &mut self,
+        _req: &Request,
+        inode: u64,
+        name: &OsStr,
+        value: &[u8],
+        _flags: u32,
+        _position: u32,
+        reply: ReplyEmpty,
+    ) {
+        debug!("setxattr() called with {:?} {:?} {:?}", inode, name, value);
+        if let Err(error_code) = self.client.setxattr(inode, name.to_str().unwrap(), value) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    fn getxattr(&mut self, _req: &Request, inode: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+        debug!("getxattr() called with {:?} {:?}", inode, name);
+        match self.client.getxattr(inode, name.to_str().unwrap()) {
+            Ok(data) => {
+                if size == 0 {
+                    reply.size(data.len() as u32);
+                } else if data.len() <= size as usize {
+                    reply.data(&data);
+                } else {
+                    reply.error(libc::ERANGE);
+                }
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn listxattr(&mut self, _req: &Request, inode: u64, size: u32, reply: ReplyXattr) {
+        debug!("listxattr() called with {:?}", inode);
+        match self.client.listxattr(inode).map(|xattrs| {
+            let mut bytes = vec![];
+            // Convert to concatenated null-terminated strings
+            for attr in xattrs {
+                bytes.extend(attr.as_bytes());
+                bytes.push(0);
+            }
+            bytes
+        }) {
+            Ok(data) => {
+                if size == 0 {
+                    reply.size(data.len() as u32);
+                } else if data.len() <= size as usize {
+                    reply.data(&data);
+                } else {
+                    reply.error(libc::ERANGE);
+                }
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn removexattr(&mut self, _req: &Request, inode: u64, name: &OsStr, reply: ReplyEmpty) {
+        debug!("removexattr() called with {:?} {:?}", inode, name);
+        if let Err(error_code) = self.client.removexattr(inode, name.to_str().unwrap()) {
+            reply.error(into_fuse_error(error_code));
+        } else {
+            reply.ok();
+        }
+    }
+
+    // TODO: maybe mount with the "default_permissions" option. Then this wouldn't be called?
+    fn access(&mut self, req: &Request, inode: u64, mut mask: u32, reply: ReplyEmpty) {
+        debug!("access() called with {:?} {:?}", inode, mask);
+        match self.client.getattr(inode) {
+            Ok(attr) => {
+                // F_OK tests for existence of file
+                if mask == libc::F_OK as u32 {
+                    reply.ok();
+                    return;
+                }
+
+                // Process "other" permissions
+                let mode = u32::from(attr.perm);
+                mask -= mask & mode;
+                // TODO: use getgrouplist() to look up all the groups for this user
+                if req.gid() == attr.gid {
+                    mask -= mask & (mode >> 3);
+                }
+                if req.uid() == attr.uid {
+                    mask -= mask & (mode >> 6);
+                }
+
+                if mask != 0 {
+                    reply.error(libc::EACCES);
+                    return;
+                }
+
+                reply.ok();
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn create(
+        &mut self,
+        req: &Request,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        _flags: u32,
+        reply: ReplyCreate,
+    ) {
+        debug!("create() called with {:?} {:?}", parent, name);
+        match self.client.create(
+            parent,
+            name.to_str().unwrap(),
+            req.uid(),
+            req.gid(),
+            mode as u16,
+        ) {
+            Ok(attr) => {
+                // TODO: implement flags
+                reply.created(&Timespec { sec: 0, nsec: 0 }, &attr, 0, 0, 0)
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
+    }
+
+    fn getlk(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        _start: u64,
+        _end: u64,
+        _typ: u32,
+        _pid: u32,
+        reply: ReplyLock,
+    ) {
+        reply.error(ENOSYS);
+    }
+
+    fn setlk(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        _start: u64,
+        _end: u64,
+        _typ: u32,
+        _pid: u32,
+        _sleep: bool,
+        reply: ReplyEmpty,
+    ) {
+        reply.error(ENOSYS);
+    }
+
+    fn bmap(&mut self, _req: &Request, _ino: u64, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
+        reply.error(ENOSYS);
+    }
+}

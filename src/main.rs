@@ -5,7 +5,7 @@ use clap::App;
 use clap::Arg;
 
 use crate::client::NodeClient;
-use crate::fuse::FleetFUSE;
+use crate::fuse_adapter::FleetFUSE;
 use crate::storage_node::Node;
 use log::LevelFilter;
 use std::ffi::OsStr;
@@ -15,7 +15,7 @@ use crate::generated::ErrorCode;
 use crate::utils::fuse_allow_other_enabled;
 
 pub mod client;
-pub mod fuse;
+pub mod fuse_adapter;
 pub mod handlers;
 pub mod peer_client;
 pub mod storage;
@@ -173,7 +173,7 @@ fn main() -> Result<(), ErrorCode> {
 
         fuse_args.push(&OsStr::new(&options));
         let fs = FleetFUSE::new(server_ip_port);
-        fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mount_point, &fuse_args).unwrap();
+        fuse::mount(fs, &mount_point, &fuse_args).unwrap();
     }
 
     return Ok(());

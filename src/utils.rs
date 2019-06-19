@@ -207,6 +207,7 @@ pub fn to_fileattr_response(
     attributes: InodeAttributes,
 ) -> ResultResponse {
     let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
+    response_builder.add_inode(attributes.inode);
     response_builder.add_size_bytes(attributes.size);
     response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);
     response_builder.add_last_access_time(&attributes.last_accessed);
