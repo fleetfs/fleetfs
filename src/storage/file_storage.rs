@@ -66,11 +66,12 @@ impl FileStorage {
         mut builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         let mut entries = vec![];
-        for (filename, file_type) in self.metadata_storage.readdir(inode)? {
+        for (inode, filename, file_type) in self.metadata_storage.readdir(inode)? {
             let name = builder.create_string(&filename);
             let directory_entry = DirectoryEntry::create(
                 &mut builder,
                 &DirectoryEntryArgs {
+                    inode,
                     name: Some(name),
                     kind: file_type,
                 },

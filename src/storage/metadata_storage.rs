@@ -6,13 +6,14 @@ use std::sync::Mutex;
 use crate::generated::{ErrorCode, FileKind, Timestamp};
 use crate::storage::data_storage::BLOCK_SIZE;
 
-pub const ROOT_INODE: u64 = 0;
+pub const ROOT_INODE: u64 = 1;
 
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
 
 #[derive(Clone)]
 pub struct InodeAttributes {
+    pub inode: Inode,
     pub size: u64,
     pub last_accessed: Timestamp,
     pub last_modified: Timestamp,
@@ -34,6 +35,8 @@ pub struct MetadataStorage {
     // Maybe we should revisit that design?
     // Maps directory inodes to maps of name -> inode
     directories: Mutex<HashMap<Inode, DirectoryDescriptor>>,
+    // Stores mapping of directory inodes to their parent
+    directory_parents: Mutex<HashMap<Inode, Inode>>,
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
@@ -45,10 +48,14 @@ impl MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
+        let mut parents = HashMap::new();
+        parents.insert(ROOT_INODE, ROOT_INODE);
+
         let mut metadata = HashMap::new();
         metadata.insert(
             ROOT_INODE,
             InodeAttributes {
+                inode: ROOT_INODE,
                 size: 0,
                 last_accessed: Timestamp::new(0, 0),
                 last_modified: Timestamp::new(0, 0),
@@ -65,6 +72,7 @@ impl MetadataStorage {
         MetadataStorage {
             metadata: Mutex::new(metadata),
             directories: Mutex::new(directories),
+            directory_parents: Mutex::new(parents),
             next_inode: AtomicU64::new(ROOT_INODE + 1),
         }
     }
@@ -103,14 +111,19 @@ impl MetadataStorage {
         metadata.get_mut(&inode).and_then(|x| x.xattrs.remove(key));
     }
 
-    pub fn readdir(&self, inode: Inode) -> Result<Vec<(String, FileKind)>, ErrorCode> {
+    pub fn readdir(&self, inode: Inode) -> Result<Vec<(Inode, String, FileKind)>, ErrorCode> {
         let directories = self.directories.lock().unwrap();
+        let parents = self.directory_parents.lock().unwrap();
 
         if let Some(entries) = directories.get(&inode) {
-            let result = entries
+            let parent_inode = *parents.get(&inode).unwrap();
+            let mut result: Vec<(Inode, String, FileKind)> = entries
                 .iter()
-                .map(|(name, (_, kind))| (name.clone(), *kind))
+                .map(|(name, (inode, kind))| (*inode, name.clone(), *kind))
                 .collect();
+            // TODO: kind of a hack
+            result.insert(0, (parent_inode, "..".to_string(), FileKind::Directory));
+            result.insert(0, (inode, ".".to_string(), FileKind::Directory));
             Ok(result)
         } else {
             Err(ErrorCode::DoesNotExist)
@@ -194,7 +207,11 @@ impl MetadataStorage {
             .insert(name.to_string(), (inode, FileKind::Directory));
         directories.insert(inode, HashMap::new());
 
+        let mut parents = self.directory_parents.lock().unwrap();
+        parents.insert(inode, parent);
+
         let inode_metadata = InodeAttributes {
+            inode,
             size: BLOCK_SIZE,
             last_accessed: Timestamp::new(0, 0),
             last_modified: Timestamp::new(0, 0),
@@ -217,6 +234,12 @@ impl MetadataStorage {
             .get_mut(&new_parent)
             .unwrap()
             .insert(new_name.to_string(), entry);
+
+        let (inode, kind) = entry;
+        if kind == FileKind::Directory {
+            let mut parents = self.directory_parents.lock().unwrap();
+            parents.insert(inode, new_parent);
+        }
     }
 
     // TODO: should have some error handling
@@ -248,6 +271,8 @@ impl MetadataStorage {
             directories.remove(&inode);
             let mut metadata = self.metadata.lock().unwrap();
             metadata.remove(&inode);
+            let mut parents = self.directory_parents.lock().unwrap();
+            parents.remove(&inode);
         }
     }
 
@@ -276,6 +301,7 @@ impl MetadataStorage {
                 .insert(name.to_string(), (inode, FileKind::File));
 
             let inode_metadata = InodeAttributes {
+                inode,
                 size: 0,
                 last_accessed: Timestamp::new(0, 0),
                 last_modified: Timestamp::new(0, 0),

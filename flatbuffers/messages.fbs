@@ -186,6 +186,7 @@ enum FileKind: ubyte {
 }
 
 table DirectoryEntry {
+  inode: ulong;
   name: string (required);
   kind: FileKind;
 }
@@ -199,6 +200,7 @@ table WrittenResponse {
 }
 
 table FileMetadataResponse {
+  inode: ulong;
   size_bytes: ulong;
   size_blocks: ulong;
   last_access_time: Timestamp (required);
