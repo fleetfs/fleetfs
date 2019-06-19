@@ -120,11 +120,19 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn mkdir(&self, path: &str, uid: u32, gid: u32, mode: u16) -> Result<FileAttr, ErrorCode> {
+    pub fn mkdir(
+        &self,
+        parent: u64,
+        name: &str,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+    ) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
+        let builder_name = builder.create_string(name);
         let mut request_builder = MkdirRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
         request_builder.add_uid(uid);
         request_builder.add_gid(gid);
         request_builder.add_mode(mode);
@@ -337,15 +345,20 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn hardlink(&self, path: &str, new_path: &str) -> Result<FileAttr, ErrorCode> {
-        assert_ne!(path, "/");
+    pub fn hardlink(
+        &self,
+        inode: u64,
+        new_parent: u64,
+        new_name: &str,
+    ) -> Result<FileAttr, ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
-        let builder_new_path = builder.create_string(new_path);
+        let builder_new_name = builder.create_string(new_name);
         let mut request_builder = HardlinkRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
-        request_builder.add_new_path(builder_new_path);
+        request_builder.add_inode(inode);
+        request_builder.add_new_parent(new_parent);
+        request_builder.add_new_name(builder_new_name);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
 
@@ -356,15 +369,21 @@ impl NodeClient {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn rename(&self, path: &str, new_path: &str) -> Result<(), ErrorCode> {
-        assert_ne!(path, "/");
-
+    pub fn rename(
+        &self,
+        parent: u64,
+        name: &str,
+        new_parent: u64,
+        new_name: &str,
+    ) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
-        let builder_new_path = builder.create_string(new_path);
+        let builder_name = builder.create_string(name);
+        let builder_new_name = builder.create_string(new_name);
         let mut request_builder = RenameRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
-        request_builder.add_new_path(builder_new_path);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
+        request_builder.add_new_parent(new_parent);
+        request_builder.add_new_name(builder_new_name);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
 
@@ -504,11 +523,12 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn unlink(&self, path: &str) -> Result<(), ErrorCode> {
+    pub fn unlink(&self, parent: u64, name: &str) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
+        let builder_name = builder.create_string(name);
         let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
 
@@ -519,11 +539,12 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn rmdir(&self, path: &str) -> Result<(), ErrorCode> {
+    pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
+        let builder_name = builder.create_string(name);
         let mut request_builder = RmdirRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RmdirRequest, finish_offset);
 

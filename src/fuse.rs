@@ -154,26 +154,34 @@ impl FilesystemMT for FleetFUSE {
 
     fn mkdir(&self, req: RequestInfo, parent: &Path, name: &OsStr, mode: u32) -> ResultEntry {
         debug!("mkdir() called with {:?} {:?}", parent, name);
-        let path = Path::new(parent).join(name);
+        let parent = self.lookup_path(parent.to_str().unwrap())?;
         return self
             .client
-            .mkdir(path.to_str().unwrap(), req.uid, req.gid, mode as u16)
+            .mkdir(
+                parent,
+                name.to_str().unwrap(),
+                req.uid,
+                req.gid,
+                mode as u16,
+            )
             .map(|file_attr| (Timespec { sec: 0, nsec: 0 }, file_attr))
             .map_err(into_fuse_error);
     }
 
     fn unlink(&self, _req: RequestInfo, parent: &Path, name: &OsStr) -> ResultEmpty {
         debug!("unlink() called with {:?} {:?}", parent, name);
-        let path = Path::new(parent).join(name);
-        let path = path.to_str().unwrap();
-        self.client.unlink(path).map_err(into_fuse_error)
+        let parent = self.lookup_path(parent.to_str().unwrap())?;
+        self.client
+            .unlink(parent, name.to_str().unwrap())
+            .map_err(into_fuse_error)
     }
 
     fn rmdir(&self, _req: RequestInfo, parent: &Path, name: &OsStr) -> ResultEmpty {
         debug!("rmdir() called with {:?} {:?}", parent, name);
-        let path = Path::new(parent).join(name);
-        let path = path.to_str().unwrap();
-        self.client.rmdir(path).map_err(into_fuse_error)
+        let parent = self.lookup_path(parent.to_str().unwrap())?;
+        self.client
+            .rmdir(parent, name.to_str().unwrap())
+            .map_err(into_fuse_error)
     }
 
     fn symlink(&self, req: RequestInfo, parent: &Path, name: &OsStr, target: &Path) -> ResultEntry {
@@ -199,11 +207,16 @@ impl FilesystemMT for FleetFUSE {
         new_parent: &Path,
         new_name: &OsStr,
     ) -> ResultEmpty {
-        let path = Path::new(parent).join(name);
-        let new_path = Path::new(new_parent).join(new_name);
+        let parent = self.lookup_path(parent.to_str().unwrap())?;
+        let new_parent = self.lookup_path(new_parent.to_str().unwrap())?;
         return self
             .client
-            .rename(path.to_str().unwrap(), new_path.to_str().unwrap())
+            .rename(
+                parent,
+                name.to_str().unwrap(),
+                new_parent,
+                new_name.to_str().unwrap(),
+            )
             .map_err(into_fuse_error);
     }
 
@@ -218,10 +231,11 @@ impl FilesystemMT for FleetFUSE {
             "link() called for {:?}, {:?}, {:?}",
             path, new_parent, new_name
         );
-        let new_path = Path::new(new_parent).join(new_name);
+        let inode = self.lookup_path(path.to_str().unwrap())?;
+        let new_parent = self.lookup_path(new_parent.to_str().unwrap())?;
         return self
             .client
-            .hardlink(path.to_str().unwrap(), new_path.to_str().unwrap())
+            .hardlink(inode, new_parent, new_name.to_str().unwrap())
             .map(|file_attr| (Timespec { sec: 0, nsec: 0 }, file_attr))
             .map_err(into_fuse_error);
     }
