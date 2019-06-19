@@ -154,6 +154,32 @@ impl NodeClient {
         return Ok(inode_response.inode());
     }
 
+    pub fn create(
+        &self,
+        parent: u64,
+        name: &str,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+    ) -> Result<FileAttr, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let builder_name = builder.create_string(name);
+        let mut request_builder = CreateRequestBuilder::new(&mut builder);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
+        request_builder.add_uid(uid);
+        request_builder.add_gid(gid);
+        request_builder.add_mode(mode);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::CreateRequest, finish_offset);
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let metadata = response.response_as_file_metadata_response().unwrap();
+
+        return Ok(metadata_to_fuse_fileattr(&metadata));
+    }
+
     pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);

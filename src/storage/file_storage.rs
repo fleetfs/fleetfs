@@ -7,11 +7,11 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
 
 use crate::generated::*;
-use crate::storage::data_storage::{DataStorage, BLOCK_SIZE};
+use crate::storage::data_storage::DataStorage;
 use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
-use crate::utils::{empty_response, into_error_code, ResultResponse};
+use crate::utils::{empty_response, into_error_code, to_fileattr_response, ResultResponse};
 
 pub struct FileStorage {
     local_data_dir: String,
@@ -112,27 +112,9 @@ impl FileStorage {
         return Ok((builder, ResponseType::DirectoryListingResponse, offset));
     }
 
-    pub fn getattr<'a>(
-        &self,
-        inode: u64,
-        mut builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
+    pub fn getattr<'a>(&self, inode: u64, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
         if let Some(attributes) = self.metadata_storage.get_attributes(inode) {
-            let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
-            response_builder.add_size_bytes(attributes.size);
-            response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);
-            response_builder.add_last_access_time(&attributes.last_accessed);
-            response_builder.add_last_modified_time(&attributes.last_modified);
-            response_builder.add_last_metadata_modified_time(&attributes.last_metadata_changed);
-            response_builder.add_kind(attributes.kind);
-            response_builder.add_mode(attributes.mode);
-            response_builder.add_hard_links(attributes.hardlinks);
-            response_builder.add_user_id(attributes.uid);
-            response_builder.add_group_id(attributes.gid);
-            response_builder.add_device_id(0); // TODO
-
-            let offset = response_builder.finish().as_union_value();
-            return Ok((builder, ResponseType::FileMetadataResponse, offset));
+            return to_fileattr_response(builder, attributes);
         } else {
             return Err(ErrorCode::DoesNotExist);
         }
@@ -233,5 +215,22 @@ impl FileStorage {
         fs::remove_file(local_path).map_err(into_error_code)?;
 
         return empty_response(builder);
+    }
+
+    pub fn create<'a>(
+        &self,
+        parent: u64,
+        name: &str,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let (_, attributes) = self
+            .metadata_storage
+            .create(parent, name, uid, gid, mode)
+            .unwrap();
+
+        return to_fileattr_response(builder, attributes);
     }
 }

@@ -393,6 +393,17 @@ pub fn commit_write<'a, 'b>(
                 .fsync(fsync_request.path().trim_start_matches('/'))
                 .map(|_| empty_response(builder).unwrap());
         }
+        RequestType::CreateRequest => {
+            let create_request = request.request_as_create_request().unwrap();
+            response = file_storage.create(
+                create_request.parent(),
+                create_request.name(),
+                create_request.uid(),
+                create_request.gid(),
+                create_request.mode(),
+                builder,
+            );
+        }
         RequestType::SetXattrRequest => {
             let set_xattr_request = request.request_as_set_xattr_request().unwrap();
             // TODO: handle key doesn't exist

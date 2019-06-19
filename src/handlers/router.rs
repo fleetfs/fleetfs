@@ -65,6 +65,7 @@ pub fn request_router<'a, 'b>(
         RequestType::ChownRequest => unreachable!(),
         RequestType::TruncateRequest => unreachable!(),
         RequestType::FsyncRequest => unreachable!(),
+        RequestType::CreateRequest => unreachable!(),
         RequestType::LookupRequest => {
             let lookup_request = request.request_as_lookup_request().unwrap();
             // TODO: handle key doesn't exist
