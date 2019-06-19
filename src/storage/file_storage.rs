@@ -157,7 +157,7 @@ impl FileStorage {
     ) -> ResultResponse<'a> {
         info!("Deleting file");
         if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name) {
-            self.data_storage.delete(deleted_inode)?;
+            self.data_storage.delete(deleted_inode).unwrap();
         }
 
         return empty_response(builder);
@@ -176,6 +176,8 @@ impl FileStorage {
             .metadata_storage
             .create(parent, name, uid, gid, mode)
             .unwrap();
+
+        self.data_storage.truncate(attributes.inode, 0).unwrap();
 
         return to_fileattr_response(builder, attributes);
     }
