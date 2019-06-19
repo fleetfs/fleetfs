@@ -5,7 +5,6 @@ use std::sync::Mutex;
 
 use crate::generated::{ErrorCode, FileKind, Timestamp};
 use crate::storage::data_storage::BLOCK_SIZE;
-use std::path::Path;
 
 pub const ROOT_INODE: u64 = 0;
 
@@ -77,26 +76,6 @@ impl MetadataStorage {
             .unwrap()
             .get(name)
             .map(|(inode, _)| *inode)
-    }
-
-    pub fn lookup_path(&self, path: &str) -> Option<Inode> {
-        if path.is_empty() {
-            return Some(ROOT_INODE);
-        }
-
-        let parent = self.lookup_parent(path)?;
-        let basename = basename(path);
-        self.lookup(parent, &basename)
-    }
-
-    fn lookup_parent(&self, path: &str) -> Option<Inode> {
-        match Path::new(path)
-            .parent()
-            .map(|x| x.to_str().unwrap().to_string())
-        {
-            None => Some(ROOT_INODE),
-            Some(parent) => self.lookup_path(&parent),
-        }
     }
 
     pub fn get_xattr(&self, inode: Inode, key: &str) -> Option<Vec<u8>> {
@@ -194,33 +173,25 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn hardlink(&self, path: &str, new_path: &str) {
-        // TODO: need to switch this to use inodes. This doesn't have the right semantics, since
-        // it only copies the size on creation
-        let inode = self.lookup_path(path).unwrap();
-
+    pub fn hardlink(&self, inode: Inode, new_parent: u64, new_name: &str) {
         let mut metadata = self.metadata.lock().unwrap();
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.hardlinks += 1;
 
-        let new_parent = self.lookup_parent(new_path).unwrap();
-        let new_basename = basename(new_path);
         let mut directories = self.directories.lock().unwrap();
         directories
             .get_mut(&new_parent)
             .unwrap()
-            .insert(new_basename, (inode, inode_attrs.kind));
+            .insert(new_name.to_string(), (inode, inode_attrs.kind));
     }
 
-    pub fn mkdir(&self, path: &str, uid: u32, gid: u32, mode: u16) {
+    pub fn mkdir(&self, parent: u64, name: &str, uid: u32, gid: u32, mode: u16) {
         let inode = self.allocate_inode();
-        let parent = self.lookup_parent(path).unwrap();
-        let basename = basename(path);
         let mut directories = self.directories.lock().unwrap();
         directories
             .get_mut(&parent)
             .unwrap()
-            .insert(basename, (inode, FileKind::Directory));
+            .insert(name.to_string(), (inode, FileKind::Directory));
         directories.insert(inode, HashMap::new());
 
         let inode_metadata = InodeAttributes {
@@ -239,21 +210,13 @@ impl MetadataStorage {
         metadata.insert(inode, inode_metadata);
     }
 
-    pub fn rename(&self, path: &str, new_path: &str) {
-        let old_basename = basename(path);
-        let new_basename = basename(new_path);
-        let old_parent = self.lookup_parent(path).unwrap();
-        let new_parent = self.lookup_parent(new_path).unwrap();
+    pub fn rename(&self, parent: u64, name: &str, new_parent: u64, new_name: &str) {
         let mut directories = self.directories.lock().unwrap();
-        let entry = directories
-            .get_mut(&old_parent)
-            .unwrap()
-            .remove(&old_basename)
-            .unwrap();
+        let entry = directories.get_mut(&parent).unwrap().remove(name).unwrap();
         directories
             .get_mut(&new_parent)
             .unwrap()
-            .insert(new_basename, entry);
+            .insert(new_name.to_string(), entry);
     }
 
     // TODO: should have some error handling
@@ -264,13 +227,9 @@ impl MetadataStorage {
 
     // TODO: should have some error handling
     // Returns an inode, if that inode's data should be deleted
-    pub fn unlink(&self, path: &str) -> Option<Inode> {
-        let inode = self.lookup_path(path).unwrap();
-
-        let parent = self.lookup_parent(path).unwrap();
-        let basename = basename(path);
+    pub fn unlink(&self, parent: u64, name: &str) -> Option<Inode> {
         let mut directories = self.directories.lock().unwrap();
-        directories.get_mut(&parent).unwrap().remove(&basename);
+        let (inode, _) = directories.get_mut(&parent).unwrap().remove(name).unwrap();
 
         let mut metadata = self.metadata.lock().unwrap();
         metadata.get_mut(&inode).unwrap().hardlinks -= 1;
@@ -283,14 +242,13 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
-    pub fn rmdir(&self, path: &str) {
-        let inode = self.lookup_path(path).unwrap();
-
-        let mut metadata = self.metadata.lock().unwrap();
-        metadata.remove(&inode);
-
+    pub fn rmdir(&self, parent: u64, name: &str) {
         let mut directories = self.directories.lock().unwrap();
-        directories.remove(&inode);
+        if let Some((inode, _)) = directories.get_mut(&parent).unwrap().remove(name) {
+            directories.remove(&inode);
+            let mut metadata = self.metadata.lock().unwrap();
+            metadata.remove(&inode);
+        }
     }
 
     // TODO: should have some error handling
@@ -345,13 +303,4 @@ impl MetadataStorage {
     fn allocate_inode(&self) -> u64 {
         self.next_inode.fetch_add(1, Ordering::SeqCst)
     }
-}
-
-fn basename(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string()
 }

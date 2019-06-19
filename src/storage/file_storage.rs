@@ -31,11 +31,6 @@ impl FileStorage {
         &self.metadata_storage
     }
 
-    // TODO: this should return an inode
-    pub fn lookup(&self, path: &str) -> String {
-        path.trim_start_matches('/').to_string()
-    }
-
     pub fn truncate<'a>(
         &self,
         inode: u64,
@@ -52,17 +47,17 @@ impl FileStorage {
 
     pub fn mkdir<'a>(
         &self,
-        path: &str,
+        parent: u64,
+        name: &str,
         uid: u32,
         gid: u32,
         mode: u16,
         builder: FlatBufferBuilder<'a>,
-    ) -> Result<FlatBufferBuilder<'a>, ErrorCode> {
-        assert_ne!(path.len(), 0);
+    ) -> ResultResponse<'a> {
+        self.metadata_storage.mkdir(parent, name, uid, gid, mode);
+        let inode = self.metadata_storage.lookup(parent, name).unwrap();
 
-        self.metadata_storage.mkdir(&path, uid, gid, mode);
-
-        return Ok(builder);
+        return self.getattr(inode, builder);
     }
 
     pub fn readdir<'a>(
@@ -128,34 +123,39 @@ impl FileStorage {
 
     pub fn hardlink<'a>(
         &self,
-        path: &str,
-        new_path: &str,
+        inode: u64,
+        new_parent: u64,
+        new_name: &str,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        assert_ne!(path.len(), 0);
-        info!("Hardlinking file: {} to {}", path, new_path);
+        assert_ne!(inode, ROOT_INODE);
+        info!("Hardlinking file: {} to {} {}", inode, new_parent, new_name);
 
-        self.metadata_storage.hardlink(&path, &new_path);
-        let inode = self.metadata_storage.lookup_path(path).unwrap();
+        self.metadata_storage.hardlink(inode, new_parent, new_name);
         return self.getattr(inode, builder);
     }
 
     pub fn rename<'a>(
         &self,
-        path: &str,
-        new_path: &str,
+        parent: u64,
+        name: &str,
+        new_parent: u64,
+        new_name: &str,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        assert_ne!(path.len(), 0);
-        self.metadata_storage.rename(&path, &new_path);
+        self.metadata_storage
+            .rename(parent, name, new_parent, new_name);
         return empty_response(builder);
     }
 
-    pub fn unlink<'a>(&self, path: &str, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
-        assert_ne!(path.len(), 0);
-
+    pub fn unlink<'a>(
+        &self,
+        parent: u64,
+        name: &str,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
         info!("Deleting file");
-        if let Some(deleted_inode) = self.metadata_storage.unlink(&path) {
+        if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name) {
             self.data_storage.delete(deleted_inode)?;
         }
 

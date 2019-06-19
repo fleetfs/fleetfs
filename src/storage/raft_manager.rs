@@ -356,15 +356,22 @@ pub fn commit_write<'a, 'b>(
     match request.request_type() {
         RequestType::HardlinkRequest => {
             let hardlink_request = request.request_as_hardlink_request().unwrap();
-            let path = file_storage.lookup(hardlink_request.path());
-            let new_path = file_storage.lookup(hardlink_request.new_path());
-            response = file_storage.hardlink(&path, &new_path, builder);
+            response = file_storage.hardlink(
+                hardlink_request.inode(),
+                hardlink_request.new_parent(),
+                hardlink_request.new_name(),
+                builder,
+            );
         }
         RequestType::RenameRequest => {
             let rename_request = request.request_as_rename_request().unwrap();
-            let path = file_storage.lookup(rename_request.path());
-            let new_path = file_storage.lookup(rename_request.new_path());
-            response = file_storage.rename(&path, &new_path, builder);
+            response = file_storage.rename(
+                rename_request.parent(),
+                rename_request.name(),
+                rename_request.new_parent(),
+                rename_request.new_name(),
+                builder,
+            );
         }
         RequestType::ChmodRequest => {
             let chmod_request = request.request_as_chmod_request().unwrap();
@@ -426,14 +433,13 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
-            let path = file_storage.lookup(unlink_request.path());
-            response = file_storage.unlink(&path, builder);
+            response = file_storage.unlink(unlink_request.parent(), unlink_request.name(), builder);
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request.request_as_rmdir_request().unwrap();
             file_storage
                 .get_metadata_storage()
-                .rmdir(rmdir_request.path().trim_start_matches('/'));
+                .rmdir(rmdir_request.parent(), rmdir_request.name());
             response = empty_response(builder);
         }
         RequestType::WriteRequest => {
@@ -466,25 +472,14 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::MkdirRequest => {
             let mkdir_request = request.request_as_mkdir_request().unwrap();
-            let path = file_storage.lookup(mkdir_request.path());
-            response = file_storage
-                .mkdir(
-                    &path,
-                    mkdir_request.uid(),
-                    mkdir_request.gid(),
-                    mkdir_request.mode(),
-                    builder,
-                )
-                .map(move |builder| {
-                    // TODO: probably possible to hit a distributed race here
-                    let inode = file_storage
-                        .get_metadata_storage()
-                        .lookup_path(&path)
-                        .unwrap();
-                    file_storage
-                        .getattr(inode, builder)
-                        .expect("getattr failed on newly created file")
-                });
+            response = file_storage.mkdir(
+                mkdir_request.parent(),
+                mkdir_request.name(),
+                mkdir_request.uid(),
+                mkdir_request.gid(),
+                mkdir_request.mode(),
+                builder,
+            );
         }
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),

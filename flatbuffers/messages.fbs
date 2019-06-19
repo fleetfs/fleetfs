@@ -65,7 +65,8 @@ table GetattrRequest {
 }
 
 table MkdirRequest {
-  path: string (required);
+  parent: ulong;
+  name: string (required);
   uid: uint;
   gid: uint;
   mode: ushort;
@@ -82,11 +83,13 @@ table FsyncRequest {
 }
 
 table UnlinkRequest {
-  path: string (required);
+  parent: ulong;
+  name: string (required);
 }
 
 table RmdirRequest {
-  path: string (required);
+  parent: ulong;
+  name: string (required);
 }
 
 table TruncateRequest {
@@ -121,13 +124,16 @@ table UtimensRequest {
 }
 
 table HardlinkRequest {
-  path: string (required);
-  new_path: string (required);
+  inode: ulong;
+  new_parent: ulong;
+  new_name: string (required);
 }
 
 table RenameRequest {
-  path: string (required);
-  new_path: string (required);
+  parent: ulong;
+  name: string (required);
+  new_parent: ulong;
+  new_name: string (required);
 }
 
 table LookupRequest {
