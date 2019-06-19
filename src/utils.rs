@@ -1,6 +1,8 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 use crate::generated::*;
+use crate::storage::data_storage::BLOCK_SIZE;
+use crate::storage::metadata_storage::InodeAttributes;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader, ErrorKind};
@@ -44,6 +46,7 @@ pub fn is_raft_request(request_type: RequestType) -> bool {
         RequestType::FilesystemCheckRequest => false,
         RequestType::FilesystemChecksumRequest => false,
         RequestType::LookupRequest => false,
+        RequestType::CreateRequest => false,
         RequestType::GetXattrRequest => false,
         RequestType::ListXattrsRequest => false,
         RequestType::SetXattrRequest => false,
@@ -80,6 +83,7 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::ListXattrsRequest => false,
         RequestType::SetXattrRequest => true,
         RequestType::RemoveXattrRequest => true,
+        RequestType::CreateRequest => true,
         RequestType::UtimensRequest => true,
         RequestType::ChmodRequest => true,
         RequestType::ChownRequest => true,
@@ -196,4 +200,25 @@ pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultR
     response_builder.add_bytes_written(length);
     let offset = response_builder.finish().as_union_value();
     return Ok((builder, ResponseType::WrittenResponse, offset));
+}
+
+pub fn to_fileattr_response(
+    mut builder: FlatBufferBuilder,
+    attributes: InodeAttributes,
+) -> ResultResponse {
+    let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
+    response_builder.add_size_bytes(attributes.size);
+    response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);
+    response_builder.add_last_access_time(&attributes.last_accessed);
+    response_builder.add_last_modified_time(&attributes.last_modified);
+    response_builder.add_last_metadata_modified_time(&attributes.last_metadata_changed);
+    response_builder.add_kind(attributes.kind);
+    response_builder.add_mode(attributes.mode);
+    response_builder.add_hard_links(attributes.hardlinks);
+    response_builder.add_user_id(attributes.uid);
+    response_builder.add_group_id(attributes.gid);
+    response_builder.add_device_id(0); // TODO
+
+    let offset = response_builder.finish().as_union_value();
+    return Ok((builder, ResponseType::FileMetadataResponse, offset));
 }

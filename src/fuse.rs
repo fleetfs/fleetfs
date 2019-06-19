@@ -38,6 +38,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::FileTooLarge => libc::EFBIG,
         ErrorCode::AccessDenied => libc::EACCES,
         ErrorCode::OperationNotPermitted => libc::EPERM,
+        ErrorCode::AlreadyExists => libc::EEXIST,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
@@ -439,19 +440,15 @@ impl FilesystemMT for FleetFUSE {
         _flags: u32,
     ) -> ResultCreate {
         debug!("create() called with {:?} {:?}", parent, name);
-        // TODO: kind of a hack to create the file
-        let path = Path::new(parent).join(name);
+        let parent = self.lookup_path(parent.to_str().unwrap())?;
         self.client
-            .write(path.to_str().unwrap(), &[], 0)
-            .map_err(into_fuse_error)?;
-        let inode = self.lookup_path(path.to_str().unwrap())?;
-        self.client
-            .chown(inode, Some(req.uid), Some(req.gid))
-            .map_err(into_fuse_error)?;
-        self.client.chmod(inode, mode).map_err(into_fuse_error)?;
-        let inode = self.lookup_path(path.to_str().unwrap())?;
-        self.client
-            .getattr(inode)
+            .create(
+                parent,
+                name.to_str().unwrap(),
+                req.uid,
+                req.gid,
+                mode as u16,
+            )
             .map(|attr| CreatedEntry {
                 ttl: Timespec { sec: 0, nsec: 0 },
                 attr,

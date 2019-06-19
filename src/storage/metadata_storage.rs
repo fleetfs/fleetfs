@@ -292,9 +292,6 @@ impl MetadataStorage {
 
     // TODO: should have some error handling
     pub fn write(&self, path: &str, offset: u64, length: u32) {
-        // TODO: awful hack, because client doesn't create files properly
-        self.create(path);
-
         let inode = self.lookup_path(path).unwrap();
         let mut metadata = self.metadata.lock().unwrap();
         let inode_metadata = metadata.get_mut(&inode).unwrap();
@@ -302,16 +299,21 @@ impl MetadataStorage {
         inode_metadata.size = max(current_length, u64::from(length) + offset)
     }
 
-    pub fn create(&self, path: &str) {
-        if self.lookup_path(path).is_none() {
-            let parent = self.lookup_parent(path).unwrap();
-            let basename = basename(path);
+    pub fn create(
+        &self,
+        parent: Inode,
+        name: &str,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+    ) -> Result<(Inode, InodeAttributes), ErrorCode> {
+        if self.lookup(parent, name).is_none() {
             let inode = self.allocate_inode();
             let mut directories = self.directories.lock().unwrap();
             directories
                 .get_mut(&parent)
                 .unwrap()
-                .insert(basename, (inode, FileKind::File));
+                .insert(name.to_string(), (inode, FileKind::File));
 
             let inode_metadata = InodeAttributes {
                 size: 0,
@@ -319,14 +321,17 @@ impl MetadataStorage {
                 last_modified: Timestamp::new(0, 0),
                 last_metadata_changed: Timestamp::new(0, 0),
                 kind: FileKind::File,
-                mode: 0o755,
+                mode,
                 hardlinks: 1,
-                uid: 0, // TODO
-                gid: 0,
+                uid,
+                gid,
                 xattrs: Default::default(),
             };
             let mut metadata = self.metadata.lock().unwrap();
-            metadata.insert(inode, inode_metadata);
+            metadata.insert(inode, inode_metadata.clone());
+            Ok((inode, inode_metadata))
+        } else {
+            Err(ErrorCode::AlreadyExists)
         }
     }
 

@@ -3,7 +3,7 @@ namespace generated;
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
-                   LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest,
+                   LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest}
 
 table GenericRequest {
@@ -135,6 +135,14 @@ table LookupRequest {
   name: string (required);
 }
 
+table CreateRequest {
+  parent: ulong;
+  name: string (required);
+  uid: uint;
+  gid: uint;
+  mode: ushort;
+}
+
 root_type GenericRequest;
 
 enum ErrorCode: byte {
@@ -143,6 +151,7 @@ enum ErrorCode: byte {
   FileTooLarge,
   AccessDenied,
   OperationNotPermitted,
+  AlreadyExists,
   Corrupted,
   RaftFailure,
   Uncategorized
