@@ -101,7 +101,8 @@ impl FilesystemMT for FleetFUSE {
     fn truncate(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>, size: u64) -> ResultEmpty {
         debug!("truncate() called with {:?}", path);
         let path = path.to_str().unwrap();
-        self.client.truncate(path, size).map_err(into_fuse_error)
+        let inode = self.lookup_path(path)?;
+        self.client.truncate(inode, size).map_err(into_fuse_error)
     }
 
     fn utimens(
@@ -129,9 +130,8 @@ impl FilesystemMT for FleetFUSE {
 
     fn readlink(&self, _req: RequestInfo, path: &Path) -> ResultData {
         debug!("read() called on {:?}", path);
-        self.client
-            .readlink(path.to_str().unwrap())
-            .map_err(into_fuse_error)
+        let inode = self.lookup_path(path.to_str().unwrap())?;
+        self.client.readlink(inode).map_err(into_fuse_error)
     }
 
     fn mknod(
@@ -246,9 +246,13 @@ impl FilesystemMT for FleetFUSE {
             path, offset, size
         );
         let path = path.to_str().unwrap();
-        self.client.read(path, offset, size, move |result| {
-            reply(result.map_err(into_fuse_error));
-        });
+        if let Ok(inode) = self.lookup_path(path) {
+            self.client.read(inode, offset, size, move |result| {
+                reply(result.map_err(into_fuse_error));
+            });
+        } else {
+            reply(Err(libc::ENOENT));
+        }
     }
 
     fn write(
@@ -262,9 +266,10 @@ impl FilesystemMT for FleetFUSE {
     ) -> ResultWrite {
         debug!("write() called with {:?}", path);
         let path = path.to_str().unwrap();
+        let inode = self.lookup_path(path)?;
         let response = self
             .client
-            .write(path, &data, offset)
+            .write(inode, &data, offset)
             .map_err(into_fuse_error);
         debug!("write() response {:?}", response);
         response
@@ -292,7 +297,8 @@ impl FilesystemMT for FleetFUSE {
     fn fsync(&self, _req: RequestInfo, path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
         debug!("fsync() called with {:?}", path);
         let path = path.to_str().unwrap();
-        self.client.fsync(path).map_err(into_fuse_error)
+        let inode = self.lookup_path(path)?;
+        self.client.fsync(inode).map_err(into_fuse_error)
     }
 
     fn opendir(&self, _req: RequestInfo, path: &Path, _flags: u32) -> ResultOpen {
@@ -315,7 +321,8 @@ impl FilesystemMT for FleetFUSE {
     fn fsyncdir(&self, _req: RequestInfo, path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
         debug!("fsyncdir() called with {:?}", path);
         let path = path.to_str().unwrap();
-        self.client.fsync(path).map_err(into_fuse_error)
+        let inode = self.lookup_path(path)?;
+        self.client.fsync(inode).map_err(into_fuse_error)
     }
 
     fn statfs(&self, _req: RequestInfo, _path: &Path) -> ResultStatfs {

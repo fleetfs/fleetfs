@@ -257,14 +257,14 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
-    pub fn truncate(&self, path: &str, new_length: u64) {
-        let inode = self.lookup_path(path).unwrap();
+    pub fn truncate(&self, inode: Inode, new_length: u64) {
         let mut metadata = self.metadata.lock().unwrap();
         metadata.get_mut(&inode).unwrap().size = new_length;
     }
 
     // TODO: should have some error handling
-    pub fn unlink(&self, path: &str) {
+    // Returns an inode, if that inode's data should be deleted
+    pub fn unlink(&self, path: &str) -> Option<Inode> {
         let inode = self.lookup_path(path).unwrap();
 
         let parent = self.lookup_parent(path).unwrap();
@@ -276,7 +276,10 @@ impl MetadataStorage {
         metadata.get_mut(&inode).unwrap().hardlinks -= 1;
         if metadata.get(&inode).unwrap().hardlinks == 0 {
             metadata.remove(&inode);
+            return Some(inode);
         }
+
+        None
     }
 
     // TODO: should have some error handling
@@ -291,8 +294,7 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
-    pub fn write(&self, path: &str, offset: u64, length: u32) {
-        let inode = self.lookup_path(path).unwrap();
+    pub fn write(&self, inode: Inode, offset: u64, length: u32) {
         let mut metadata = self.metadata.lock().unwrap();
         let inode_metadata = metadata.get_mut(&inode).unwrap();
         let current_length = inode_metadata.size;

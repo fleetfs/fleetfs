@@ -2,6 +2,7 @@ use futures::Future;
 
 use crate::generated::ErrorCode;
 use crate::peer_client::PeerClient;
+use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
 use crate::utils::into_error_code;
 use futures::future::join_all;
@@ -108,7 +109,7 @@ impl DataStorage {
     // Writes the portions of data that should be stored locally to local storage
     pub fn write_local_blocks(
         &self,
-        path: &str,
+        inode: u64,
         global_offset: u64,
         global_data: &[u8],
     ) -> io::Result<u32> {
@@ -132,7 +133,9 @@ impl DataStorage {
             start += self.node_ids.len() * BLOCK_SIZE as usize;
         }
 
-        let local_path = self.to_local_path(path);
+        // TODO: hack
+        let path = inode.to_string();
+        let local_path = self.to_local_path(&path);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -146,11 +149,11 @@ impl DataStorage {
 
     pub fn read_raw(
         &self,
-        path: &str,
+        inode: u64,
         global_offset: u64,
         global_size: u32,
     ) -> io::Result<Vec<u8>> {
-        assert_ne!(path.len(), 0);
+        assert_ne!(inode, ROOT_INODE);
 
         let local_start =
             to_local_index_ceiling(global_offset, self.local_rank, self.node_ids.len() as u64);
@@ -163,7 +166,7 @@ impl DataStorage {
         assert!(local_end >= local_start);
 
         let size = local_end - local_start;
-        let file = File::open(self.to_local_path(path))?;
+        let file = File::open(self.to_local_path(&inode.to_string()))?;
 
         let mut contents = vec![0; size as usize];
         let bytes_read = file.read_at(&mut contents, local_start)?;
@@ -174,19 +177,23 @@ impl DataStorage {
 
     pub fn read(
         &self,
-        path: &str,
+        inode: u64,
         global_offset: u64,
         global_size: u32,
     ) -> impl Future<Item = Vec<u8>, Error = ErrorCode> {
         // TODO: error handling
-        let local_data = self.read_raw(path, global_offset, global_size).unwrap();
+        let local_data = self.read_raw(inode, global_offset, global_size).unwrap();
 
         let mut remote_data_blocks = vec![];
         for node_id in self.node_ids.iter() {
             if *node_id == self.local_node_id {
                 continue;
             }
-            remote_data_blocks.push(self.peers[node_id].read_raw(path, global_offset, global_size));
+            remote_data_blocks.push(self.peers[node_id].read_raw(
+                inode,
+                global_offset,
+                global_size,
+            ));
         }
 
         let local_rank = self.local_rank;
@@ -216,22 +223,22 @@ impl DataStorage {
             .map_err(into_error_code)
     }
 
-    pub fn truncate(&self, path: &str, global_length: u64) -> io::Result<()> {
+    pub fn truncate(&self, inode: u64, global_length: u64) -> io::Result<()> {
         let local_bytes =
             to_local_index_floor(global_length, self.local_rank, self.node_ids.len() as u64)
                 .unwrap_or(0);
-        let local_path = self.to_local_path(path);
+        let local_path = self.to_local_path(&inode.to_string());
         let file = File::create(&local_path).expect("Couldn't create file");
         file.set_len(local_bytes)?;
 
         Ok(())
     }
 
-    pub fn fsync(&self, path: &str) -> Result<(), ErrorCode> {
-        assert_ne!(path.len(), 0);
+    pub fn fsync(&self, inode: u64) -> Result<(), ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
-        info!("Fsync'ing {}", path);
-        let local_path = self.to_local_path(path);
+        info!("Fsync'ing {}", inode);
+        let local_path = self.to_local_path(&inode.to_string());
         let file = File::open(local_path).map_err(into_error_code)?;
         unsafe {
             libc::fsync(file.into_raw_fd());
@@ -239,12 +246,12 @@ impl DataStorage {
         Ok(())
     }
 
-    pub fn rmdir(&self, path: &str) -> Result<(), ErrorCode> {
-        assert_ne!(path.len(), 0);
+    pub fn delete(&self, inode: u64) -> Result<(), ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
-        info!("Removing directory");
-        let local_path = self.to_local_path(path);
-        fs::remove_dir(local_path).map_err(into_error_code)
+        let local_path = self.to_local_path(&inode.to_string());
+        fs::remove_file(local_path).map_err(into_error_code)?;
+        Ok(())
     }
 }
 
