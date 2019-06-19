@@ -1,8 +1,3 @@
-use std::fs;
-use std::fs::File;
-use std::os::linux::fs::MetadataExt;
-use std::path::{Path, PathBuf};
-
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
 
@@ -14,7 +9,6 @@ use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, into_error_code, to_fileattr_response, ResultResponse};
 
 pub struct FileStorage {
-    local_data_dir: String,
     data_storage: DataStorage,
     metadata_storage: MetadataStorage,
 }
@@ -22,15 +16,9 @@ pub struct FileStorage {
 impl FileStorage {
     pub fn new(node_id: u64, all_node_ids: &[u64], context: &LocalContext) -> FileStorage {
         FileStorage {
-            // XXX: hack
-            local_data_dir: context.data_dir.clone(),
             data_storage: DataStorage::new(node_id, all_node_ids, context),
             metadata_storage: MetadataStorage::new(),
         }
-    }
-
-    fn to_local_path(&self, path: &str) -> PathBuf {
-        Path::new(&self.local_data_dir).join(path.trim_start_matches('/'))
     }
 
     // TODO: remove this
@@ -50,15 +38,14 @@ impl FileStorage {
 
     pub fn truncate<'a>(
         &self,
-        path: &str,
+        inode: u64,
         new_length: u64,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage.truncate(&path, new_length);
-
-        let local_path = self.to_local_path(path);
-        let file = File::create(&local_path).expect("Couldn't create file");
-        file.set_len(new_length).map_err(into_error_code)?;
+        self.metadata_storage.truncate(inode, new_length);
+        self.data_storage
+            .truncate(inode, new_length)
+            .map_err(into_error_code)?;
 
         return empty_response(builder);
     }
@@ -74,11 +61,6 @@ impl FileStorage {
         assert_ne!(path.len(), 0);
 
         self.metadata_storage.mkdir(&path, uid, gid, mode);
-
-        let path = Path::new(&self.local_data_dir).join(path);
-        fs::create_dir(path).map_err(into_error_code)?;
-
-        // TODO set the mode
 
         return Ok(builder);
     }
@@ -148,43 +130,14 @@ impl FileStorage {
         &self,
         path: &str,
         new_path: &str,
-        mut builder: FlatBufferBuilder<'a>,
+        builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
+        info!("Hardlinking file: {} to {}", path, new_path);
 
         self.metadata_storage.hardlink(&path, &new_path);
-
-        info!("Hardlinking file: {} to {}", path, new_path);
-        let local_path = self.to_local_path(path);
-        let local_new_path = self.to_local_path(new_path);
-        // TODO error handling
-        fs::hard_link(&local_path, &local_new_path).expect("hardlink failed");
-        let metadata = fs::metadata(local_new_path).map_err(into_error_code)?;
-
-        let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
-        response_builder.add_size_bytes(metadata.len());
-        response_builder.add_size_blocks(metadata.st_blocks());
-        let atime = Timestamp::new(metadata.st_atime(), metadata.st_atime_nsec() as i32);
-        response_builder.add_last_access_time(&atime);
-        let mtime = Timestamp::new(metadata.st_mtime(), metadata.st_mtime_nsec() as i32);
-        response_builder.add_last_modified_time(&mtime);
-        let ctime = Timestamp::new(metadata.st_ctime(), metadata.st_ctime_nsec() as i32);
-        response_builder.add_last_metadata_modified_time(&ctime);
-        if metadata.is_file() {
-            response_builder.add_kind(FileKind::File);
-        } else if metadata.is_dir() {
-            response_builder.add_kind(FileKind::Directory);
-        } else {
-            unimplemented!();
-        }
-        response_builder.add_mode(metadata.st_mode() as u16);
-        response_builder.add_hard_links(metadata.st_nlink() as u32);
-        response_builder.add_user_id(metadata.st_uid());
-        response_builder.add_group_id(metadata.st_gid());
-        response_builder.add_device_id(metadata.st_rdev() as u32);
-
-        let offset = response_builder.finish().as_union_value();
-        return Ok((builder, ResponseType::FileMetadataResponse, offset));
+        let inode = self.metadata_storage.lookup_path(path).unwrap();
+        return self.getattr(inode, builder);
     }
 
     pub fn rename<'a>(
@@ -194,25 +147,17 @@ impl FileStorage {
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
-
         self.metadata_storage.rename(&path, &new_path);
-
-        info!("Renaming file: {} to {}", path, new_path);
-        let local_path = self.to_local_path(path);
-        let local_new_path = self.to_local_path(new_path);
-        fs::rename(local_path, local_new_path).map_err(into_error_code)?;
-
         return empty_response(builder);
     }
 
     pub fn unlink<'a>(&self, path: &str, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
         assert_ne!(path.len(), 0);
 
-        self.metadata_storage.unlink(&path);
-
         info!("Deleting file");
-        let local_path = self.to_local_path(path);
-        fs::remove_file(local_path).map_err(into_error_code)?;
+        if let Some(deleted_inode) = self.metadata_storage.unlink(&path) {
+            self.data_storage.delete(deleted_inode)?;
+        }
 
         return empty_response(builder);
     }

@@ -39,7 +39,7 @@ pub fn request_router<'a, 'b>(
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
             let read_result = data_storage.read(
-                read_request.path().trim_start_matches('/'),
+                read_request.inode(),
                 read_request.offset(),
                 read_request.read_size(),
             );
@@ -49,7 +49,7 @@ pub fn request_router<'a, 'b>(
         RequestType::ReadRawRequest => {
             let read_request = request.request_as_read_raw_request().unwrap();
             let read_result = data_storage.read_raw(
-                read_request.path().trim_start_matches('/'),
+                read_request.inode(),
                 read_request.offset(),
                 read_request.read_size(),
             );

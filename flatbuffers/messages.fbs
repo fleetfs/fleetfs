@@ -49,15 +49,15 @@ table RemoveXattrRequest {
 
 // Reads only the blocks of data on this node
 table ReadRawRequest {
+  inode: ulong;
   offset: ulong;
   read_size: uint;
-  path: string (required);
 }
 
 table ReadRequest {
+  inode: ulong;
   offset: ulong;
   read_size: uint;
-  path: string (required);
 }
 
 table GetattrRequest {
@@ -72,13 +72,13 @@ table MkdirRequest {
 }
 
 table WriteRequest {
-  path: string (required);
+  inode: ulong;
   offset: ulong;
   data: [ubyte] (required);
 }
 
 table FsyncRequest {
-  path: string (required);
+  inode: ulong;
 }
 
 table UnlinkRequest {
@@ -90,7 +90,7 @@ table RmdirRequest {
 }
 
 table TruncateRequest {
-  path: string (required);
+  inode: ulong;
   new_length: ulong;
 }
 

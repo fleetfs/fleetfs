@@ -375,15 +375,14 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn readlink(&self, path: &str) -> Result<Vec<u8>, ErrorCode> {
-        assert_ne!(path, "/");
+    pub fn readlink(&self, inode: u64) -> Result<Vec<u8>, ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = ReadRequestBuilder::new(&mut builder);
+        request_builder.add_inode(inode);
         request_builder.add_offset(0);
         request_builder.add_read_size(BLOCK_SIZE as u32);
-        request_builder.add_path(builder_path);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
@@ -404,19 +403,18 @@ impl NodeClient {
 
     pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(
         &self,
-        path: &str,
+        inode: u64,
         offset: u64,
         size: u32,
         callback: F,
     ) {
-        assert_ne!(path, "/");
+        assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = ReadRequestBuilder::new(&mut builder);
+        request_builder.add_inode(inode);
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
-        request_builder.add_path(builder_path);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
@@ -457,13 +455,12 @@ impl NodeClient {
         return Ok(result);
     }
 
-    pub fn truncate(&self, path: &str, length: u64) -> Result<(), ErrorCode> {
-        assert_ne!(path, "/");
+    pub fn truncate(&self, inode: u64, length: u64) -> Result<(), ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = TruncateRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         request_builder.add_new_length(length);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
@@ -475,12 +472,11 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn write(&self, path: &str, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
+    pub fn write(&self, inode: u64, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let data_offset = builder.create_vector_direct(data);
         let mut request_builder = WriteRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         request_builder.add_offset(offset);
         request_builder.add_data(data_offset);
         let finish_offset = request_builder.finish().as_union_value();
@@ -494,11 +490,10 @@ impl NodeClient {
             .bytes_written());
     }
 
-    pub fn fsync(&self, path: &str) -> Result<(), ErrorCode> {
+    pub fn fsync(&self, inode: u64) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let builder_path = builder.create_string(path);
         let mut request_builder = FsyncRequestBuilder::new(&mut builder);
-        request_builder.add_path(builder_path);
+        request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::FsyncRequest, finish_offset);
 

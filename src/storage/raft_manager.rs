@@ -383,14 +383,17 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
-            let path = file_storage.lookup(truncate_request.path());
-            response = file_storage.truncate(&path, truncate_request.new_length(), builder);
+            response = file_storage.truncate(
+                truncate_request.inode(),
+                truncate_request.new_length(),
+                builder,
+            );
         }
         RequestType::FsyncRequest => {
             let fsync_request = request.request_as_fsync_request().unwrap();
             response = file_storage
                 .get_data_storage()
-                .fsync(fsync_request.path().trim_start_matches('/'))
+                .fsync(fsync_request.inode())
                 .map(|_| empty_response(builder).unwrap());
         }
         RequestType::CreateRequest => {
@@ -431,20 +434,17 @@ pub fn commit_write<'a, 'b>(
             file_storage
                 .get_metadata_storage()
                 .rmdir(rmdir_request.path().trim_start_matches('/'));
-            response = file_storage
-                .get_data_storage()
-                .rmdir(rmdir_request.path().trim_start_matches('/'))
-                .map(|_| empty_response(builder).unwrap());
+            response = empty_response(builder);
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
             file_storage.get_metadata_storage().write(
-                write_request.path().trim_start_matches('/'),
+                write_request.inode(),
                 write_request.offset(),
                 write_request.data().len() as u32,
             );
             let write_result = file_storage.get_data_storage().write_local_blocks(
-                write_request.path().trim_start_matches('/'),
+                write_request.inode(),
                 write_request.offset(),
                 write_request.data(),
             );
