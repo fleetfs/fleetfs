@@ -8,7 +8,7 @@ use log::warn;
 use time::Timespec;
 
 use crate::client::NodeClient;
-use crate::generated::ErrorCode;
+use crate::generated::{ErrorCode, Timestamp};
 use fuse::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
@@ -119,10 +119,8 @@ impl Filesystem for FleetFUSE {
             if let Err(error_code) = self.client.utimens(
                 inode,
                 req.uid(),
-                atime.map(|x| x.sec).unwrap_or(0),
-                atime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),
-                mtime.map(|x| x.sec).unwrap_or(0),
-                mtime.map(|x| x.nsec).unwrap_or(libc::UTIME_NOW as i32),
+                atime.map(|x| Timestamp::new(x.sec, x.nsec)),
+                mtime.map(|x| Timestamp::new(x.sec, x.nsec)),
             ) {
                 reply.error(into_fuse_error(error_code));
                 return;

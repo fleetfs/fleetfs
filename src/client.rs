@@ -278,10 +278,8 @@ impl NodeClient {
         &self,
         inode: u64,
         uid: u32,
-        atime_secs: i64,
-        atime_nanos: i32,
-        mtime_secs: i64,
-        mtime_nanos: i32,
+        atime: Option<Timestamp>,
+        mtime: Option<Timestamp>,
     ) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
@@ -289,10 +287,12 @@ impl NodeClient {
         let mut request_builder = UtimensRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_uid(uid);
-        let atime = Timestamp::new(atime_secs, atime_nanos);
-        request_builder.add_atime(&atime);
-        let mtime = Timestamp::new(mtime_secs, mtime_nanos);
-        request_builder.add_mtime(&mtime);
+        if let Some(ref atime) = atime {
+            request_builder.add_atime(atime);
+        }
+        if let Some(ref mtime) = mtime {
+            request_builder.add_mtime(mtime);
+        }
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
 
