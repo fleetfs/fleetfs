@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use crate::generated::{ErrorCode, FileKind, Timestamp};
 use crate::storage::data_storage::BLOCK_SIZE;
 use fuse::FUSE_ROOT_ID;
+use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
 
@@ -58,9 +59,9 @@ impl MetadataStorage {
             InodeAttributes {
                 inode: ROOT_INODE,
                 size: 0,
-                last_accessed: Timestamp::new(0, 0),
-                last_modified: Timestamp::new(0, 0),
-                last_metadata_changed: Timestamp::new(0, 0),
+                last_accessed: now(),
+                last_modified: now(),
+                last_metadata_changed: now(),
                 kind: FileKind::Directory,
                 mode: 0o755,
                 hardlinks: 2,
@@ -214,9 +215,9 @@ impl MetadataStorage {
         let inode_metadata = InodeAttributes {
             inode,
             size: BLOCK_SIZE,
-            last_accessed: Timestamp::new(0, 0),
-            last_modified: Timestamp::new(0, 0),
-            last_metadata_changed: Timestamp::new(0, 0),
+            last_accessed: now(),
+            last_modified: now(),
+            last_metadata_changed: now(),
             kind: FileKind::Directory,
             mode,
             hardlinks: 2,
@@ -304,9 +305,9 @@ impl MetadataStorage {
             let inode_metadata = InodeAttributes {
                 inode,
                 size: 0,
-                last_accessed: Timestamp::new(0, 0),
-                last_modified: Timestamp::new(0, 0),
-                last_metadata_changed: Timestamp::new(0, 0),
+                last_accessed: now(),
+                last_modified: now(),
+                last_metadata_changed: now(),
                 kind: FileKind::File,
                 mode,
                 hardlinks: 1,
@@ -330,4 +331,11 @@ impl MetadataStorage {
     fn allocate_inode(&self) -> u64 {
         self.next_inode.fetch_add(1, Ordering::SeqCst)
     }
+}
+
+fn now() -> Timestamp {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("System time before unix epoch");
+    Timestamp::new(now.as_secs() as i64, now.subsec_nanos() as i32)
 }
