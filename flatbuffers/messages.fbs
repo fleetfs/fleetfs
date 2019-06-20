@@ -6,6 +6,13 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest}
 
+enum FileKind: ubyte {
+  DefaultValueNotAType,
+  File,
+  Directory,
+  Symlink
+}
+
 table GenericRequest {
   request: RequestType;
 }
@@ -147,6 +154,7 @@ table CreateRequest {
   uid: uint;
   gid: uint;
   mode: ushort;
+  kind: FileKind;
 }
 
 root_type GenericRequest;
@@ -177,12 +185,6 @@ table EmptyResponse {
 struct Timestamp {
   seconds: long;
   nanos: int;
-}
-
-enum FileKind: ubyte {
-  DefaultValueNotAType,
-  File,
-  Directory
 }
 
 table DirectoryEntry {

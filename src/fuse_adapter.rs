@@ -8,7 +8,7 @@ use log::warn;
 use time::Timespec;
 
 use crate::client::NodeClient;
-use crate::generated::{ErrorCode, Timestamp};
+use crate::generated::{ErrorCode, FileKind, Timestamp};
 use fuse::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
@@ -39,6 +39,18 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::OperationNotPermitted => libc::EPERM,
         ErrorCode::AlreadyExists => libc::EEXIST,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
+    }
+}
+
+fn as_file_kind(mode: u32) -> FileKind {
+    if mode & libc::S_IFREG != 0 {
+        return FileKind::File;
+    } else if mode & libc::S_IFLNK != 0 {
+        return FileKind::Symlink;
+    } else if mode & libc::S_IFDIR != 0 {
+        return FileKind::Directory;
+    } else {
+        unimplemented!();
     }
 }
 
@@ -150,9 +162,9 @@ impl Filesystem for FleetFUSE {
         _rdev: u32,
         reply: ReplyEntry,
     ) {
-        if (mode & libc::S_IFREG) == 0 {
+        if (mode & (libc::S_IFREG | libc::S_IFLNK)) == 0 {
             // TODO
-            warn!("mknod() implementation is incomplete. Only supports regular files");
+            warn!("mknod() implementation is incomplete. Only supports regular files and symlinks");
             reply.error(libc::ENOSYS);
         } else {
             match self.client.create(
@@ -161,6 +173,7 @@ impl Filesystem for FleetFUSE {
                 req.uid(),
                 req.gid(),
                 mode as u16,
+                as_file_kind(mode),
             ) {
                 Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -213,7 +226,7 @@ impl Filesystem for FleetFUSE {
         // TODO: Error handling
         let attrs = self
             .client
-            .create(parent, name, req.uid(), req.gid(), 0o755)
+            .create(parent, name, req.uid(), req.gid(), 0o755, FileKind::Symlink)
             .unwrap();
         self.client.truncate(attrs.ino, 0).unwrap();
         self.client
@@ -512,6 +525,7 @@ impl Filesystem for FleetFUSE {
             req.uid(),
             req.gid(),
             mode as u16,
+            as_file_kind(mode),
         ) {
             Ok(attr) => {
                 // TODO: implement flags

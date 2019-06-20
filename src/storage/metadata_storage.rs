@@ -293,6 +293,7 @@ impl MetadataStorage {
         uid: u32,
         gid: u32,
         mode: u16,
+        kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
         if self.lookup(parent, name).is_none() {
             let inode = self.allocate_inode();
@@ -308,7 +309,7 @@ impl MetadataStorage {
                 last_accessed: now(),
                 last_modified: now(),
                 last_metadata_changed: now(),
-                kind: FileKind::File,
+                kind,
                 mode,
                 hardlinks: 1,
                 uid,

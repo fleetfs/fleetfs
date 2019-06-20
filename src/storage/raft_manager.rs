@@ -411,6 +411,7 @@ pub fn commit_write<'a, 'b>(
                 create_request.uid(),
                 create_request.gid(),
                 create_request.mode(),
+                create_request.kind(),
                 builder,
             );
         }
