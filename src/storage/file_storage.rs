@@ -163,6 +163,7 @@ impl FileStorage {
         return empty_response(builder);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create<'a>(
         &self,
         parent: u64,
@@ -170,11 +171,12 @@ impl FileStorage {
         uid: u32,
         gid: u32,
         mode: u16,
+        kind: FileKind,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         let (_, attributes) = self
             .metadata_storage
-            .create(parent, name, uid, gid, mode)
+            .create(parent, name, uid, gid, mode, kind)
             .unwrap();
 
         self.data_storage.truncate(attributes.inode, 0).unwrap();

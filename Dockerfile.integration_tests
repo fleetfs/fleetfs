@@ -5,7 +5,7 @@ RUN apt update && apt install -y git build-essential autoconf curl cmake libfuse
 RUN echo 'user_allow_other' >> /etc/fuse.conf
 
 RUN mkdir -p /code/pjdfstest && cd /code && git clone https://github.com/fleetfs/pjdfstest && cd pjdfstest \
-  && git checkout 62aae5f02165aa4a00466ba4826a4d80925ca28c && autoreconf -ifs && ./configure && make pjdfstest
+  && git checkout 9fe603ce41341a0dd7fec8cdc22364d75350a5d1 && autoreconf -ifs && ./configure && make pjdfstest
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 

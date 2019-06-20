@@ -17,6 +17,7 @@ fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
     match file_type {
         FileKind::File => fuse::FileType::RegularFile,
         FileKind::Directory => fuse::FileType::Directory,
+        FileKind::Symlink => fuse::FileType::Symlink,
         FileKind::DefaultValueNotAType => unreachable!(),
     }
 }
@@ -170,6 +171,7 @@ impl NodeClient {
         uid: u32,
         gid: u32,
         mode: u16,
+        kind: FileKind,
     ) -> Result<FileAttr, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_name = builder.create_string(name);
@@ -179,6 +181,7 @@ impl NodeClient {
         request_builder.add_uid(uid);
         request_builder.add_gid(gid);
         request_builder.add_mode(mode);
+        request_builder.add_kind(kind);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::CreateRequest, finish_offset);
 
