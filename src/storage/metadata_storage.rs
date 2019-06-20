@@ -5,8 +5,9 @@ use std::sync::Mutex;
 
 use crate::generated::{ErrorCode, FileKind, Timestamp};
 use crate::storage::data_storage::BLOCK_SIZE;
+use fuse::FUSE_ROOT_ID;
 
-pub const ROOT_INODE: u64 = 1;
+pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
 
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
