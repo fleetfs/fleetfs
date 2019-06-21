@@ -9,6 +9,7 @@ use time::Timespec;
 
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp};
+use crate::storage::metadata_storage::MAX_NAME_LENGTH;
 use crate::utils::check_access;
 use fuse::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
@@ -38,6 +39,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::FileTooLarge => libc::EFBIG,
         ErrorCode::AccessDenied => libc::EACCES,
         ErrorCode::OperationNotPermitted => libc::EPERM,
+        ErrorCode::NameTooLong => libc::ENAMETOOLONG,
         ErrorCode::AlreadyExists => libc::EEXIST,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
@@ -410,7 +412,7 @@ impl Filesystem for FleetFUSE {
     fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
         warn!("statfs() implementation is a stub");
         // TODO: real implementation of this
-        reply.statfs(10, 10, 10, 1, 10, 4096, 255, 4096);
+        reply.statfs(10, 10, 10, 1, 10, 4096, MAX_NAME_LENGTH, 4096);
     }
 
     fn setxattr(

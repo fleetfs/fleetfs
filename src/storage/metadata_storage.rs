@@ -10,6 +10,7 @@ use fuse::FUSE_ROOT_ID;
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
+pub const MAX_NAME_LENGTH: u32 = 255;
 
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
@@ -80,13 +81,18 @@ impl MetadataStorage {
         }
     }
 
-    pub fn lookup(&self, parent: Inode, name: &str) -> Option<Inode> {
+    pub fn lookup(&self, parent: Inode, name: &str) -> Result<Option<Inode>, ErrorCode> {
+        if name.len() > MAX_NAME_LENGTH as usize {
+            return Err(ErrorCode::NameTooLong);
+        }
+
         let directories = self.directories.lock().unwrap();
-        directories
+        let maybe_inode = directories
             .get(&parent)
             .unwrap()
             .get(name)
-            .map(|(inode, _)| *inode)
+            .map(|(inode, _)| *inode);
+        Ok(maybe_inode)
     }
 
     pub fn get_xattr(&self, inode: Inode, key: &str) -> Option<Vec<u8>> {
@@ -325,7 +331,7 @@ impl MetadataStorage {
         mode: u16,
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
-        if self.lookup(parent, name).is_none() {
+        if self.lookup(parent, name)?.is_none() {
             let inode = self.allocate_inode();
             let mut directories = self.directories.lock().unwrap();
             directories
