@@ -13,6 +13,11 @@ enum FileKind: ubyte {
   Symlink
 }
 
+struct UserContext {
+  uid: uint;
+  gid: uint;
+}
+
 table GenericRequest {
   request: RequestType;
 }
@@ -65,6 +70,7 @@ table ReadRequest {
   inode: ulong;
   offset: ulong;
   read_size: uint;
+  context: UserContext (required);
 }
 
 table GetattrRequest {

@@ -38,13 +38,19 @@ pub fn request_router<'a, 'b>(
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
-            let read_result = data_storage.read(
-                read_request.inode(),
-                read_request.offset(),
-                read_request.read_size(),
-            );
-            response =
-                Box::new(read_result.map(move |data| to_read_response(builder, &data).unwrap()))
+            match metadata_storage.read(read_request.inode(), *read_request.context()) {
+                Ok(_) => {
+                    let read_result = data_storage.read(
+                        read_request.inode(),
+                        read_request.offset(),
+                        read_request.read_size(),
+                    );
+                    response = Box::new(
+                        read_result.map(move |data| to_read_response(builder, &data).unwrap()),
+                    )
+                }
+                Err(error_code) => response = Box::new(err(error_code)),
+            }
         }
         RequestType::ReadRawRequest => {
             let read_request = request.request_as_read_raw_request().unwrap();
