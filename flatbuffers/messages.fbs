@@ -104,6 +104,8 @@ table RmdirRequest {
 table TruncateRequest {
   inode: ulong;
   new_length: ulong;
+  uid: uint;
+  gid: uint;
 }
 
 table ReaddirRequest {
@@ -148,6 +150,8 @@ table RenameRequest {
 table LookupRequest {
   parent: ulong;
   name: string (required);
+  uid: uint;
+  gid: uint;
 }
 
 table CreateRequest {

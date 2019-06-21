@@ -148,12 +148,14 @@ impl NodeClient {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn lookup(&self, parent: u64, name: &str) -> Result<u64, ErrorCode> {
+    pub fn lookup(&self, parent: u64, name: &str, uid: u32, gid: u32) -> Result<u64, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_name = builder.create_string(name);
         let mut request_builder = LookupRequestBuilder::new(&mut builder);
         request_builder.add_parent(parent);
         request_builder.add_name(builder_name);
+        request_builder.add_uid(uid);
+        request_builder.add_gid(gid);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::LookupRequest, finish_offset);
 
@@ -479,13 +481,15 @@ impl NodeClient {
         return Ok(result);
     }
 
-    pub fn truncate(&self, inode: u64, length: u64) -> Result<(), ErrorCode> {
+    pub fn truncate(&self, inode: u64, length: u64, uid: u32, gid: u32) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
         let mut request_builder = TruncateRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_new_length(length);
+        request_builder.add_uid(uid);
+        request_builder.add_gid(gid);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
 

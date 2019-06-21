@@ -11,6 +11,7 @@ use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
 pub const MAX_NAME_LENGTH: u32 = 255;
+pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024 * 1024;
 
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
@@ -81,9 +82,28 @@ impl MetadataStorage {
         }
     }
 
-    pub fn lookup(&self, parent: Inode, name: &str) -> Result<Option<Inode>, ErrorCode> {
+    pub fn lookup(
+        &self,
+        parent: Inode,
+        name: &str,
+        uid: u32,
+        gid: u32,
+    ) -> Result<Option<Inode>, ErrorCode> {
         if name.len() > MAX_NAME_LENGTH as usize {
             return Err(ErrorCode::NameTooLong);
+        }
+
+        let metadata = self.metadata.lock().unwrap();
+        let parent_attrs = metadata.get(&parent).unwrap();
+        if !check_access(
+            parent_attrs.uid,
+            parent_attrs.gid,
+            parent_attrs.mode,
+            uid,
+            gid,
+            libc::X_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
         }
 
         let directories = self.directories.lock().unwrap();
@@ -268,11 +288,35 @@ impl MetadataStorage {
     }
 
     // TODO: should have some error handling
-    pub fn truncate(&self, inode: Inode, new_length: u64) {
+    pub fn truncate(
+        &self,
+        inode: Inode,
+        new_length: u64,
+        uid: u32,
+        gid: u32,
+    ) -> Result<(), ErrorCode> {
+        if new_length > MAX_FILE_SIZE {
+            return Err(ErrorCode::FileTooLarge);
+        }
+
         let mut metadata = self.metadata.lock().unwrap();
-        metadata.get_mut(&inode).unwrap().size = new_length;
-        metadata.get_mut(&inode).unwrap().last_metadata_changed = now();
-        metadata.get_mut(&inode).unwrap().last_modified = now();
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        if !check_access(
+            inode_attrs.uid,
+            inode_attrs.gid,
+            inode_attrs.mode,
+            uid,
+            gid,
+            libc::W_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
+        }
+
+        inode_attrs.size = new_length;
+        inode_attrs.last_metadata_changed = now();
+        inode_attrs.last_modified = now();
+
+        Ok(())
     }
 
     // Returns an inode, if that inode's data should be deleted
@@ -357,7 +401,7 @@ impl MetadataStorage {
         mode: u16,
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
-        if self.lookup(parent, name)?.is_none() {
+        if self.lookup(parent, name, uid, gid)?.is_none() {
             let inode = self.allocate_inode();
             let mut directories = self.directories.lock().unwrap();
             directories

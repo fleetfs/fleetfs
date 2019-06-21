@@ -64,9 +64,12 @@ impl Filesystem for FleetFUSE {
 
     fn destroy(&mut self, _req: &Request) {}
 
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         // TODO: avoid this double lookup
-        match self.client.lookup(parent, name.to_str().unwrap()) {
+        match self
+            .client
+            .lookup(parent, name.to_str().unwrap(), req.uid(), req.gid())
+        {
             Ok(inode) => match self.client.getattr(inode) {
                 Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -120,7 +123,7 @@ impl Filesystem for FleetFUSE {
 
         if let Some(size) = size {
             debug!("truncate() called with {:?}", inode);
-            if let Err(error_code) = self.client.truncate(inode, size) {
+            if let Err(error_code) = self.client.truncate(inode, size, req.uid(), req.gid()) {
                 reply.error(into_fuse_error(error_code));
                 return;
             }
@@ -234,7 +237,9 @@ impl Filesystem for FleetFUSE {
             .client
             .create(parent, name, req.uid(), req.gid(), 0o755, FileKind::Symlink)
             .unwrap();
-        self.client.truncate(attrs.ino, 0).unwrap();
+        self.client
+            .truncate(attrs.ino, 0, req.uid(), req.gid())
+            .unwrap();
         self.client
             .write(attrs.ino, &Vec::from(link.to_str().unwrap().to_string()), 0)
             .unwrap();

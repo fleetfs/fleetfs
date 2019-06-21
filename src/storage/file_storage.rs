@@ -6,7 +6,7 @@ use crate::storage::data_storage::DataStorage;
 use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
-use crate::utils::{empty_response, into_error_code, to_fileattr_response, ResultResponse};
+use crate::utils::{empty_response, to_fileattr_response, ResultResponse};
 
 pub struct FileStorage {
     data_storage: DataStorage,
@@ -35,12 +35,13 @@ impl FileStorage {
         &self,
         inode: u64,
         new_length: u64,
+        uid: u32,
+        gid: u32,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.data_storage
-            .truncate(inode, new_length)
-            .map_err(into_error_code)?;
-        self.metadata_storage.truncate(inode, new_length);
+        self.metadata_storage
+            .truncate(inode, new_length, uid, gid)?;
+        self.data_storage.truncate(inode, new_length).unwrap();
 
         return empty_response(builder);
     }
@@ -55,7 +56,10 @@ impl FileStorage {
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         self.metadata_storage.mkdir(parent, name, uid, gid, mode);
-        let inode = self.metadata_storage.lookup(parent, name)?.unwrap();
+        let inode = self
+            .metadata_storage
+            .lookup(parent, name, uid, gid)?
+            .unwrap();
 
         return self.getattr(inode, builder);
     }
