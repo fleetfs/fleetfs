@@ -242,6 +242,8 @@ impl MetadataStorage {
         };
         let mut metadata = self.metadata.lock().unwrap();
         metadata.insert(inode, inode_metadata);
+        metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
+        metadata.get_mut(&parent).unwrap().last_modified = now();
     }
 
     pub fn rename(&self, parent: u64, name: &str, new_parent: u64, new_name: &str) {
@@ -257,12 +259,20 @@ impl MetadataStorage {
             let mut parents = self.directory_parents.lock().unwrap();
             parents.insert(inode, new_parent);
         }
+
+        let mut metadata = self.metadata.lock().unwrap();
+        metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
+        metadata.get_mut(&parent).unwrap().last_modified = now();
+        metadata.get_mut(&new_parent).unwrap().last_metadata_changed = now();
+        metadata.get_mut(&new_parent).unwrap().last_modified = now();
     }
 
     // TODO: should have some error handling
     pub fn truncate(&self, inode: Inode, new_length: u64) {
         let mut metadata = self.metadata.lock().unwrap();
         metadata.get_mut(&inode).unwrap().size = new_length;
+        metadata.get_mut(&inode).unwrap().last_metadata_changed = now();
+        metadata.get_mut(&inode).unwrap().last_modified = now();
     }
 
     // Returns an inode, if that inode's data should be deleted
@@ -299,6 +309,9 @@ impl MetadataStorage {
             }
         }
 
+        let parent_attrs = metadata.get_mut(&parent).unwrap();
+        parent_attrs.last_metadata_changed = now();
+        parent_attrs.last_modified = now();
         let (inode, _) = parent_directory.remove(name).unwrap();
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.hardlinks -= 1;
@@ -318,6 +331,8 @@ impl MetadataStorage {
             directories.remove(&inode);
             let mut metadata = self.metadata.lock().unwrap();
             metadata.remove(&inode);
+            metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
+            metadata.get_mut(&parent).unwrap().last_modified = now();
             let mut parents = self.directory_parents.lock().unwrap();
             parents.remove(&inode);
         }
@@ -328,7 +343,9 @@ impl MetadataStorage {
         let mut metadata = self.metadata.lock().unwrap();
         let inode_metadata = metadata.get_mut(&inode).unwrap();
         let current_length = inode_metadata.size;
-        inode_metadata.size = max(current_length, u64::from(length) + offset)
+        inode_metadata.size = max(current_length, u64::from(length) + offset);
+        inode_metadata.last_metadata_changed = now();
+        inode_metadata.last_modified = now();
     }
 
     pub fn create(
@@ -363,6 +380,8 @@ impl MetadataStorage {
             };
             let mut metadata = self.metadata.lock().unwrap();
             metadata.insert(inode, inode_metadata.clone());
+            metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
+            metadata.get_mut(&parent).unwrap().last_modified = now();
             Ok((inode, inode_metadata))
         } else {
             Err(ErrorCode::AlreadyExists)
