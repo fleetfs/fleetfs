@@ -393,6 +393,8 @@ pub fn commit_write<'a, 'b>(
             response = file_storage.truncate(
                 truncate_request.inode(),
                 truncate_request.new_length(),
+                truncate_request.uid(),
+                truncate_request.gid(),
                 builder,
             );
         }

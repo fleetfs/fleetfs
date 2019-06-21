@@ -69,7 +69,12 @@ pub fn request_router<'a, 'b>(
         RequestType::LookupRequest => {
             let lookup_request = request.request_as_lookup_request().unwrap();
             // TODO: handle key doesn't exist
-            match metadata_storage.lookup(lookup_request.parent(), lookup_request.name()) {
+            match metadata_storage.lookup(
+                lookup_request.parent(),
+                lookup_request.name(),
+                lookup_request.uid(),
+                lookup_request.gid(),
+            ) {
                 Ok(maybe_inode) => {
                     if let Some(inode) = maybe_inode {
                         response = Box::new(result(to_inode_response(builder, inode)));
