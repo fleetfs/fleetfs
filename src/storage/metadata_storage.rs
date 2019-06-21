@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use crate::generated::{ErrorCode, FileKind, Timestamp};
 use crate::storage::data_storage::BLOCK_SIZE;
+use crate::utils::check_access;
 use fuse::FUSE_ROOT_ID;
 use std::time::SystemTime;
 
@@ -63,7 +64,7 @@ impl MetadataStorage {
                 last_modified: now(),
                 last_metadata_changed: now(),
                 kind: FileKind::Directory,
-                mode: 0o755,
+                mode: 0o777,
                 hardlinks: 2,
                 uid: 0,
                 gid: 0,
@@ -250,20 +251,49 @@ impl MetadataStorage {
         metadata.get_mut(&inode).unwrap().size = new_length;
     }
 
-    // TODO: should have some error handling
     // Returns an inode, if that inode's data should be deleted
-    pub fn unlink(&self, parent: u64, name: &str) -> Option<Inode> {
+    pub fn unlink(
+        &self,
+        parent: u64,
+        name: &str,
+        uid: u32,
+        gid: u32,
+    ) -> Result<Option<Inode>, ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
-        let (inode, _) = directories.get_mut(&parent).unwrap().remove(name).unwrap();
+        let parent_directory = directories.get_mut(&parent).unwrap();
+        let (inode, _) = parent_directory.get(name).unwrap();
 
         let mut metadata = self.metadata.lock().unwrap();
-        metadata.get_mut(&inode).unwrap().hardlinks -= 1;
-        if metadata.get(&inode).unwrap().hardlinks == 0 {
-            metadata.remove(&inode);
-            return Some(inode);
+
+        let parent_attrs = metadata.get(&parent).unwrap();
+        if !check_access(
+            parent_attrs.uid,
+            parent_attrs.gid,
+            parent_attrs.mode,
+            uid,
+            gid,
+            libc::W_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
         }
 
-        None
+        // "Sticky bit" handling
+        if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
+            let inode_attrs = metadata.get(inode).unwrap();
+            if uid != 0 && uid != parent_attrs.uid && uid != inode_attrs.uid {
+                return Err(ErrorCode::AccessDenied);
+            }
+        }
+
+        let (inode, _) = parent_directory.remove(name).unwrap();
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        inode_attrs.hardlinks -= 1;
+        if inode_attrs.hardlinks == 0 {
+            metadata.remove(&inode);
+            return Ok(Some(inode));
+        }
+
+        Ok(None)
     }
 
     // TODO: should have some error handling

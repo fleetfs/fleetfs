@@ -101,7 +101,7 @@ impl Filesystem for FleetFUSE {
         reply: ReplyAttr,
     ) {
         if let Some(mode) = mode {
-            debug!("chmod() called with {:?}, {:?}", inode, mode);
+            debug!("chmod() called with {:?}, {:o}", inode, mode);
             if let Err(error_code) = self.client.chmod(inode, mode) {
                 reply.error(into_fuse_error(error_code));
                 return;
@@ -183,7 +183,7 @@ impl Filesystem for FleetFUSE {
     }
 
     fn mkdir(&mut self, req: &Request, parent: u64, name: &OsStr, mode: u32, reply: ReplyEntry) {
-        debug!("mkdir() called with {:?} {:?}", parent, name);
+        debug!("mkdir() called with {:?} {:?} {:o}", parent, name, mode);
         match self.client.mkdir(
             parent,
             name.to_str().unwrap(),
@@ -196,9 +196,12 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("unlink() called with {:?} {:?}", parent, name);
-        if let Err(error_code) = self.client.unlink(parent, name.to_str().unwrap()) {
+        if let Err(error_code) =
+            self.client
+                .unlink(parent, name.to_str().unwrap(), req.uid(), req.gid())
+        {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();

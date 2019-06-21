@@ -528,12 +528,14 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn unlink(&self, parent: u64, name: &str) -> Result<(), ErrorCode> {
+    pub fn unlink(&self, parent: u64, name: &str, uid: u32, gid: u32) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_name = builder.create_string(name);
         let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
         request_builder.add_parent(parent);
         request_builder.add_name(builder_name);
+        request_builder.add_uid(uid);
+        request_builder.add_gid(gid);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
 
