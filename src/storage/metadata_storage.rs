@@ -110,14 +110,16 @@ impl MetadataStorage {
 
     pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) {
         let mut metadata = self.metadata.lock().unwrap();
-        metadata
-            .get_mut(&inode)
-            .and_then(|x| x.xattrs.insert(key.to_string(), value.to_vec()));
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        inode_attrs.xattrs.insert(key.to_string(), value.to_vec());
+        inode_attrs.last_metadata_changed = now();
     }
 
     pub fn remove_xattr(&self, inode: Inode, key: &str) {
         let mut metadata = self.metadata.lock().unwrap();
-        metadata.get_mut(&inode).and_then(|x| x.xattrs.remove(key));
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        inode_attrs.xattrs.remove(key);
+        inode_attrs.last_metadata_changed = now();
     }
 
     pub fn readdir(&self, inode: Inode) -> Result<Vec<(Inode, String, FileKind)>, ErrorCode> {
@@ -177,7 +179,9 @@ impl MetadataStorage {
     // TODO: should have some error handling
     pub fn chmod(&self, inode: Inode, mode: u32) {
         let mut metadata = self.metadata.lock().unwrap();
-        metadata.get_mut(&inode).unwrap().mode = mode as u16;
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        inode_attrs.mode = mode as u16;
+        inode_attrs.last_metadata_changed = now();
     }
 
     // TODO: should have some error handling
@@ -191,6 +195,9 @@ impl MetadataStorage {
         if let Some(gid) = gid {
             inode_metadata.gid = gid;
         }
+        if uid.is_some() || gid.is_some() {
+            inode_metadata.last_metadata_changed = now();
+        }
 
         Ok(())
     }
@@ -199,6 +206,7 @@ impl MetadataStorage {
         let mut metadata = self.metadata.lock().unwrap();
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.hardlinks += 1;
+        inode_attrs.last_metadata_changed = now();
 
         let mut directories = self.directories.lock().unwrap();
         directories
@@ -294,6 +302,7 @@ impl MetadataStorage {
         let (inode, _) = parent_directory.remove(name).unwrap();
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.hardlinks -= 1;
+        inode_attrs.last_metadata_changed = now();
         if inode_attrs.hardlinks == 0 {
             metadata.remove(&inode);
             return Ok(Some(inode));
