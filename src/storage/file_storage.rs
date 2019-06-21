@@ -153,10 +153,12 @@ impl FileStorage {
         &self,
         parent: u64,
         name: &str,
+        uid: u32,
+        gid: u32,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         info!("Deleting file");
-        if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name) {
+        if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name, uid, gid)? {
             self.data_storage.delete(deleted_inode).unwrap();
         }
 

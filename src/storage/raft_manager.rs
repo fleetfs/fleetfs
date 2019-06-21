@@ -434,7 +434,13 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
-            response = file_storage.unlink(unlink_request.parent(), unlink_request.name(), builder);
+            response = file_storage.unlink(
+                unlink_request.parent(),
+                unlink_request.name(),
+                unlink_request.uid(),
+                unlink_request.gid(),
+                builder,
+            );
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request.request_as_rmdir_request().unwrap();

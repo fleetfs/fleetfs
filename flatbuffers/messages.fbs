@@ -92,6 +92,8 @@ table FsyncRequest {
 table UnlinkRequest {
   parent: ulong;
   name: string (required);
+  uid: uint;
+  gid: uint;
 }
 
 table RmdirRequest {
