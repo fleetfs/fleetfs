@@ -37,10 +37,10 @@ impl FileStorage {
         new_length: u64,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage.truncate(inode, new_length);
         self.data_storage
             .truncate(inode, new_length)
             .map_err(into_error_code)?;
+        self.metadata_storage.truncate(inode, new_length);
 
         return empty_response(builder);
     }
