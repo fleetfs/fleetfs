@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use crate::generated::{ErrorCode, FileKind, Timestamp};
+use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::data_storage::BLOCK_SIZE;
 use crate::utils::check_access;
 use fuse::FUSE_ROOT_ID;
@@ -113,6 +113,23 @@ impl MetadataStorage {
             .get(name)
             .map(|(inode, _)| *inode);
         Ok(maybe_inode)
+    }
+
+    pub fn read(&self, inode: Inode, context: UserContext) -> Result<(), ErrorCode> {
+        let mut metadata = self.metadata.lock().unwrap();
+        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        if !check_access(
+            inode_attrs.uid,
+            inode_attrs.gid,
+            inode_attrs.mode,
+            context.uid(),
+            context.gid(),
+            libc::R_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
+        }
+
+        Ok(())
     }
 
     pub fn get_xattr(&self, inode: Inode, key: &str) -> Option<Vec<u8>> {

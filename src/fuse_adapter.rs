@@ -8,7 +8,7 @@ use log::warn;
 use time::Timespec;
 
 use crate::client::NodeClient;
-use crate::generated::{ErrorCode, FileKind, Timestamp};
+use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::metadata_storage::MAX_NAME_LENGTH;
 use crate::utils::check_access;
 use fuse::{
@@ -151,9 +151,12 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
+    fn readlink(&mut self, req: &Request, inode: u64, reply: ReplyData) {
         debug!("readlink() called on {:?}", inode);
-        match self.client.readlink(inode) {
+        match self
+            .client
+            .readlink(inode, UserContext::new(req.uid(), req.gid()))
+        {
             Ok(data) => reply.data(&data),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
@@ -296,7 +299,7 @@ impl Filesystem for FleetFUSE {
 
     fn read(
         &mut self,
-        _req: &Request,
+        req: &Request,
         inode: u64,
         _fh: u64,
         offset: i64,
@@ -305,11 +308,16 @@ impl Filesystem for FleetFUSE {
     ) {
         debug!("read() called on {:?}", inode);
         assert!(offset >= 0);
-        self.client
-            .read(inode, offset as u64, size, move |result| match result {
+        self.client.read(
+            inode,
+            offset as u64,
+            size,
+            UserContext::new(req.uid(), req.gid()),
+            move |result| match result {
                 Ok(data) => reply.data(data),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
-            });
+            },
+        );
     }
 
     fn write(
