@@ -69,12 +69,15 @@ pub fn request_router<'a, 'b>(
         RequestType::LookupRequest => {
             let lookup_request = request.request_as_lookup_request().unwrap();
             // TODO: handle key doesn't exist
-            if let Some(inode) =
-                metadata_storage.lookup(lookup_request.parent(), lookup_request.name())
-            {
-                response = Box::new(result(to_inode_response(builder, inode)));
-            } else {
-                response = Box::new(err(ErrorCode::DoesNotExist));
+            match metadata_storage.lookup(lookup_request.parent(), lookup_request.name()) {
+                Ok(maybe_inode) => {
+                    if let Some(inode) = maybe_inode {
+                        response = Box::new(result(to_inode_response(builder, inode)));
+                    } else {
+                        response = Box::new(err(ErrorCode::DoesNotExist));
+                    }
+                }
+                Err(error_code) => response = Box::new(err(error_code)),
             }
         }
         RequestType::GetXattrRequest => {

@@ -55,7 +55,7 @@ impl FileStorage {
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         self.metadata_storage.mkdir(parent, name, uid, gid, mode);
-        let inode = self.metadata_storage.lookup(parent, name).unwrap();
+        let inode = self.metadata_storage.lookup(parent, name)?.unwrap();
 
         return self.getattr(inode, builder);
     }

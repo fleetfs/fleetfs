@@ -168,6 +168,7 @@ enum ErrorCode: byte {
   AccessDenied,
   OperationNotPermitted,
   AlreadyExists,
+  NameTooLong,
   Corrupted,
   RaftFailure,
   Uncategorized
