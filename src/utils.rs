@@ -223,3 +223,29 @@ pub fn to_fileattr_response(
     let offset = response_builder.finish().as_union_value();
     return Ok((builder, ResponseType::FileMetadataResponse, offset));
 }
+
+pub fn check_access(
+    file_uid: u32,
+    file_gid: u32,
+    file_mode: u16,
+    uid: u32,
+    gid: u32,
+    mut access_mask: u32,
+) -> bool {
+    // F_OK tests for existence of file
+    if access_mask == libc::F_OK as u32 {
+        return true;
+    }
+
+    // Process "other" permissions
+    let file_mode = u32::from(file_mode);
+    access_mask -= access_mask & file_mode;
+    if gid == file_gid {
+        access_mask -= access_mask & (file_mode >> 3);
+    }
+    if uid == file_uid {
+        access_mask -= access_mask & (file_mode >> 6);
+    }
+
+    return access_mask == 0;
+}

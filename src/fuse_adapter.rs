@@ -9,6 +9,7 @@ use time::Timespec;
 
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp};
+use crate::utils::check_access;
 use fuse::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
@@ -477,33 +478,16 @@ impl Filesystem for FleetFUSE {
     }
 
     // TODO: maybe mount with the "default_permissions" option. Then this wouldn't be called?
-    fn access(&mut self, req: &Request, inode: u64, mut mask: u32, reply: ReplyEmpty) {
+    // TODO: use getgrouplist() to look up all the groups for this user
+    fn access(&mut self, req: &Request, inode: u64, mask: u32, reply: ReplyEmpty) {
         debug!("access() called with {:?} {:?}", inode, mask);
         match self.client.getattr(inode) {
             Ok(attr) => {
-                // F_OK tests for existence of file
-                if mask == libc::F_OK as u32 {
+                if check_access(attr.uid, attr.gid, attr.perm, req.uid(), req.gid(), mask) {
                     reply.ok();
-                    return;
-                }
-
-                // Process "other" permissions
-                let mode = u32::from(attr.perm);
-                mask -= mask & mode;
-                // TODO: use getgrouplist() to look up all the groups for this user
-                if req.gid() == attr.gid {
-                    mask -= mask & (mode >> 3);
-                }
-                if req.uid() == attr.uid {
-                    mask -= mask & (mode >> 6);
-                }
-
-                if mask != 0 {
+                } else {
                     reply.error(libc::EACCES);
-                    return;
                 }
-
-                reply.ok();
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
