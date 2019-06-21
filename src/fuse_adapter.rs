@@ -236,18 +236,22 @@ impl Filesystem for FleetFUSE {
         debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
         let name = name.to_str().unwrap();
         // TODO: Error handling
-        let attrs = self
+        match self
             .client
             .create(parent, name, req.uid(), req.gid(), 0o755, FileKind::Symlink)
-            .unwrap();
-        self.client
-            .truncate(attrs.ino, 0, req.uid(), req.gid())
-            .unwrap();
-        self.client
-            .write(attrs.ino, &Vec::from(link.to_str().unwrap().to_string()), 0)
-            .unwrap();
+        {
+            Ok(attrs) => {
+                self.client
+                    .truncate(attrs.ino, 0, req.uid(), req.gid())
+                    .unwrap();
+                self.client
+                    .write(attrs.ino, &Vec::from(link.to_str().unwrap().to_string()), 0)
+                    .unwrap();
 
-        reply.entry(&Timespec { sec: 0, nsec: 0 }, &attrs, 0);
+                reply.entry(&Timespec { sec: 0, nsec: 0 }, &attrs, 0);
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
     }
 
     fn rename(

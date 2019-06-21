@@ -419,6 +419,19 @@ impl MetadataStorage {
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
         if self.lookup(parent, name, uid, gid)?.is_none() {
+            let mut metadata = self.metadata.lock().unwrap();
+            let parent_attrs = metadata.get(&parent).unwrap();
+            if !check_access(
+                parent_attrs.uid,
+                parent_attrs.gid,
+                parent_attrs.mode,
+                uid,
+                gid,
+                libc::W_OK as u32,
+            ) {
+                return Err(ErrorCode::AccessDenied);
+            }
+
             let inode = self.allocate_inode();
             let mut directories = self.directories.lock().unwrap();
             directories
@@ -439,7 +452,6 @@ impl MetadataStorage {
                 gid,
                 xattrs: Default::default(),
             };
-            let mut metadata = self.metadata.lock().unwrap();
             metadata.insert(inode, inode_metadata.clone());
             metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
             metadata.get_mut(&parent).unwrap().last_modified = now();

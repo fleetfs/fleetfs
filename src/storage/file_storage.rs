@@ -182,8 +182,7 @@ impl FileStorage {
     ) -> ResultResponse<'a> {
         let (_, attributes) = self
             .metadata_storage
-            .create(parent, name, uid, gid, mode, kind)
-            .unwrap();
+            .create(parent, name, uid, gid, mode, kind)?;
 
         self.data_storage.truncate(attributes.inode, 0).unwrap();
 
