@@ -381,6 +381,7 @@ impl NodeClient {
         name: &str,
         new_parent: u64,
         new_name: &str,
+        context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_name = builder.create_string(name);
@@ -390,6 +391,7 @@ impl NodeClient {
         request_builder.add_name(builder_name);
         request_builder.add_new_parent(new_parent);
         request_builder.add_new_name(builder_new_name);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
 
