@@ -370,6 +370,7 @@ pub fn commit_write<'a, 'b>(
                 rename_request.name(),
                 rename_request.new_parent(),
                 rename_request.new_name(),
+                *rename_request.context(),
                 builder,
             );
         }

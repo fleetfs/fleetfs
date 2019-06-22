@@ -261,7 +261,7 @@ impl Filesystem for FleetFUSE {
 
     fn rename(
         &mut self,
-        _req: &Request,
+        req: &Request,
         parent: u64,
         name: &OsStr,
         new_parent: u64,
@@ -273,6 +273,7 @@ impl Filesystem for FleetFUSE {
             name.to_str().unwrap(),
             new_parent,
             new_name.to_str().unwrap(),
+            UserContext::new(req.uid(), req.gid()),
         ) {
             reply.error(into_fuse_error(error_code));
         } else {

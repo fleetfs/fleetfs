@@ -16,7 +16,7 @@ pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024 * 1024;
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InodeAttributes {
     pub inode: Inode,
     pub size: u64,
@@ -283,8 +283,94 @@ impl MetadataStorage {
         metadata.get_mut(&parent).unwrap().last_modified = now();
     }
 
-    pub fn rename(&self, parent: u64, name: &str, new_parent: u64, new_name: &str) {
+    pub fn rename(
+        &self,
+        parent: u64,
+        name: &str,
+        new_parent: u64,
+        new_name: &str,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
+        let mut metadata = self.metadata.lock().unwrap();
+        if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
+            let parent_attrs = metadata.get(&parent).unwrap();
+            if !check_access(
+                parent_attrs.uid,
+                parent_attrs.gid,
+                parent_attrs.mode,
+                context.uid(),
+                context.gid(),
+                libc::W_OK as u32,
+            ) {
+                return Err(ErrorCode::AccessDenied);
+            }
+
+            // "Sticky bit" handling
+            if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
+                let inode_attrs = metadata.get(inode).unwrap();
+                if context.uid() != 0
+                    && context.uid() != parent_attrs.uid
+                    && context.uid() != inode_attrs.uid
+                {
+                    return Err(ErrorCode::AccessDenied);
+                }
+            }
+
+            let new_parent_attrs = metadata.get(&new_parent).unwrap();
+            dbg!((parent_attrs, new_parent_attrs, context));
+            if !check_access(
+                new_parent_attrs.uid,
+                new_parent_attrs.gid,
+                new_parent_attrs.mode,
+                context.uid(),
+                context.gid(),
+                libc::W_OK as u32,
+            ) {
+                return Err(ErrorCode::AccessDenied);
+            }
+
+            // "Sticky bit" handling in new_parent
+            if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
+                if let Some((new_inode, _)) = directories.get(&new_parent).unwrap().get(new_name) {
+                    let new_inode_attrs = metadata.get(new_inode).unwrap();
+                    if context.uid() != 0
+                        && context.uid() != new_parent_attrs.uid
+                        && context.uid() != new_inode_attrs.uid
+                    {
+                        return Err(ErrorCode::AccessDenied);
+                    }
+                }
+            }
+
+            // Only overwrite an existing directory if it's empty
+            if let Some((new_inode, _)) = directories.get(&new_parent).unwrap().get(new_name) {
+                let new_inode_attrs = metadata.get(new_inode).unwrap();
+                if new_inode_attrs.kind == FileKind::Directory
+                    && !directories.get(&new_inode).unwrap().is_empty()
+                {
+                    return Err(ErrorCode::NotEmpty);
+                }
+            }
+
+            // Only move an existing directory to a new parent, if we have write access to it,
+            // because that will change the ".." link in it
+            let inode_attrs = metadata.get(inode).unwrap();
+            if inode_attrs.kind == FileKind::Directory
+                && parent != new_parent
+                && !check_access(
+                    inode_attrs.uid,
+                    inode_attrs.gid,
+                    inode_attrs.mode,
+                    context.uid(),
+                    context.gid(),
+                    libc::W_OK as u32,
+                )
+            {
+                return Err(ErrorCode::AccessDenied);
+            }
+        }
+
         let entry = directories.get_mut(&parent).unwrap().remove(name).unwrap();
         directories
             .get_mut(&new_parent)
@@ -297,11 +383,13 @@ impl MetadataStorage {
             parents.insert(inode, new_parent);
         }
 
-        let mut metadata = self.metadata.lock().unwrap();
         metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
         metadata.get_mut(&parent).unwrap().last_modified = now();
         metadata.get_mut(&new_parent).unwrap().last_metadata_changed = now();
         metadata.get_mut(&new_parent).unwrap().last_modified = now();
+        metadata.get_mut(&inode).unwrap().last_metadata_changed = now();
+
+        Ok(())
     }
 
     // TODO: should have some error handling

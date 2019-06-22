@@ -146,11 +146,17 @@ impl FileStorage {
         name: &str,
         new_parent: u64,
         new_name: &str,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage
-            .rename(parent, name, new_parent, new_name);
-        return empty_response(builder);
+        if let Err(error_code) = self
+            .metadata_storage
+            .rename(parent, name, new_parent, new_name, context)
+        {
+            return Err(error_code);
+        } else {
+            return empty_response(builder);
+        }
     }
 
     pub fn unlink<'a>(
