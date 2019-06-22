@@ -132,6 +132,7 @@ table ChownRequest {
 table ChmodRequest {
   inode: ulong;
   mode: uint;
+  context: UserContext (required);
 }
 
 table UtimensRequest {

@@ -308,13 +308,14 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn chmod(&self, inode: u64, mode: u32) -> Result<(), ErrorCode> {
+    pub fn chmod(&self, inode: u64, mode: u32, context: UserContext) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
         let mut request_builder = ChmodRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_mode(mode);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
 
