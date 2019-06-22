@@ -128,6 +128,7 @@ table ChownRequest {
   inode: ulong;
   uid: OptionalUInt;
   gid: OptionalUInt;
+  context: UserContext (required);
 }
 
 table ChmodRequest {

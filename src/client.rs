@@ -326,7 +326,13 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn chown(&self, inode: u64, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
+    pub fn chown(
+        &self,
+        inode: u64,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
@@ -342,6 +348,7 @@ impl NodeClient {
             gid_struct = OptionalUInt::new(gid);
             request_builder.add_gid(&gid_struct);
         }
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ChownRequest, finish_offset);
 
