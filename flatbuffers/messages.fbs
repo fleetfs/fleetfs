@@ -89,6 +89,7 @@ table WriteRequest {
   inode: ulong;
   offset: ulong;
   data: [ubyte] (required);
+  context: UserContext (required);
 }
 
 table FsyncRequest {
