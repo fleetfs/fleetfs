@@ -233,11 +233,33 @@ impl MetadataStorage {
         Ok(())
     }
 
-    // TODO: should have some error handling
-    pub fn chown(&self, inode: Inode, uid: Option<u32>, gid: Option<u32>) -> Result<(), ErrorCode> {
+    pub fn chown(
+        &self,
+        inode: Inode,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().unwrap();
-
         let inode_metadata = metadata.get_mut(&inode).unwrap();
+
+        // Only root can change uid
+        if let Some(uid) = uid {
+            if context.uid() != 0 && uid != inode_metadata.uid {
+                return Err(ErrorCode::OperationNotPermitted);
+            }
+        }
+        // Only owner may change the group
+        if let Some(gid) = gid {
+            // TODO: should only be allowed to change to supplementary groups
+            if context.uid() != 0
+                && context.uid() != inode_metadata.uid
+                && gid != inode_metadata.gid
+            {
+                return Err(ErrorCode::OperationNotPermitted);
+            }
+        }
+
         if let Some(uid) = uid {
             inode_metadata.uid = uid;
         }

@@ -391,6 +391,7 @@ pub fn commit_write<'a, 'b>(
                     chown_request.inode(),
                     chown_request.uid().map(OptionalUInt::value),
                     chown_request.gid().map(OptionalUInt::value),
+                    *chown_request.context(),
                 )
                 .map(|_| empty_response(builder).unwrap());
         }

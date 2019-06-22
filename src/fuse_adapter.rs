@@ -119,7 +119,10 @@ impl Filesystem for FleetFUSE {
 
         if uid.is_some() || gid.is_some() {
             debug!("chown() called with {:?} {:?} {:?}", inode, uid, gid);
-            if let Err(error_code) = self.client.chown(inode, uid, gid) {
+            if let Err(error_code) =
+                self.client
+                    .chown(inode, uid, gid, UserContext::new(req.uid(), req.gid()))
+            {
                 reply.error(into_fuse_error(error_code));
                 return;
             }
