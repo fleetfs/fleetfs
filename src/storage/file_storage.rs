@@ -119,11 +119,15 @@ impl FileStorage {
         &self,
         inode: u64,
         mode: u32,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(inode, ROOT_INODE);
-        self.metadata_storage.chmod(inode, mode);
-        return empty_response(builder);
+        if let Err(error_code) = self.metadata_storage.chmod(inode, mode, context) {
+            return Err(error_code);
+        } else {
+            return empty_response(builder);
+        }
     }
 
     pub fn hardlink<'a>(

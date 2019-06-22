@@ -213,12 +213,25 @@ impl MetadataStorage {
         }
     }
 
-    // TODO: should have some error handling
-    pub fn chmod(&self, inode: Inode, mode: u32) {
+    pub fn chmod(
+        &self,
+        inode: Inode,
+        mut mode: u32,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().unwrap();
         let inode_attrs = metadata.get_mut(&inode).unwrap();
+        if context.uid() != 0 && inode_attrs.uid != context.uid() {
+            return Err(ErrorCode::OperationNotPermitted);
+        }
+        // TODO: this doesn't handle supplementary groups
+        if context.gid() != inode_attrs.gid {
+            mode &= !(libc::S_ISGID as u32)
+        }
         inode_attrs.mode = mode as u16;
         inode_attrs.last_metadata_changed = now();
+
+        Ok(())
     }
 
     // TODO: should have some error handling

@@ -108,7 +108,10 @@ impl Filesystem for FleetFUSE {
     ) {
         if let Some(mode) = mode {
             debug!("chmod() called with {:?}, {:o}", inode, mode);
-            if let Err(error_code) = self.client.chmod(inode, mode) {
+            if let Err(error_code) =
+                self.client
+                    .chmod(inode, mode, UserContext::new(req.uid(), req.gid()))
+            {
                 reply.error(into_fuse_error(error_code));
                 return;
             }
