@@ -237,6 +237,11 @@ pub fn check_access(
         return true;
     }
 
+    // root is allowed to do anything
+    if uid == 0 {
+        return true;
+    }
+
     // Process "other" permissions
     let file_mode = u32::from(file_mode);
     access_mask -= access_mask & file_mode;
