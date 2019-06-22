@@ -446,10 +446,15 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request.request_as_rmdir_request().unwrap();
-            file_storage
-                .get_metadata_storage()
-                .rmdir(rmdir_request.parent(), rmdir_request.name());
-            response = empty_response(builder);
+            if let Err(error_code) = file_storage.get_metadata_storage().rmdir(
+                rmdir_request.parent(),
+                rmdir_request.name(),
+                *rmdir_request.context(),
+            ) {
+                response = Err(error_code);
+            } else {
+                response = empty_response(builder);
+            }
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();

@@ -105,6 +105,7 @@ table UnlinkRequest {
 table RmdirRequest {
   parent: ulong;
   name: string (required);
+  context: UserContext (required);
 }
 
 table TruncateRequest {
@@ -179,6 +180,7 @@ enum ErrorCode: byte {
   OperationNotPermitted,
   AlreadyExists,
   NameTooLong,
+  NotEmpty,
   Corrupted,
   RaftFailure,
   Uncategorized

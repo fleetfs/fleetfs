@@ -385,18 +385,51 @@ impl MetadataStorage {
         Ok(None)
     }
 
-    // TODO: should have some error handling
-    pub fn rmdir(&self, parent: u64, name: &str) {
+    pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
+        let mut metadata = self.metadata.lock().unwrap();
+        if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
+            if !directories
+                .get(&inode)
+                .map(HashMap::is_empty)
+                .unwrap_or(true)
+            {
+                return Err(ErrorCode::NotEmpty);
+            }
+            let parent_attrs = metadata.get(&parent).unwrap();
+            if !check_access(
+                parent_attrs.uid,
+                parent_attrs.gid,
+                parent_attrs.mode,
+                context.uid(),
+                context.gid(),
+                libc::W_OK as u32,
+            ) {
+                return Err(ErrorCode::AccessDenied);
+            }
+
+            // "Sticky bit" handling
+            if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
+                let inode_attrs = metadata.get(inode).unwrap();
+                if context.uid() != 0
+                    && context.uid() != parent_attrs.uid
+                    && context.uid() != inode_attrs.uid
+                {
+                    return Err(ErrorCode::AccessDenied);
+                }
+            }
+        }
+
         if let Some((inode, _)) = directories.get_mut(&parent).unwrap().remove(name) {
             directories.remove(&inode);
-            let mut metadata = self.metadata.lock().unwrap();
             metadata.remove(&inode);
             metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
             metadata.get_mut(&parent).unwrap().last_modified = now();
             let mut parents = self.directory_parents.lock().unwrap();
             parents.remove(&inode);
         }
+
+        Ok(())
     }
 
     // TODO: should have some error handling
