@@ -253,7 +253,12 @@ impl Filesystem for FleetFUSE {
                     .truncate(attrs.ino, 0, req.uid(), req.gid())
                     .unwrap();
                 self.client
-                    .write(attrs.ino, &Vec::from(link.to_str().unwrap().to_string()), 0)
+                    .write(
+                        attrs.ino,
+                        &Vec::from(link.to_str().unwrap().to_string()),
+                        0,
+                        UserContext::new(req.uid(), req.gid()),
+                    )
                     .unwrap();
 
                 reply.entry(&Timespec { sec: 0, nsec: 0 }, &attrs, 0);
@@ -335,7 +340,7 @@ impl Filesystem for FleetFUSE {
 
     fn write(
         &mut self,
-        _req: &Request,
+        req: &Request,
         inode: u64,
         _fh: u64,
         offset: i64,
@@ -345,7 +350,12 @@ impl Filesystem for FleetFUSE {
     ) {
         debug!("write() called with {:?}", inode);
         assert!(offset >= 0);
-        match self.client.write(inode, &data, offset as u64) {
+        match self.client.write(
+            inode,
+            &data,
+            offset as u64,
+            UserContext::new(req.uid(), req.gid()),
+        ) {
             Ok(written) => reply.written(written),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }

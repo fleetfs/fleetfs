@@ -464,21 +464,25 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
-            file_storage.get_metadata_storage().write(
+            if let Err(error_code) = file_storage.get_metadata_storage().write(
                 write_request.inode(),
                 write_request.offset(),
                 write_request.data().len() as u32,
-            );
-            let write_result = file_storage.get_data_storage().write_local_blocks(
-                write_request.inode(),
-                write_request.offset(),
-                write_request.data(),
-            );
-            // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
-            let total_bytes = write_request.data().len() as u32;
-            response = write_result
-                .map(move |_| to_write_response(builder, total_bytes).unwrap())
-                .map_err(into_error_code);
+                *write_request.context(),
+            ) {
+                response = Err(error_code);
+            } else {
+                let write_result = file_storage.get_data_storage().write_local_blocks(
+                    write_request.inode(),
+                    write_request.offset(),
+                    write_request.data(),
+                );
+                // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
+                let total_bytes = write_request.data().len() as u32;
+                response = write_result
+                    .map(move |_| to_write_response(builder, total_bytes).unwrap())
+                    .map_err(into_error_code);
+            }
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();
