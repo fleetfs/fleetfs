@@ -40,6 +40,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::AccessDenied => libc::EACCES,
         ErrorCode::OperationNotPermitted => libc::EPERM,
         ErrorCode::NameTooLong => libc::ENAMETOOLONG,
+        ErrorCode::NotEmpty => libc::ENOTEMPTY,
         ErrorCode::AlreadyExists => libc::EEXIST,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
@@ -216,9 +217,13 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("rmdir() called with {:?} {:?}", parent, name);
-        if let Err(error_code) = self.client.rmdir(parent, name.to_str().unwrap()) {
+        if let Err(error_code) = self.client.rmdir(
+            parent,
+            name.to_str().unwrap(),
+            UserContext::new(req.uid(), req.gid()),
+        ) {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();

@@ -553,12 +553,13 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), ErrorCode> {
+    pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_name = builder.create_string(name);
         let mut request_builder = RmdirRequestBuilder::new(&mut builder);
         request_builder.add_parent(parent);
         request_builder.add_name(builder_name);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RmdirRequest, finish_offset);
 
