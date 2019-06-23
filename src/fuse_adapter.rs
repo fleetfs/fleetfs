@@ -143,9 +143,9 @@ impl Filesystem for FleetFUSE {
             );
             if let Err(error_code) = self.client.utimens(
                 inode,
-                req.uid(),
                 atime.map(|x| Timestamp::new(x.sec, x.nsec)),
                 mtime.map(|x| Timestamp::new(x.sec, x.nsec)),
+                UserContext::new(req.uid(), req.gid()),
             ) {
                 reply.error(into_fuse_error(error_code));
                 return;

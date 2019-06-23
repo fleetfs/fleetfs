@@ -490,9 +490,9 @@ pub fn commit_write<'a, 'b>(
             let utimens_request = request.request_as_utimens_request().unwrap();
             response = file_storage.utimens(
                 utimens_request.inode(),
-                utimens_request.uid(),
                 utimens_request.atime(),
                 utimens_request.mtime(),
+                *utimens_request.context(),
                 builder,
             );
         }

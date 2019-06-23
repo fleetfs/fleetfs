@@ -139,9 +139,9 @@ table ChmodRequest {
 
 table UtimensRequest {
   inode: ulong;
-  uid: uint;
   atime: Timestamp;
   mtime: Timestamp;
+  context: UserContext (required);
 }
 
 table HardlinkRequest {
