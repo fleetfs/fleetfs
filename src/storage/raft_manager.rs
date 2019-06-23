@@ -360,6 +360,7 @@ pub fn commit_write<'a, 'b>(
                 hardlink_request.inode(),
                 hardlink_request.new_parent(),
                 hardlink_request.new_name(),
+                *hardlink_request.context(),
                 builder,
             );
         }

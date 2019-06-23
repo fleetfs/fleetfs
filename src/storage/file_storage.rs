@@ -135,12 +135,14 @@ impl FileStorage {
         inode: u64,
         new_parent: u64,
         new_name: &str,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(inode, ROOT_INODE);
         info!("Hardlinking file: {} to {} {}", inode, new_parent, new_name);
 
-        self.metadata_storage.hardlink(inode, new_parent, new_name);
+        self.metadata_storage
+            .hardlink(inode, new_parent, new_name, context)?;
         return self.getattr(inode, builder);
     }
 

@@ -364,6 +364,7 @@ impl NodeClient {
         inode: u64,
         new_parent: u64,
         new_name: &str,
+        context: UserContext,
     ) -> Result<FileAttr, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
@@ -373,6 +374,7 @@ impl NodeClient {
         request_builder.add_inode(inode);
         request_builder.add_new_parent(new_parent);
         request_builder.add_new_name(builder_new_name);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
 
