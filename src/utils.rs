@@ -242,14 +242,13 @@ pub fn check_access(
         return true;
     }
 
-    // Process "other" permissions
     let file_mode = u32::from(file_mode);
-    access_mask -= access_mask & file_mode;
-    if gid == file_gid {
-        access_mask -= access_mask & (file_mode >> 3);
-    }
     if uid == file_uid {
         access_mask -= access_mask & (file_mode >> 6);
+    } else if gid == file_gid {
+        access_mask -= access_mask & (file_mode >> 3);
+    } else {
+        access_mask -= access_mask & file_mode;
     }
 
     return access_mask == 0;
