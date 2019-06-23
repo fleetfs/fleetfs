@@ -313,9 +313,45 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn open(&mut self, _req: &Request, inode: u64, _flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
-        reply.opened(0, 0);
+        let access_mask = match flags as i32 & libc::O_ACCMODE {
+            libc::O_RDONLY => {
+                // Behavior is undefined, but most filesystems return EACCES
+                if flags as i32 & libc::O_TRUNC != 0 {
+                    reply.error(libc::EACCES);
+                    return;
+                }
+                libc::R_OK
+            }
+            libc::O_WRONLY => libc::W_OK,
+            libc::O_RDWR => libc::R_OK | libc::W_OK,
+            // Exactly one access mode flag must be specified
+            _ => {
+                reply.error(libc::EINVAL);
+                return;
+            }
+        };
+
+        match self.client.getattr(inode) {
+            Ok(attr) => {
+                if check_access(
+                    attr.uid,
+                    attr.gid,
+                    attr.perm,
+                    req.uid(),
+                    req.gid(),
+                    access_mask as u32,
+                ) {
+                    reply.opened(0, 0);
+                    return;
+                } else {
+                    reply.error(libc::EACCES);
+                    return;
+                }
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
     }
 
     fn read(
@@ -392,9 +428,45 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn opendir(&mut self, _req: &Request, inode: u64, _flags: u32, reply: ReplyOpen) {
+    fn opendir(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
-        reply.opened(0, 0);
+        let access_mask = match flags as i32 & libc::O_ACCMODE {
+            libc::O_RDONLY => {
+                // Behavior is undefined, but most filesystems return EACCES
+                if flags as i32 & libc::O_TRUNC != 0 {
+                    reply.error(libc::EACCES);
+                    return;
+                }
+                libc::R_OK
+            }
+            libc::O_WRONLY => libc::W_OK,
+            libc::O_RDWR => libc::R_OK | libc::W_OK,
+            // Exactly one access mode flag must be specified
+            _ => {
+                reply.error(libc::EINVAL);
+                return;
+            }
+        };
+
+        match self.client.getattr(inode) {
+            Ok(attr) => {
+                if check_access(
+                    attr.uid,
+                    attr.gid,
+                    attr.perm,
+                    req.uid(),
+                    req.gid(),
+                    access_mask as u32,
+                ) {
+                    reply.opened(0, 0);
+                    return;
+                } else {
+                    reply.error(libc::EACCES);
+                    return;
+                }
+            }
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
     }
 
     // TODO: send offset to server and do pagination
