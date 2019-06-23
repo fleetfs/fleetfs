@@ -1,4 +1,6 @@
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -119,6 +121,13 @@ impl Filesystem for FleetFUSE {
 
         if uid.is_some() || gid.is_some() {
             debug!("chown() called with {:?} {:?} {:?}", inode, uid, gid);
+            if let Some(gid) = gid {
+                // Non-root users can only change gid to a group they're in
+                if req.uid() != 0 && !get_groups(req.pid()).contains(&gid) {
+                    reply.error(libc::EPERM);
+                    return;
+                }
+            }
             if let Err(error_code) =
                 self.client
                     .chown(inode, uid, gid, UserContext::new(req.uid(), req.gid()))
@@ -671,4 +680,21 @@ impl Filesystem for FleetFUSE {
     fn bmap(&mut self, _req: &Request, _ino: u64, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
         reply.error(ENOSYS);
     }
+}
+
+fn get_groups(pid: u32) -> Vec<u32> {
+    let path = format!("/proc/{}/task/{}/status", pid, pid);
+    let file = File::open(path).unwrap();
+    for line in BufReader::new(file).lines() {
+        let line = line.unwrap();
+        if line.starts_with("Groups:") {
+            return line["Groups: ".len()..]
+                .split(' ')
+                .filter(|x| !x.trim().is_empty())
+                .map(|x| x.parse::<u32>().unwrap())
+                .collect();
+        }
+    }
+
+    vec![]
 }
