@@ -273,8 +273,28 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn hardlink(&self, inode: Inode, new_parent: u64, new_name: &str) {
+    pub fn hardlink(
+        &self,
+        inode: Inode,
+        new_parent: u64,
+        new_name: &str,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().unwrap();
+        let new_parent_attrs = metadata.get_mut(&new_parent).unwrap();
+        if !check_access(
+            new_parent_attrs.uid,
+            new_parent_attrs.gid,
+            new_parent_attrs.mode,
+            context.uid(),
+            context.gid(),
+            libc::W_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
+        }
+        new_parent_attrs.last_modified = now();
+        new_parent_attrs.last_metadata_changed = now();
+
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.hardlinks += 1;
         inode_attrs.last_metadata_changed = now();
@@ -284,6 +304,8 @@ impl MetadataStorage {
             .get_mut(&new_parent)
             .unwrap()
             .insert(new_name.to_string(), (inode, inode_attrs.kind));
+
+        Ok(())
     }
 
     pub fn mkdir(

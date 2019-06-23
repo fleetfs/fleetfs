@@ -294,7 +294,7 @@ impl Filesystem for FleetFUSE {
 
     fn link(
         &mut self,
-        _req: &Request,
+        req: &Request,
         inode: u64,
         new_parent: u64,
         new_name: &OsStr,
@@ -304,10 +304,12 @@ impl Filesystem for FleetFUSE {
             "link() called for {}, {}, {:?}",
             inode, new_parent, new_name
         );
-        match self
-            .client
-            .hardlink(inode, new_parent, new_name.to_str().unwrap())
-        {
+        match self.client.hardlink(
+            inode,
+            new_parent,
+            new_name.to_str().unwrap(),
+            UserContext::new(req.uid(), req.gid()),
+        ) {
             Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }

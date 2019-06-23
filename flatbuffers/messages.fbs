@@ -148,6 +148,7 @@ table HardlinkRequest {
   inode: ulong;
   new_parent: ulong;
   new_name: string (required);
+  context: UserContext (required);
 }
 
 table RenameRequest {
