@@ -180,7 +180,7 @@ impl Filesystem for FleetFUSE {
     ) {
         if (mode & (libc::S_IFREG | libc::S_IFLNK)) == 0 {
             // TODO
-            warn!("mknod() implementation is incomplete. Only supports regular files and symlinks");
+            warn!("mknod() implementation is incomplete. Only supports regular files and symlinks. Got {:o}", mode);
             reply.error(libc::ENOSYS);
         } else {
             match self.client.create(
