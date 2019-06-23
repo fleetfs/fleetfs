@@ -286,7 +286,27 @@ impl MetadataStorage {
             .insert(new_name.to_string(), (inode, inode_attrs.kind));
     }
 
-    pub fn mkdir(&self, parent: u64, name: &str, uid: u32, gid: u32, mode: u16) {
+    pub fn mkdir(
+        &self,
+        parent: u64,
+        name: &str,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+    ) -> Result<(), ErrorCode> {
+        let mut metadata = self.metadata.lock().unwrap();
+        let parent_attrs = metadata.get(&parent).unwrap();
+        if !check_access(
+            parent_attrs.uid,
+            parent_attrs.gid,
+            parent_attrs.mode,
+            uid,
+            gid,
+            libc::W_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
+        }
+
         let inode = self.allocate_inode();
         let mut directories = self.directories.lock().unwrap();
         directories
@@ -312,10 +332,11 @@ impl MetadataStorage {
             gid,
             xattrs: Default::default(),
         };
-        let mut metadata = self.metadata.lock().unwrap();
         metadata.insert(inode, inode_metadata);
         metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
         metadata.get_mut(&parent).unwrap().last_modified = now();
+
+        Ok(())
     }
 
     pub fn rename(
