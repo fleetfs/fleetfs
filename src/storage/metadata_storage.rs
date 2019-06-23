@@ -181,17 +181,31 @@ impl MetadataStorage {
     pub fn utimens(
         &self,
         inode: Inode,
-        uid: u32,
         atime: Option<&Timestamp>,
         mtime: Option<&Timestamp>,
+        context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().unwrap();
+
+        let inode_attrs = metadata.get(&inode).unwrap();
+        if inode_attrs.uid != context.uid()
+            && !check_access(
+                inode_attrs.uid,
+                inode_attrs.gid,
+                inode_attrs.mode,
+                context.uid(),
+                context.gid(),
+                libc::W_OK as u32,
+            )
+        {
+            return Err(ErrorCode::AccessDenied);
+        }
 
         if let Some(inode_metadata) = metadata.get_mut(&inode) {
             // Non-owners are only allowed to change atime & mtime to current:
             // http://man7.org/linux/man-pages/man2/utimensat.2.html
-            if inode_metadata.uid != uid
-                && uid != 0
+            if inode_metadata.uid != context.uid()
+                && context.uid() != 0
                 && (atime.map_or(libc::UTIME_NOW as i32, Timestamp::nanos)
                     != libc::UTIME_NOW as i32
                     || mtime.map_or(libc::UTIME_NOW as i32, Timestamp::nanos)

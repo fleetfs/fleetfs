@@ -105,13 +105,14 @@ impl FileStorage {
     pub fn utimens<'a>(
         &self,
         inode: u64,
-        uid: u32,
         atime: Option<&Timestamp>,
         mtime: Option<&Timestamp>,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         assert_ne!(inode, ROOT_INODE);
-        self.metadata_storage.utimens(inode, uid, atime, mtime)?;
+        self.metadata_storage
+            .utimens(inode, atime, mtime, context)?;
         return empty_response(builder);
     }
 

@@ -282,22 +282,22 @@ impl NodeClient {
     pub fn utimens(
         &self,
         inode: u64,
-        uid: u32,
         atime: Option<Timestamp>,
         mtime: Option<Timestamp>,
+        context: UserContext,
     ) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
         let mut request_builder = UtimensRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
-        request_builder.add_uid(uid);
         if let Some(ref atime) = atime {
             request_builder.add_atime(atime);
         }
         if let Some(ref mtime) = mtime {
             request_builder.add_mtime(mtime);
         }
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
 
