@@ -259,19 +259,16 @@ impl MetadataStorage {
 
         // Only root can change uid
         if let Some(uid) = uid {
-            if context.uid() != 0 && uid != inode_metadata.uid {
+            if context.uid() != 0
+                // but no-op changes by the owner are not an error
+                && !(uid == inode_metadata.uid && context.uid() == inode_metadata.uid)
+            {
                 return Err(ErrorCode::OperationNotPermitted);
             }
         }
         // Only owner may change the group
-        if let Some(gid) = gid {
-            // TODO: should only be allowed to change to supplementary groups
-            if context.uid() != 0
-                && context.uid() != inode_metadata.uid
-                && gid != inode_metadata.gid
-            {
-                return Err(ErrorCode::OperationNotPermitted);
-            }
+        if gid.is_some() && context.uid() != 0 && context.uid() != inode_metadata.uid {
+            return Err(ErrorCode::OperationNotPermitted);
         }
 
         if let Some(uid) = uid {
