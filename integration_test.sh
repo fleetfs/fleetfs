@@ -2,7 +2,10 @@
 
 set -ex
 
-trap "exit" TERM
+exit_handler() {
+    exit "$PJDFS_EXIT_STATUS"
+}
+trap exit_handler TERM
 trap "kill 0" INT EXIT
 
 export RUST_BACKTRACE=1
@@ -29,6 +32,7 @@ mount | grep fleetfs
 set +e
 cd ${DIR}
 prove -rf /code/pjdfstest/tests | tee /code/logs/pjdfs.log
+export PJDFS_EXIT_STATUS=${PIPESTATUS[0]}
 echo "Total failed:"
 cat /code/logs/pjdfs.log | egrep -o 'Failed: [0-9]+' | egrep -o '[0-9]+' | paste -s -d+ | bc
 
@@ -37,4 +41,3 @@ rm -rf ${DATA_DIR2}
 
 kill $FUSE_PID
 wait $FUSE_PID
-
