@@ -407,7 +407,6 @@ impl MetadataStorage {
             }
 
             let new_parent_attrs = metadata.get(&new_parent).unwrap();
-            dbg!((parent_attrs, new_parent_attrs, context));
             if !check_access(
                 new_parent_attrs.uid,
                 new_parent_attrs.gid,
