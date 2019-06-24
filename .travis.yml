@@ -8,7 +8,7 @@ env:
   - PATH="${PATH}:/tmp/flatbuffers/bin"
 before_install:
   - sudo apt update
-  - sudo apt install -y libfuse-dev
+  - sudo apt install -y libfuse-dev python-xattr
   - git clone https://github.com/google/flatbuffers -b v1.10.0 /tmp/flatbuffers
   - cd /tmp/flatbuffers
   - cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
