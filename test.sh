@@ -6,7 +6,10 @@ NC="\e[39m"
 GREEN="\e[32m"
 RED="\e[31m"
 
-trap "exit" TERM
+exit_handler() {
+    exit "$TEST_EXIT_STATUS"
+}
+trap exit_handler TERM
 trap "kill 0" INT EXIT
 
 export RUST_BACKTRACE=1
@@ -38,12 +41,14 @@ if [[ $(cat ${DIR}/1.txt) = "1" ]]; then
     echo -e "$GREEN OK 0 $NC"
 else
     echo -e "$RED FAILED on 1.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(cat ${DIR2}/1.txt) = "1" ]]; then
     echo -e "$GREEN OK 0 replica $NC"
 else
     echo -e "$RED FAILED on 1.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -52,12 +57,14 @@ if [[ $(cat ${DIR}/1.txt) = "2" ]]; then
     echo -e "$GREEN OK 1 $NC"
 else
     echo -e "$RED FAILED on rewrite 1.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(cat ${DIR2}/1.txt) = "2" ]]; then
     echo -e "$GREEN OK 1 replica $NC"
 else
     echo -e "$RED FAILED on rewrite 1.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -66,12 +73,14 @@ if [[ $(cat ${DIR}/2.txt) = "2" ]]; then
     echo -e "$GREEN OK 2 $NC"
 else
     echo -e "$RED FAILED on 2.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(cat ${DIR2}/2.txt) = "2" ]]; then
     echo -e "$GREEN OK 2 replica $NC"
 else
     echo -e "$RED FAILED on 2.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -80,12 +89,14 @@ if [[ ! -f ${DIR}/2.txt ]]; then
     echo -e "$GREEN OK 3 $NC"
 else
     echo -e "$RED FAILED deleting 2.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ ! -f ${DIR2}/2.txt ]]; then
     echo -e "$GREEN OK 3 replica $NC"
 else
     echo -e "$RED FAILED deleting 2.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -94,12 +105,14 @@ if [[ $(cat ${DIR}/big.txt | wc) = "$(yes 0123 | head -n 10000 | wc)" ]]; then
     echo -e "$GREEN OK 4 $NC"
 else
     echo -e "$RED FAILED on big.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(cat ${DIR2}/big.txt | wc) = "$(yes 0123 | head -n 10000 | wc)" ]]; then
     echo -e "$GREEN OK 4 replica $NC"
 else
     echo -e "$RED FAILED on big.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -109,12 +122,14 @@ if [[ $(cat ${DIR}/new_5.txt) = "5" ]]; then
     echo -e "$GREEN OK 5 $NC"
 else
     echo -e "$RED FAILED on mv 5.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(cat ${DIR2}/new_5.txt) = "5" ]]; then
     echo -e "$GREEN OK 5 replica $NC"
 else
     echo -e "$RED FAILED on mv 5.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -123,12 +138,14 @@ if [[ $(stat -c'%x' ${DIR}/new_5.txt) == 2000-01* ]]; then
     echo -e "$GREEN OK 6 $NC"
 else
     echo -e "$RED FAILED on touch new_5.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(stat -c'%x' ${DIR2}/new_5.txt) == 2000-01* ]]; then
     echo -e "$GREEN OK 6 replica $NC"
 else
     echo -e "$RED FAILED on touch new_5.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -137,12 +154,14 @@ if [[ $(stat -c'%a' ${DIR}/new_5.txt) == "747" ]]; then
     echo -e "$GREEN OK 7 $NC"
 else
     echo -e "$RED FAILED on chmod new_5.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(stat -c'%a' ${DIR2}/new_5.txt) == "747" ]]; then
     echo -e "$GREEN OK 7 replica $NC"
 else
     echo -e "$RED FAILED on chmod new_5.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -151,12 +170,14 @@ if [[ $(stat -c'%h' ${DIR}/new_5.txt) == "2" ]] && [[ $(stat -c'%h' ${DIR}/hardl
     echo -e "$GREEN OK 8 $NC"
 else
     echo -e "$RED FAILED on hardlink new_5.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(stat -c'%h' ${DIR2}/new_5.txt) == "2" ]] && [[ $(stat -c'%h' ${DIR2}/hardlinked_5.txt) == "2" ]]; then
     echo -e "$GREEN OK 8 replica $NC"
 else
     echo -e "$RED FAILED on hardlink new_5.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -166,12 +187,14 @@ if [[ $(cat ${DIR}/sub/s.txt) = "s" ]]; then
     echo -e "$GREEN OK 9 $NC"
 else
     echo -e "$RED FAILED on s.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(cat ${DIR2}/sub/s.txt) = "s" ]]; then
     echo -e "$GREEN OK 9 replica $NC"
 else
     echo -e "$RED FAILED on s.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -179,12 +202,14 @@ if cargo run -- --server-ip-port 127.0.0.1:3300 --fsck > /dev/null 2>&1; then
     echo -e "$GREEN OK 10 $NC"
 else
     echo -e "$RED FAILED on fsck $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if cargo run -- --server-ip-port 127.0.0.1:3301 --fsck > /dev/null 2>&1; then
     echo -e "$GREEN OK 10 replica $NC"
 else
     echo -e "$RED FAILED on fsck replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -193,6 +218,7 @@ if ! cargo run -- --server-ip-port 127.0.0.1:3300 --fsck > /dev/null 2>&1; then
     echo -e "$GREEN OK 11 $NC"
 else
     echo -e "$RED FAILED on fsck corruption detection $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -202,12 +228,14 @@ if [[ $(xattr -p user.test ${DIR}/xattr.txt) = "hello_world" ]]; then
     echo -e "$GREEN OK 12 $NC"
 else
     echo -e "$RED FAILED on xattr.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(xattr -p user.test ${DIR2}/xattr.txt) = "hello_world" ]]; then
     echo -e "$GREEN OK 12 replica $NC"
 else
     echo -e "$RED FAILED on xattr.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -215,12 +243,14 @@ if [[ $(xattr ${DIR}/xattr.txt) = "user.test" ]]; then
     echo -e "$GREEN OK 13 $NC"
 else
     echo -e "$RED FAILED on xattr.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(xattr ${DIR2}/xattr.txt) = "user.test" ]]; then
     echo -e "$GREEN OK 13 replica $NC"
 else
     echo -e "$RED FAILED on xattr.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -229,12 +259,14 @@ if [[ $(xattr ${DIR}/xattr.txt) = "" ]]; then
     echo -e "$GREEN OK 14 $NC"
 else
     echo -e "$RED FAILED on remove xattr.txt $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 if [[ $(xattr ${DIR2}/xattr.txt) = "" ]]; then
     echo -e "$GREEN OK 14 replica $NC"
 else
     echo -e "$RED FAILED on remove xattr.txt replica $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
@@ -245,7 +277,8 @@ if rmdir ${DIR}; then
     echo -e "$GREEN OK END $NC"
 else
     echo -e "$RED FAILED cleaning up mount point $NC"
+    export TEST_EXIT_STATUS=1
     exit
 fi
 
-
+export TEST_EXIT_STATUS=0
