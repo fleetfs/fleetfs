@@ -2,6 +2,8 @@ language: rust
 cache: cargo
 rust:
   - stable
+services:
+  - docker
 env:
   - PATH="${PATH}:/tmp/flatbuffers/bin"
 before_install:
@@ -20,4 +22,4 @@ script:
 - cargo fmt --all -- --check
 - cargo build
 - cargo test
-- bash -m ./test.sh
+- make test
