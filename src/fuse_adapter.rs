@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use libc;
 use log::debug;
@@ -18,17 +19,51 @@ use fuse::{
     ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
 };
 use libc::ENOSYS;
+use std::collections::HashMap;
 use std::os::raw::c_int;
+use std::sync::Mutex;
+
+struct FileHandleAttributes {
+    read: bool,
+    write: bool,
+}
 
 pub struct FleetFUSE {
     client: NodeClient,
+    next_file_handle: AtomicU64,
+    file_handles: Mutex<HashMap<u64, FileHandleAttributes>>,
 }
 
 impl FleetFUSE {
     pub fn new(server_ip_port: SocketAddr) -> FleetFUSE {
         FleetFUSE {
             client: NodeClient::new(server_ip_port),
+            next_file_handle: AtomicU64::new(1),
+            file_handles: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn allocate_file_handle(&self, read: bool, write: bool) -> u64 {
+        let handle = self.next_file_handle.fetch_add(1, Ordering::SeqCst);
+        let mut handles = self.file_handles.lock().unwrap();
+        handles.insert(handle, FileHandleAttributes { read, write });
+
+        handle
+    }
+
+    fn deallocate_file_handle(&self, handle: u64) {
+        let mut handles = self.file_handles.lock().unwrap();
+        handles.remove(&handle);
+    }
+
+    fn check_read(&self, handle: u64) -> bool {
+        let handles = self.file_handles.lock().unwrap();
+        handles.get(&handle).unwrap().read
+    }
+
+    fn check_write(&self, handle: u64) -> bool {
+        let handles = self.file_handles.lock().unwrap();
+        handles.get(&handle).unwrap().write
     }
 }
 
@@ -326,17 +361,17 @@ impl Filesystem for FleetFUSE {
 
     fn open(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
-        let access_mask = match flags as i32 & libc::O_ACCMODE {
+        let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
                 if flags as i32 & libc::O_TRUNC != 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
-                libc::R_OK
+                (libc::R_OK, true, false)
             }
-            libc::O_WRONLY => libc::W_OK,
-            libc::O_RDWR => libc::R_OK | libc::W_OK,
+            libc::O_WRONLY => (libc::W_OK, false, true),
+            libc::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
             // Exactly one access mode flag must be specified
             _ => {
                 reply.error(libc::EINVAL);
@@ -354,7 +389,7 @@ impl Filesystem for FleetFUSE {
                     req.gid(),
                     access_mask as u32,
                 ) {
-                    reply.opened(0, 0);
+                    reply.opened(self.allocate_file_handle(read, write), 0);
                     return;
                 } else {
                     reply.error(libc::EACCES);
@@ -369,13 +404,17 @@ impl Filesystem for FleetFUSE {
         &mut self,
         req: &Request,
         inode: u64,
-        _fh: u64,
+        fh: u64,
         offset: i64,
         size: u32,
         reply: ReplyData,
     ) {
         debug!("read() called on {:?}", inode);
         assert!(offset >= 0);
+        if !self.check_read(fh) {
+            reply.error(libc::EACCES);
+            return;
+        }
         self.client.read(
             inode,
             offset as u64,
@@ -392,7 +431,7 @@ impl Filesystem for FleetFUSE {
         &mut self,
         req: &Request,
         inode: u64,
-        _fh: u64,
+        fh: u64,
         offset: i64,
         data: &[u8],
         _flags: u32,
@@ -400,6 +439,10 @@ impl Filesystem for FleetFUSE {
     ) {
         debug!("write() called with {:?}", inode);
         assert!(offset >= 0);
+        if !self.check_write(fh) {
+            reply.error(libc::EACCES);
+            return;
+        }
         match self.client.write(
             inode,
             &data,
@@ -420,13 +463,14 @@ impl Filesystem for FleetFUSE {
         &mut self,
         _req: &Request,
         inode: u64,
-        _fh: u64,
+        fh: u64,
         _flags: u32,
         _lock_owner: u64,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        debug!("release() called on {:?}", inode);
+        debug!("release() called on {:?} {}", inode, fh);
+        self.deallocate_file_handle(fh);
         reply.ok();
     }
 
@@ -441,17 +485,17 @@ impl Filesystem for FleetFUSE {
 
     fn opendir(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
-        let access_mask = match flags as i32 & libc::O_ACCMODE {
+        let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
                 if flags as i32 & libc::O_TRUNC != 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
-                libc::R_OK
+                (libc::R_OK, true, false)
             }
-            libc::O_WRONLY => libc::W_OK,
-            libc::O_RDWR => libc::R_OK | libc::W_OK,
+            libc::O_WRONLY => (libc::W_OK, false, true),
+            libc::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
             // Exactly one access mode flag must be specified
             _ => {
                 reply.error(libc::EINVAL);
@@ -469,7 +513,7 @@ impl Filesystem for FleetFUSE {
                     req.gid(),
                     access_mask as u32,
                 ) {
-                    reply.opened(0, 0);
+                    reply.opened(self.allocate_file_handle(read, write), 0);
                     return;
                 } else {
                     reply.error(libc::EACCES);
@@ -510,8 +554,9 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn releasedir(&mut self, _req: &Request, inode: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
-        debug!("releasedir() called on {:?}", inode);
+    fn releasedir(&mut self, _req: &Request, inode: u64, fh: u64, _flags: u32, reply: ReplyEmpty) {
+        debug!("releasedir() called on {:?} {}", inode, fh);
+        self.deallocate_file_handle(fh);
         reply.ok();
     }
 
@@ -626,10 +671,20 @@ impl Filesystem for FleetFUSE {
         parent: u64,
         name: &OsStr,
         mode: u32,
-        _flags: u32,
+        flags: u32,
         reply: ReplyCreate,
     ) {
         debug!("create() called with {:?} {:?}", parent, name);
+        let (read, write) = match flags as i32 & libc::O_ACCMODE {
+            libc::O_RDONLY => (true, false),
+            libc::O_WRONLY => (false, true),
+            libc::O_RDWR => (true, true),
+            // Exactly one access mode flag must be specified
+            _ => {
+                reply.error(libc::EINVAL);
+                return;
+            }
+        };
         match self.client.create(
             parent,
             name.to_str().unwrap(),
@@ -640,7 +695,13 @@ impl Filesystem for FleetFUSE {
         ) {
             Ok(attr) => {
                 // TODO: implement flags
-                reply.created(&Timespec { sec: 0, nsec: 0 }, &attr, 0, 0, 0)
+                reply.created(
+                    &Timespec { sec: 0, nsec: 0 },
+                    &attr,
+                    0,
+                    self.allocate_file_handle(read, write),
+                    0,
+                )
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
