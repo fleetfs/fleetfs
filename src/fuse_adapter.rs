@@ -188,11 +188,10 @@ impl Filesystem for FleetFUSE {
                     reply.error(libc::EACCES);
                     return;
                 }
-            } else {
-                if let Err(error_code) = self.client.truncate(inode, size, req.uid(), req.gid()) {
-                    reply.error(into_fuse_error(error_code));
-                    return;
-                }
+            } else if let Err(error_code) = self.client.truncate(inode, size, req.uid(), req.gid())
+            {
+                reply.error(into_fuse_error(error_code));
+                return;
             }
         }
 

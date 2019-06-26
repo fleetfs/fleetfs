@@ -9,9 +9,7 @@ use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage::file_storage::FileStorage;
 use crate::storage_node::LocalContext;
-use crate::utils::{
-    empty_response, finalize_response, into_error_code, is_write_request, to_write_response,
-};
+use crate::utils::{finalize_response, is_write_request};
 use flatbuffers::FlatBufferBuilder;
 use futures::future::ok;
 use futures::sync::oneshot;
@@ -386,15 +384,13 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::ChownRequest => {
             let chown_request = request.request_as_chown_request().unwrap();
-            response = file_storage
-                .get_metadata_storage()
-                .chown(
-                    chown_request.inode(),
-                    chown_request.uid().map(OptionalUInt::value),
-                    chown_request.gid().map(OptionalUInt::value),
-                    *chown_request.context(),
-                )
-                .map(|_| empty_response(builder).unwrap());
+            response = file_storage.chown(
+                chown_request.inode(),
+                chown_request.uid().map(OptionalUInt::value),
+                chown_request.gid().map(OptionalUInt::value),
+                *chown_request.context(),
+                builder,
+            );
         }
         RequestType::TruncateRequest => {
             let truncate_request = request.request_as_truncate_request().unwrap();
@@ -408,10 +404,7 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::FsyncRequest => {
             let fsync_request = request.request_as_fsync_request().unwrap();
-            response = file_storage
-                .get_data_storage()
-                .fsync(fsync_request.inode())
-                .map(|_| empty_response(builder).unwrap());
+            response = file_storage.fsync(fsync_request.inode(), builder);
         }
         RequestType::CreateRequest => {
             let create_request = request.request_as_create_request().unwrap();
@@ -427,20 +420,20 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::SetXattrRequest => {
             let set_xattr_request = request.request_as_set_xattr_request().unwrap();
-            // TODO: handle key doesn't exist
-            file_storage.get_metadata_storage().set_xattr(
+            response = file_storage.set_xattr(
                 set_xattr_request.inode(),
                 set_xattr_request.key(),
                 set_xattr_request.value(),
+                builder,
             );
-            response = empty_response(builder);
         }
         RequestType::RemoveXattrRequest => {
             let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
-            file_storage
-                .get_metadata_storage()
-                .remove_xattr(remove_xattr_request.inode(), remove_xattr_request.key());
-            response = empty_response(builder);
+            response = file_storage.remove_xattr(
+                remove_xattr_request.inode(),
+                remove_xattr_request.key(),
+                builder,
+            );
         }
         RequestType::UnlinkRequest => {
             let unlink_request = request.request_as_unlink_request().unwrap();
@@ -454,37 +447,22 @@ pub fn commit_write<'a, 'b>(
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request.request_as_rmdir_request().unwrap();
-            if let Err(error_code) = file_storage.get_metadata_storage().rmdir(
+            response = file_storage.rmdir(
                 rmdir_request.parent(),
                 rmdir_request.name(),
                 *rmdir_request.context(),
-            ) {
-                response = Err(error_code);
-            } else {
-                response = empty_response(builder);
-            }
+                builder,
+            );
         }
         RequestType::WriteRequest => {
             let write_request = request.request_as_write_request().unwrap();
-            if let Err(error_code) = file_storage.get_metadata_storage().write(
+            response = file_storage.write(
                 write_request.inode(),
                 write_request.offset(),
-                write_request.data().len() as u32,
+                write_request.data(),
                 *write_request.context(),
-            ) {
-                response = Err(error_code);
-            } else {
-                let write_result = file_storage.get_data_storage().write_local_blocks(
-                    write_request.inode(),
-                    write_request.offset(),
-                    write_request.data(),
-                );
-                // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
-                let total_bytes = write_request.data().len() as u32;
-                response = write_result
-                    .map(move |_| to_write_response(builder, total_bytes).unwrap())
-                    .map_err(into_error_code);
-            }
+                builder,
+            );
         }
         RequestType::UtimensRequest => {
             let utimens_request = request.request_as_utimens_request().unwrap();

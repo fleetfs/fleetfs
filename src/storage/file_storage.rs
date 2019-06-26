@@ -6,7 +6,9 @@ use crate::storage::data_storage::DataStorage;
 use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
-use crate::utils::{empty_response, to_fileattr_response, ResultResponse};
+use crate::utils::{
+    empty_response, into_error_code, to_fileattr_response, to_write_response, ResultResponse,
+};
 
 pub struct FileStorage {
     data_storage: DataStorage,
@@ -131,6 +133,53 @@ impl FileStorage {
         }
     }
 
+    pub fn chown<'a>(
+        &self,
+        inode: u64,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        context: UserContext,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        assert_ne!(inode, ROOT_INODE);
+        if let Err(error_code) = self.metadata_storage.chown(inode, uid, gid, context) {
+            return Err(error_code);
+        } else {
+            return empty_response(builder);
+        }
+    }
+
+    pub fn fsync<'a>(&self, inode: u64, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
+        if let Err(error_code) = self.data_storage.fsync(inode) {
+            return Err(error_code);
+        } else {
+            return empty_response(builder);
+        }
+    }
+
+    pub fn write<'a>(
+        &self,
+        inode: u64,
+        offset: u64,
+        data: &[u8],
+        context: UserContext,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        if let Err(error_code) =
+            self.metadata_storage
+                .write(inode, offset, data.len() as u32, context)
+        {
+            return Err(error_code);
+        } else {
+            let write_result = self.data_storage.write_local_blocks(inode, offset, data);
+            // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
+            let total_bytes = data.len() as u32;
+            return write_result
+                .map(move |_| to_write_response(builder, total_bytes).unwrap())
+                .map_err(into_error_code);
+        }
+    }
+
     pub fn hardlink<'a>(
         &self,
         inode: u64,
@@ -147,6 +196,27 @@ impl FileStorage {
         return self.getattr(inode, builder);
     }
 
+    pub fn set_xattr<'a>(
+        &self,
+        inode: u64,
+        key: &str,
+        value: &[u8],
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        self.metadata_storage.set_xattr(inode, key, value);
+        return empty_response(builder);
+    }
+
+    pub fn remove_xattr<'a>(
+        &self,
+        inode: u64,
+        key: &str,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        self.metadata_storage.remove_xattr(inode, key);
+        return empty_response(builder);
+    }
+
     pub fn rename<'a>(
         &self,
         parent: u64,
@@ -156,14 +226,22 @@ impl FileStorage {
         context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        if let Err(error_code) = self
-            .metadata_storage
-            .rename(parent, name, new_parent, new_name, context)
-        {
-            return Err(error_code);
-        } else {
-            return empty_response(builder);
-        }
+        self.metadata_storage
+            .rename(parent, name, new_parent, new_name, context)?;
+        return empty_response(builder);
+    }
+
+    pub fn rmdir<'a>(
+        &self,
+        parent: u64,
+        name: &str,
+        context: UserContext,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        info!("Deleting file");
+        self.metadata_storage.rmdir(parent, name, context)?;
+
+        return empty_response(builder);
     }
 
     pub fn unlink<'a>(
