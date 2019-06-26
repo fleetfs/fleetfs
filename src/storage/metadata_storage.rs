@@ -480,7 +480,6 @@ impl MetadataStorage {
         Ok(())
     }
 
-    // TODO: should have some error handling
     pub fn truncate(
         &self,
         inode: Inode,
