@@ -665,8 +665,6 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    // TODO: maybe mount with the "default_permissions" option. Then this wouldn't be called?
-    // TODO: use getgrouplist() to look up all the groups for this user
     fn access(&mut self, req: &Request, inode: u64, mask: u32, reply: ReplyEmpty) {
         debug!("access() called with {:?} {:?}", inode, mask);
         match self.client.getattr(inode) {
