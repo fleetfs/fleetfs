@@ -136,7 +136,7 @@ impl Filesystem for FleetFUSE {
         size: Option<u64>,
         atime: Option<Timespec>,
         mtime: Option<Timespec>,
-        _fh: Option<u64>,
+        fh: Option<u64>,
         _crtime: Option<Timespec>,
         _chgtime: Option<Timespec>,
         _bkuptime: Option<Timespec>,
@@ -174,9 +174,25 @@ impl Filesystem for FleetFUSE {
 
         if let Some(size) = size {
             debug!("truncate() called with {:?}", inode);
-            if let Err(error_code) = self.client.truncate(inode, size, req.uid(), req.gid()) {
-                reply.error(into_fuse_error(error_code));
-                return;
+            if let Some(handle) = fh {
+                // If the file handle is available, check access locally.
+                // This is important as it preserves the semantic that a file handle opened
+                // with W_OK will never fail to truncate, even if the file has been subsequently
+                // chmod'ed
+                if self.check_write(handle) {
+                    if let Err(error_code) = self.client.truncate(inode, size, 0, 0) {
+                        reply.error(into_fuse_error(error_code));
+                        return;
+                    }
+                } else {
+                    reply.error(libc::EACCES);
+                    return;
+                }
+            } else {
+                if let Err(error_code) = self.client.truncate(inode, size, req.uid(), req.gid()) {
+                    reply.error(into_fuse_error(error_code));
+                    return;
+                }
             }
         }
 
