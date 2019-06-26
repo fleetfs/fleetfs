@@ -1,8 +1,8 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::storage::raft_manager::RaftManager;
-use crate::utils::finalize_response;
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use crate::utils::{finalize_response, FutureResultResponse};
+use flatbuffers::FlatBufferBuilder;
 use futures::future::result;
 use futures::Future;
 use std::sync::Arc;
@@ -12,16 +12,7 @@ pub fn request_router(
     raft: Arc<RaftManager>,
     builder: FlatBufferBuilder<'static>,
 ) -> impl Future<Item = FlatBufferBuilder<'static>, Error = ErrorCode> {
-    let response: Box<
-        Future<
-                Item = (
-                    FlatBufferBuilder<'static>,
-                    ResponseType,
-                    WIPOffset<UnionWIPOffset>,
-                ),
-                Error = ErrorCode,
-            > + Send,
-    >;
+    let response: Box<FutureResultResponse<'static>>;
     let context = raft.local_context();
     let file = raft.file_storage();
 
