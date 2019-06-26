@@ -533,7 +533,7 @@ impl MetadataStorage {
             parent_attrs.mode,
             uid,
             gid,
-            (libc::W_OK | libc::X_OK) as u32,
+            libc::W_OK as u32,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
