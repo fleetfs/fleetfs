@@ -1,8 +1,8 @@
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
-use crate::utils::{empty_response, into_error_code, ResultResponse};
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use crate::utils::{empty_response, into_error_code, FlatBufferResponse, ResultResponse};
+use flatbuffers::FlatBufferBuilder;
 use futures::future::result;
 use futures::Future;
 use sha2::{Digest, Sha256};
@@ -32,14 +32,7 @@ fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
 pub fn fsck<'a>(
     context: &LocalContext,
     mut builder: FlatBufferBuilder<'a>,
-) -> impl Future<
-    Item = (
-        FlatBufferBuilder<'a>,
-        ResponseType,
-        WIPOffset<UnionWIPOffset>,
-    ),
-    Error = ErrorCode,
-> {
+) -> impl Future<Item = FlatBufferResponse<'a>, Error = ErrorCode> {
     let future_checksum = result(checksum(&context.data_dir).map_err(into_error_code));
     let mut peer_futures = vec![];
     for peer in context.peers.iter() {
