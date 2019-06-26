@@ -7,8 +7,12 @@ use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
 use crate::utils::{
-    empty_response, into_error_code, to_fileattr_response, to_write_response, ResultResponse,
+    empty_response, into_error_code, to_fileattr_response, to_inode_response, to_read_response,
+    to_write_response, to_xattrs_response, FlatBufferResponse, FutureResultResponse,
+    ResultResponse,
 };
+use futures::future::err;
+use futures::Future;
 
 pub struct FileStorage {
     data_storage: DataStorage,
@@ -23,14 +27,21 @@ impl FileStorage {
         }
     }
 
-    // TODO: remove this
-    pub fn get_data_storage(&self) -> &DataStorage {
-        &self.data_storage
-    }
+    pub fn lookup<'a>(
+        &self,
+        parent: u64,
+        name: &str,
+        uid: u32,
+        gid: u32,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let maybe_inode = self.metadata_storage.lookup(parent, name, uid, gid)?;
 
-    // TODO: remove this
-    pub fn get_metadata_storage(&self) -> &MetadataStorage {
-        &self.metadata_storage
+        if let Some(inode) = maybe_inode {
+            return to_inode_response(builder, inode);
+        } else {
+            return Err(ErrorCode::DoesNotExist);
+        }
     }
 
     pub fn truncate<'a>(
@@ -157,6 +168,40 @@ impl FileStorage {
         }
     }
 
+    pub fn read(
+        &self,
+        inode: u64,
+        offset: u64,
+        read_size: u32,
+        context: UserContext,
+        builder: FlatBufferBuilder<'static>,
+    ) -> impl Future<Item = FlatBufferResponse<'static>, Error = ErrorCode> {
+        let result: Box<FutureResultResponse>;
+        if let Err(error_code) = self.metadata_storage.read(inode, context) {
+            result = Box::new(err(error_code));
+        } else {
+            let read_result = self.data_storage.read(inode, offset, read_size);
+            result =
+                Box::new(read_result.map(move |data| to_read_response(builder, &data).unwrap()));
+        }
+
+        return result;
+    }
+
+    pub fn read_raw<'a>(
+        &self,
+        inode: u64,
+        offset: u64,
+        read_size: u32,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let data = self
+            .data_storage
+            .read_raw(inode, offset, read_size)
+            .map_err(into_error_code)?;
+        return to_read_response(builder, &data);
+    }
+
     pub fn write<'a>(
         &self,
         inode: u64,
@@ -194,6 +239,29 @@ impl FileStorage {
         self.metadata_storage
             .hardlink(inode, new_parent, new_name, context)?;
         return self.getattr(inode, builder);
+    }
+
+    pub fn get_xattr<'a>(
+        &self,
+        inode: u64,
+        key: &str,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let attr = self
+            .metadata_storage
+            .get_xattr(inode, key)
+            .unwrap_or_else(|| vec![]);
+        // TODO: handle key doesn't exist
+        return to_read_response(builder, &attr);
+    }
+
+    pub fn list_xattrs<'a>(
+        &self,
+        inode: u64,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let attrs = self.metadata_storage.list_xattrs(inode);
+        return to_xattrs_response(builder, &attrs);
     }
 
     pub fn set_xattr<'a>(

@@ -3,18 +3,20 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use crate::generated::*;
 use crate::storage::data_storage::BLOCK_SIZE;
 use crate::storage::metadata_storage::InodeAttributes;
+use futures::Future;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader, ErrorKind};
 
-pub type ResultResponse<'a> = Result<
-    (
-        FlatBufferBuilder<'a>,
-        ResponseType,
-        WIPOffset<UnionWIPOffset>,
-    ),
-    ErrorCode,
->;
+pub type FutureResultResponse<'a> = Future<Item = FlatBufferResponse<'a>, Error = ErrorCode> + Send;
+
+pub type ResultResponse<'a> = Result<FlatBufferResponse<'a>, ErrorCode>;
+
+pub type FlatBufferResponse<'a> = (
+    FlatBufferBuilder<'a>,
+    ResponseType,
+    WIPOffset<UnionWIPOffset>,
+);
 
 pub fn empty_response(mut buffer: FlatBufferBuilder) -> ResultResponse {
     let response_builder = EmptyResponseBuilder::new(&mut buffer);
