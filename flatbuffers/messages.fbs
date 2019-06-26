@@ -186,6 +186,7 @@ enum ErrorCode: byte {
   AlreadyExists,
   NameTooLong,
   NotEmpty,
+  MissingXattrKey,
   Corrupted,
   RaftFailure,
   Uncategorized

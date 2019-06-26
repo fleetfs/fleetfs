@@ -132,9 +132,13 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn get_xattr(&self, inode: Inode, key: &str) -> Option<Vec<u8>> {
+    pub fn get_xattr(&self, inode: Inode, key: &str) -> Result<Vec<u8>, ErrorCode> {
         let metadata = self.metadata.lock().unwrap();
-        metadata.get(&inode)?.xattrs.get(key).cloned()
+        if let Some(value) = metadata.get(&inode).unwrap().xattrs.get(key).cloned() {
+            Ok(value)
+        } else {
+            Err(ErrorCode::MissingXattrKey)
+        }
     }
 
     pub fn list_xattrs(&self, inode: Inode) -> Vec<String> {

@@ -247,11 +247,7 @@ impl FileStorage {
         key: &str,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        let attr = self
-            .metadata_storage
-            .get_xattr(inode, key)
-            .unwrap_or_else(|| vec![]);
-        // TODO: handle key doesn't exist
+        let attr = self.metadata_storage.get_xattr(inode, key)?;
         return to_read_response(builder, &attr);
     }
 
