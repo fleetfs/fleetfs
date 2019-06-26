@@ -78,6 +78,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::OperationNotPermitted => libc::EPERM,
         ErrorCode::NameTooLong => libc::ENAMETOOLONG,
         ErrorCode::NotEmpty => libc::ENOTEMPTY,
+        ErrorCode::MissingXattrKey => libc::ENODATA,
         ErrorCode::AlreadyExists => libc::EEXIST,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
