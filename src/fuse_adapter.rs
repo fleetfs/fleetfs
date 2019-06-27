@@ -106,10 +106,11 @@ impl Filesystem for FleetFUSE {
 
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         // TODO: avoid this double lookup
-        match self
-            .client
-            .lookup(parent, name.to_str().unwrap(), req.uid(), req.gid())
-        {
+        match self.client.lookup(
+            parent,
+            name.to_str().unwrap(),
+            UserContext::new(req.uid(), req.gid()),
+        ) {
             Ok(inode) => match self.client.getattr(inode) {
                 Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -182,7 +183,9 @@ impl Filesystem for FleetFUSE {
                 // with W_OK will never fail to truncate, even if the file has been subsequently
                 // chmod'ed
                 if self.check_write(handle) {
-                    if let Err(error_code) = self.client.truncate(inode, size, 0, 0) {
+                    if let Err(error_code) =
+                        self.client.truncate(inode, size, UserContext::new(0, 0))
+                    {
                         reply.error(into_fuse_error(error_code));
                         return;
                     }
@@ -190,7 +193,9 @@ impl Filesystem for FleetFUSE {
                     reply.error(libc::EACCES);
                     return;
                 }
-            } else if let Err(error_code) = self.client.truncate(inode, size, req.uid(), req.gid())
+            } else if let Err(error_code) =
+                self.client
+                    .truncate(inode, size, UserContext::new(req.uid(), req.gid()))
             {
                 reply.error(into_fuse_error(error_code));
                 return;
@@ -274,10 +279,11 @@ impl Filesystem for FleetFUSE {
 
     fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("unlink() called with {:?} {:?}", parent, name);
-        if let Err(error_code) =
-            self.client
-                .unlink(parent, name.to_str().unwrap(), req.uid(), req.gid())
-        {
+        if let Err(error_code) = self.client.unlink(
+            parent,
+            name.to_str().unwrap(),
+            UserContext::new(req.uid(), req.gid()),
+        ) {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
@@ -314,7 +320,7 @@ impl Filesystem for FleetFUSE {
         {
             Ok(attrs) => {
                 self.client
-                    .truncate(attrs.ino, 0, req.uid(), req.gid())
+                    .truncate(attrs.ino, 0, UserContext::new(req.uid(), req.gid()))
                     .unwrap();
                 self.client
                     .write(

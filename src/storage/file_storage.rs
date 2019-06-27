@@ -31,11 +31,10 @@ impl FileStorage {
         &self,
         parent: u64,
         name: &str,
-        uid: u32,
-        gid: u32,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        let maybe_inode = self.metadata_storage.lookup(parent, name, uid, gid)?;
+        let maybe_inode = self.metadata_storage.lookup(parent, name, context)?;
 
         if let Some(inode) = maybe_inode {
             return to_inode_response(builder, inode);
@@ -48,12 +47,10 @@ impl FileStorage {
         &self,
         inode: u64,
         new_length: u64,
-        uid: u32,
-        gid: u32,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage
-            .truncate(inode, new_length, uid, gid)?;
+        self.metadata_storage.truncate(inode, new_length, context)?;
         self.data_storage.truncate(inode, new_length).unwrap();
 
         return empty_response(builder);
@@ -71,7 +68,7 @@ impl FileStorage {
         self.metadata_storage.mkdir(parent, name, uid, gid, mode)?;
         let inode = self
             .metadata_storage
-            .lookup(parent, name, uid, gid)?
+            .lookup(parent, name, UserContext::new(uid, gid))?
             .unwrap();
 
         return self.getattr(inode, builder);
@@ -312,12 +309,11 @@ impl FileStorage {
         &self,
         parent: u64,
         name: &str,
-        uid: u32,
-        gid: u32,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         info!("Deleting file");
-        if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name, uid, gid)? {
+        if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name, context)? {
             self.data_storage.delete(deleted_inode).unwrap();
         }
 

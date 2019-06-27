@@ -54,8 +54,7 @@ pub fn request_router(
             response = Box::new(result(file.lookup(
                 lookup_request.parent(),
                 lookup_request.name(),
-                lookup_request.uid(),
-                lookup_request.gid(),
+                *lookup_request.context(),
                 builder,
             )));
         }

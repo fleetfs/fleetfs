@@ -86,8 +86,7 @@ impl MetadataStorage {
         &self,
         parent: Inode,
         name: &str,
-        uid: u32,
-        gid: u32,
+        context: UserContext,
     ) -> Result<Option<Inode>, ErrorCode> {
         if name.len() > MAX_NAME_LENGTH as usize {
             return Err(ErrorCode::NameTooLong);
@@ -99,8 +98,8 @@ impl MetadataStorage {
             parent_attrs.uid,
             parent_attrs.gid,
             parent_attrs.mode,
-            uid,
-            gid,
+            context.uid(),
+            context.gid(),
             libc::X_OK as u32,
         ) {
             return Err(ErrorCode::AccessDenied);
@@ -488,8 +487,7 @@ impl MetadataStorage {
         &self,
         inode: Inode,
         new_length: u64,
-        uid: u32,
-        gid: u32,
+        context: UserContext,
     ) -> Result<(), ErrorCode> {
         if new_length > MAX_FILE_SIZE {
             return Err(ErrorCode::FileTooLarge);
@@ -501,8 +499,8 @@ impl MetadataStorage {
             inode_attrs.uid,
             inode_attrs.gid,
             inode_attrs.mode,
-            uid,
-            gid,
+            context.uid(),
+            context.gid(),
             libc::W_OK as u32,
         ) {
             return Err(ErrorCode::AccessDenied);
@@ -520,8 +518,7 @@ impl MetadataStorage {
         &self,
         parent: u64,
         name: &str,
-        uid: u32,
-        gid: u32,
+        context: UserContext,
     ) -> Result<Option<Inode>, ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
         let parent_directory = directories.get_mut(&parent).unwrap();
@@ -534,13 +531,14 @@ impl MetadataStorage {
             parent_attrs.uid,
             parent_attrs.gid,
             parent_attrs.mode,
-            uid,
-            gid,
+            context.uid(),
+            context.gid(),
             libc::W_OK as u32,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
 
+        let uid = context.uid();
         // "Sticky bit" handling
         if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
             let inode_attrs = metadata.get(inode).unwrap();
@@ -648,7 +646,10 @@ impl MetadataStorage {
         mode: u16,
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
-        if self.lookup(parent, name, uid, gid)?.is_none() {
+        if self
+            .lookup(parent, name, UserContext::new(uid, gid))?
+            .is_none()
+        {
             let mut metadata = self.metadata.lock().unwrap();
             let parent_attrs = metadata.get(&parent).unwrap();
             if !check_access(
