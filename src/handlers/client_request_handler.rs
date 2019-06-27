@@ -26,21 +26,7 @@ pub fn client_request_handler(
                 .map_err(|_| ErrorCode::Uncategorized),
         );
     } else {
-        // Sync to ensure replicas serve latest data
-        let cloned_raft = raft.clone();
-        let after_sync = raft
-            .get_latest_commit_from_leader()
-            .map(move |latest_commit| cloned_raft.sync(latest_commit))
-            .flatten()
-            .map_err(|_| ErrorCode::Uncategorized);
-        let cloned_raft = raft.clone();
-        let read_after_sync = after_sync
-            .map(move |_| {
-                let request = get_root_as_generic_request(&frame);
-                request_router(request, cloned_raft, builder)
-            })
-            .flatten();
-        builder_future = Box::new(read_after_sync);
+        builder_future = Box::new(request_router(request, raft, builder));
     }
     Box::new(builder_future.or_else(|error_code| {
         let mut builder = FlatBufferBuilder::new();

@@ -7,35 +7,51 @@ use futures::future::result;
 use futures::Future;
 use std::sync::Arc;
 
+// Sync to ensure replicas serve latest data
+fn sync_with_leader(raft: &Arc<RaftManager>) -> impl Future<Item = (), Error = ErrorCode> {
+    let cloned_raft = raft.clone();
+    raft.get_latest_commit_from_leader()
+        .map(move |latest_commit| cloned_raft.sync(latest_commit))
+        .flatten()
+        .map_err(|_| ErrorCode::Uncategorized)
+}
+
 pub fn request_router(
     request: GenericRequest,
     raft: Arc<RaftManager>,
     builder: FlatBufferBuilder<'static>,
 ) -> impl Future<Item = FlatBufferBuilder<'static>, Error = ErrorCode> {
     let response: Box<FutureResultResponse<'static>>;
-    let context = raft.local_context();
-    let file = raft.file_storage();
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => {
-            response = Box::new(fsck(context, builder));
+            let after_sync = sync_with_leader(&raft);
+            let response_after_sync = after_sync
+                .map(move |_| fsck(raft.local_context(), builder))
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::FilesystemChecksumRequest => {
-            response = Box::new(result(checksum_request(context, builder)));
+            response = Box::new(result(checksum_request(raft.local_context(), builder)));
         }
         RequestType::ReadRequest => {
             let read_request = request.request_as_read_request().unwrap();
-            response = Box::new(file.read(
-                read_request.inode(),
-                read_request.offset(),
-                read_request.read_size(),
-                *read_request.context(),
-                builder,
-            ));
+            let after_sync = sync_with_leader(&raft);
+            let inode = read_request.inode();
+            let offset = read_request.offset();
+            let read_size = read_request.read_size();
+            let user_context = *read_request.context();
+            let response_after_sync = after_sync
+                .map(move |_| {
+                    raft.file_storage()
+                        .read(inode, offset, read_size, user_context, builder)
+                })
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::ReadRawRequest => {
             let read_request = request.request_as_read_raw_request().unwrap();
-            response = Box::new(result(file.read_raw(
+            response = Box::new(result(raft.file_storage().read_raw(
                 read_request.inode(),
                 read_request.offset(),
                 read_request.read_size(),
@@ -51,26 +67,36 @@ pub fn request_router(
         RequestType::CreateRequest => unreachable!(),
         RequestType::LookupRequest => {
             let lookup_request = request.request_as_lookup_request().unwrap();
-            response = Box::new(result(file.lookup(
-                lookup_request.parent(),
-                lookup_request.name(),
-                *lookup_request.context(),
-                builder,
-            )));
+            let after_sync = sync_with_leader(&raft);
+            let parent = lookup_request.parent();
+            let name = lookup_request.name().to_string();
+            let user_context = *lookup_request.context();
+            let response_after_sync = after_sync
+                .map(move |_| {
+                    raft.file_storage()
+                        .lookup(parent, &name, user_context, builder)
+                })
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::GetXattrRequest => {
             let get_xattr_request = request.request_as_get_xattr_request().unwrap();
-            response = Box::new(result(file.get_xattr(
-                get_xattr_request.inode(),
-                get_xattr_request.key(),
-                builder,
-            )));
+            let after_sync = sync_with_leader(&raft);
+            let inode = get_xattr_request.inode();
+            let key = get_xattr_request.key().to_string();
+            let response_after_sync = after_sync
+                .map(move |_| raft.file_storage().get_xattr(inode, &key, builder))
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::ListXattrsRequest => {
             let list_xattrs_request = request.request_as_list_xattrs_request().unwrap();
-            response = Box::new(result(
-                file.list_xattrs(list_xattrs_request.inode(), builder),
-            ));
+            let after_sync = sync_with_leader(&raft);
+            let inode = list_xattrs_request.inode();
+            let response_after_sync = after_sync
+                .map(move |_| raft.file_storage().list_xattrs(inode, builder))
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::SetXattrRequest => unreachable!(),
         RequestType::RemoveXattrRequest => unreachable!(),
@@ -80,11 +106,21 @@ pub fn request_router(
         RequestType::UtimensRequest => unreachable!(),
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
-            response = Box::new(result(file.readdir(readdir_request.inode(), builder)));
+            let after_sync = sync_with_leader(&raft);
+            let inode = readdir_request.inode();
+            let response_after_sync = after_sync
+                .map(move |_| raft.file_storage().readdir(inode, builder))
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::GetattrRequest => {
             let getattr_request = request.request_as_getattr_request().unwrap();
-            response = Box::new(result(file.getattr(getattr_request.inode(), builder)));
+            let after_sync = sync_with_leader(&raft);
+            let inode = getattr_request.inode();
+            let response_after_sync = after_sync
+                .map(move |_| raft.file_storage().getattr(inode, builder))
+                .flatten();
+            response = Box::new(response_after_sync);
         }
         RequestType::MkdirRequest => unreachable!(),
         RequestType::RaftRequest => unreachable!(),
