@@ -1,7 +1,7 @@
 use crate::generated::*;
 use crate::storage::raft_manager::RaftManager;
-use crate::utils::{empty_response, finalize_response};
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use crate::utils::{empty_response, finalize_response, FlatBufferResponse};
+use flatbuffers::FlatBufferBuilder;
 use futures::future::{ok, result};
 use futures::Future;
 use protobuf::Message as ProtobufMessage;
@@ -12,16 +12,7 @@ pub fn raft_handler<'a, 'b>(
     raft_manager: &RaftManager,
     mut builder: FlatBufferBuilder<'b>,
 ) -> impl Future<Item = FlatBufferBuilder<'b>, Error = ErrorCode> {
-    let response: Box<
-        Future<
-                Item = (
-                    FlatBufferBuilder<'b>,
-                    ResponseType,
-                    WIPOffset<UnionWIPOffset>,
-                ),
-                Error = ErrorCode,
-            > + Send,
-    >;
+    let response: Box<Future<Item = FlatBufferResponse<'b>, Error = ErrorCode> + Send>;
 
     match request.request_type() {
         RequestType::FilesystemCheckRequest => unreachable!(),
