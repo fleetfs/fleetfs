@@ -100,7 +100,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let node_id_response = response.response_as_node_id_response().unwrap();
+        let node_id_response = response
+            .response_as_node_id_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(node_id_response.node_id());
     }
@@ -117,9 +119,11 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn mkdir(
@@ -143,7 +147,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let metadata = response.response_as_file_metadata_response().unwrap();
+        let metadata = response
+            .response_as_file_metadata_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
@@ -161,7 +167,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let inode_response = response.response_as_inode_response().unwrap();
+        let inode_response = response
+            .response_as_inode_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(inode_response.inode());
     }
@@ -189,7 +197,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let metadata = response.response_as_file_metadata_response().unwrap();
+        let metadata = response
+            .response_as_file_metadata_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
@@ -203,7 +213,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let metadata = response.response_as_file_metadata_response().unwrap();
+        let metadata = response
+            .response_as_file_metadata_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
@@ -219,7 +231,10 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let data = response.response_as_read_response().unwrap().data();
+        let data = response
+            .response_as_read_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .data();
 
         return Ok(data.to_vec());
     }
@@ -233,7 +248,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let xattrs_response = response.response_as_xattrs_response().unwrap();
+        let xattrs_response = response
+            .response_as_xattrs_response()
+            .ok_or(ErrorCode::BadResponse)?;
         let xattrs = xattrs_response.xattrs();
 
         let mut attrs = vec![];
@@ -258,7 +275,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
     }
@@ -274,7 +293,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
     }
@@ -303,7 +324,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -321,7 +344,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -354,7 +379,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -380,7 +407,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let metadata = response.response_as_file_metadata_response().unwrap();
+        let metadata = response
+            .response_as_file_metadata_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
@@ -407,7 +436,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -434,7 +465,7 @@ impl NodeClient {
 
         Ok(response
             .response_as_read_response()
-            .unwrap()
+            .ok_or(ErrorCode::BadResponse)?
             .data()
             .to_vec())
     }
@@ -466,9 +497,11 @@ impl NodeClient {
                 return;
             }
         };
-        let data = response.response_as_read_response().unwrap().data();
-
-        callback(Ok(data));
+        if let Some(read_response) = response.response_as_read_response() {
+            callback(Ok(read_response.data()));
+        } else {
+            callback(Err(ErrorCode::BadResponse));
+        }
     }
 
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuse::FileType)>, ErrorCode> {
@@ -482,7 +515,9 @@ impl NodeClient {
         let response = self.send(builder.finished_data(), &mut buffer)?;
 
         let mut result = vec![];
-        let listing_response = response.response_as_directory_listing_response().unwrap();
+        let listing_response = response
+            .response_as_directory_listing_response()
+            .ok_or(ErrorCode::BadResponse)?;
         let entries = listing_response.entries();
         for i in 0..entries.len() {
             let entry = entries.get(i);
@@ -510,7 +545,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -536,7 +573,7 @@ impl NodeClient {
         let response = self.send(builder.finished_data(), &mut buffer)?;
         return Ok(response
             .response_as_written_response()
-            .unwrap()
+            .ok_or(ErrorCode::BadResponse)?
             .bytes_written());
     }
 
@@ -549,7 +586,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -567,7 +606,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -584,7 +625,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response.response_as_empty_response().unwrap();
+        response
+            .response_as_empty_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
