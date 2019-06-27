@@ -397,8 +397,7 @@ pub fn commit_write<'a, 'b>(
             response = file_storage.truncate(
                 truncate_request.inode(),
                 truncate_request.new_length(),
-                truncate_request.uid(),
-                truncate_request.gid(),
+                *truncate_request.context(),
                 builder,
             );
         }
@@ -440,8 +439,7 @@ pub fn commit_write<'a, 'b>(
             response = file_storage.unlink(
                 unlink_request.parent(),
                 unlink_request.name(),
-                unlink_request.uid(),
-                unlink_request.gid(),
+                *unlink_request.context(),
                 builder,
             );
         }

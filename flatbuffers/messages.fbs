@@ -99,8 +99,7 @@ table FsyncRequest {
 table UnlinkRequest {
   parent: ulong;
   name: string (required);
-  uid: uint;
-  gid: uint;
+  context: UserContext (required);
 }
 
 table RmdirRequest {
@@ -112,8 +111,7 @@ table RmdirRequest {
 table TruncateRequest {
   inode: ulong;
   new_length: ulong;
-  uid: uint;
-  gid: uint;
+  context: UserContext (required);
 }
 
 table ReaddirRequest {
@@ -162,8 +160,7 @@ table RenameRequest {
 table LookupRequest {
   parent: ulong;
   name: string (required);
-  uid: uint;
-  gid: uint;
+  context: UserContext (required);
 }
 
 table CreateRequest {
