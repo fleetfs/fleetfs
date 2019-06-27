@@ -73,6 +73,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::Uncategorized => libc::EIO,
         ErrorCode::Corrupted => libc::EIO,
         ErrorCode::RaftFailure => libc::EIO,
+        ErrorCode::BadResponse => libc::EIO,
         ErrorCode::FileTooLarge => libc::EFBIG,
         ErrorCode::AccessDenied => libc::EACCES,
         ErrorCode::OperationNotPermitted => libc::EPERM,
