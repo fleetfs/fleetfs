@@ -22,7 +22,7 @@ pub fn request_router(
     request: GenericRequest,
     raft: Arc<RaftManager>,
     mut builder: FlatBufferBuilder<'static>,
-) -> impl Future<Item = FlatBufferBuilder<'static>, Error = ErrorCode> {
+) -> impl Future<Item = FlatBufferBuilder<'static>, Error = std::io::Error> {
     let response: Box<FutureResultResponse<'static>>;
 
     match request.request_type() {
@@ -60,13 +60,22 @@ pub fn request_router(
                 builder,
             )));
         }
-        RequestType::HardlinkRequest => unreachable!(),
-        RequestType::RenameRequest => unreachable!(),
-        RequestType::ChmodRequest => unreachable!(),
-        RequestType::ChownRequest => unreachable!(),
-        RequestType::TruncateRequest => unreachable!(),
-        RequestType::FsyncRequest => unreachable!(),
-        RequestType::CreateRequest => unreachable!(),
+        RequestType::SetXattrRequest
+        | RequestType::RemoveXattrRequest
+        | RequestType::UnlinkRequest
+        | RequestType::RmdirRequest
+        | RequestType::WriteRequest
+        | RequestType::UtimensRequest
+        | RequestType::HardlinkRequest
+        | RequestType::RenameRequest
+        | RequestType::MkdirRequest
+        | RequestType::ChmodRequest
+        | RequestType::ChownRequest
+        | RequestType::TruncateRequest
+        | RequestType::FsyncRequest
+        | RequestType::CreateRequest => {
+            response = Box::new(raft.propose(request, builder));
+        }
         RequestType::LookupRequest => {
             let lookup_request = request.request_as_lookup_request().unwrap();
             let after_sync = sync_with_leader(&raft);
@@ -100,12 +109,6 @@ pub fn request_router(
                 .flatten();
             response = Box::new(response_after_sync);
         }
-        RequestType::SetXattrRequest => unreachable!(),
-        RequestType::RemoveXattrRequest => unreachable!(),
-        RequestType::UnlinkRequest => unreachable!(),
-        RequestType::RmdirRequest => unreachable!(),
-        RequestType::WriteRequest => unreachable!(),
-        RequestType::UtimensRequest => unreachable!(),
         RequestType::ReaddirRequest => {
             let readdir_request = request.request_as_readdir_request().unwrap();
             let after_sync = sync_with_leader(&raft);
@@ -124,7 +127,6 @@ pub fn request_router(
                 .flatten();
             response = Box::new(response_after_sync);
         }
-        RequestType::MkdirRequest => unreachable!(),
         RequestType::RaftRequest => {
             let raft_request = request.request_as_raft_request().unwrap();
             let mut deserialized_message = Message::new();
@@ -161,8 +163,17 @@ pub fn request_router(
         RequestType::NONE => unreachable!(),
     }
 
-    response.map(|(mut builder, response_type, response_offset)| {
-        finalize_response(&mut builder, response_type, response_offset);
-        builder
-    })
+    response
+        .map(|(mut builder, response_type, response_offset)| {
+            finalize_response(&mut builder, response_type, response_offset);
+            builder
+        })
+        .or_else(|error_code| {
+            let mut builder = FlatBufferBuilder::new();
+            let args = ErrorResponseArgs { error_code };
+            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+            finalize_response(&mut builder, ResponseType::ErrorResponse, response_offset);
+
+            Ok(builder)
+        })
 }

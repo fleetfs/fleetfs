@@ -39,39 +39,6 @@ pub fn into_error_code(error: std::io::Error) -> ErrorCode {
     }
 }
 
-// TODO: refactor flatbuffer message union to encode read/write/raft...etc
-pub fn is_write_request(request_type: RequestType) -> bool {
-    match request_type {
-        RequestType::ReadRequest => false,
-        RequestType::ReadRawRequest => false,
-        RequestType::ReaddirRequest => false,
-        RequestType::GetattrRequest => false,
-        RequestType::FilesystemCheckRequest => false,
-        RequestType::FilesystemChecksumRequest => false,
-        RequestType::LookupRequest => false,
-        RequestType::GetXattrRequest => false,
-        RequestType::ListXattrsRequest => false,
-        RequestType::SetXattrRequest => true,
-        RequestType::RemoveXattrRequest => true,
-        RequestType::CreateRequest => true,
-        RequestType::UtimensRequest => true,
-        RequestType::ChmodRequest => true,
-        RequestType::ChownRequest => true,
-        RequestType::HardlinkRequest => true,
-        RequestType::TruncateRequest => true,
-        RequestType::FsyncRequest => true,
-        RequestType::UnlinkRequest => true,
-        RequestType::RmdirRequest => true,
-        RequestType::RenameRequest => true,
-        RequestType::MkdirRequest => true,
-        RequestType::WriteRequest => true,
-        RequestType::RaftRequest => false,
-        RequestType::LatestCommitRequest => false,
-        RequestType::GetLeaderRequest => false,
-        RequestType::NONE => unreachable!(),
-    }
-}
-
 pub fn finalize_request(
     builder: &mut FlatBufferBuilder,
     request_type: RequestType,
