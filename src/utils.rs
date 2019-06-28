@@ -39,38 +39,6 @@ pub fn into_error_code(error: std::io::Error) -> ErrorCode {
     }
 }
 
-pub fn is_raft_request(request_type: RequestType) -> bool {
-    match request_type {
-        RequestType::ReadRequest => false,
-        RequestType::ReadRawRequest => false,
-        RequestType::ReaddirRequest => false,
-        RequestType::GetattrRequest => false,
-        RequestType::FilesystemCheckRequest => false,
-        RequestType::FilesystemChecksumRequest => false,
-        RequestType::LookupRequest => false,
-        RequestType::CreateRequest => false,
-        RequestType::GetXattrRequest => false,
-        RequestType::ListXattrsRequest => false,
-        RequestType::SetXattrRequest => false,
-        RequestType::RemoveXattrRequest => false,
-        RequestType::UtimensRequest => false,
-        RequestType::ChmodRequest => false,
-        RequestType::ChownRequest => false,
-        RequestType::HardlinkRequest => false,
-        RequestType::TruncateRequest => false,
-        RequestType::FsyncRequest => false,
-        RequestType::UnlinkRequest => false,
-        RequestType::RmdirRequest => false,
-        RequestType::RenameRequest => false,
-        RequestType::MkdirRequest => false,
-        RequestType::WriteRequest => false,
-        RequestType::RaftRequest => true,
-        RequestType::LatestCommitRequest => true,
-        RequestType::GetLeaderRequest => true,
-        RequestType::NONE => unreachable!(),
-    }
-}
-
 // TODO: refactor flatbuffer message union to encode read/write/raft...etc
 pub fn is_write_request(request_type: RequestType) -> bool {
     match request_type {
@@ -97,9 +65,9 @@ pub fn is_write_request(request_type: RequestType) -> bool {
         RequestType::RenameRequest => true,
         RequestType::MkdirRequest => true,
         RequestType::WriteRequest => true,
-        RequestType::RaftRequest => unreachable!(),
-        RequestType::LatestCommitRequest => unreachable!(),
-        RequestType::GetLeaderRequest => unreachable!(),
+        RequestType::RaftRequest => false,
+        RequestType::LatestCommitRequest => false,
+        RequestType::GetLeaderRequest => false,
         RequestType::NONE => unreachable!(),
     }
 }

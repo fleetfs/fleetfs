@@ -1,10 +1,12 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::storage::raft_manager::RaftManager;
-use crate::utils::{finalize_response, FutureResultResponse};
+use crate::utils::{empty_response, finalize_response, FutureResultResponse};
 use flatbuffers::FlatBufferBuilder;
-use futures::future::result;
+use futures::future::{ok, result};
 use futures::Future;
+use protobuf::Message as ProtobufMessage;
+use raft::prelude::Message;
 use std::sync::Arc;
 
 // Sync to ensure replicas serve latest data
@@ -19,7 +21,7 @@ fn sync_with_leader(raft: &Arc<RaftManager>) -> impl Future<Item = (), Error = E
 pub fn request_router(
     request: GenericRequest,
     raft: Arc<RaftManager>,
-    builder: FlatBufferBuilder<'static>,
+    mut builder: FlatBufferBuilder<'static>,
 ) -> impl Future<Item = FlatBufferBuilder<'static>, Error = ErrorCode> {
     let response: Box<FutureResultResponse<'static>>;
 
@@ -123,9 +125,39 @@ pub fn request_router(
             response = Box::new(response_after_sync);
         }
         RequestType::MkdirRequest => unreachable!(),
-        RequestType::RaftRequest => unreachable!(),
-        RequestType::LatestCommitRequest => unreachable!(),
-        RequestType::GetLeaderRequest => unreachable!(),
+        RequestType::RaftRequest => {
+            let raft_request = request.request_as_raft_request().unwrap();
+            let mut deserialized_message = Message::new();
+            deserialized_message
+                .merge_from_bytes(raft_request.message())
+                .unwrap();
+            raft.apply_messages(&[deserialized_message]).unwrap();
+            response = Box::new(result(empty_response(builder)));
+        }
+        RequestType::LatestCommitRequest => {
+            let index = raft.get_latest_local_commit();
+            let mut response_builder = LatestCommitResponseBuilder::new(&mut builder);
+            response_builder.add_index(index);
+            let response_offset = response_builder.finish().as_union_value();
+            response = Box::new(ok((
+                builder,
+                ResponseType::LatestCommitResponse,
+                response_offset,
+            )));
+        }
+        RequestType::GetLeaderRequest => {
+            let leader_future = raft
+                .get_leader()
+                .map(move |leader_id| {
+                    let mut response_builder = NodeIdResponseBuilder::new(&mut builder);
+                    response_builder.add_node_id(leader_id);
+                    let response_offset = response_builder.finish().as_union_value();
+                    (builder, ResponseType::NodeIdResponse, response_offset)
+                })
+                .map_err(|_| ErrorCode::Uncategorized);
+
+            response = Box::new(leader_future);
+        }
         RequestType::NONE => unreachable!(),
     }
 
