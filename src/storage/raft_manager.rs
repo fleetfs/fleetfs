@@ -9,7 +9,7 @@ use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage::file_storage::FileStorage;
 use crate::storage_node::LocalContext;
-use crate::utils::{finalize_response, is_write_request};
+use crate::utils::FlatBufferResponse;
 use flatbuffers::FlatBufferBuilder;
 use futures::future::ok;
 use futures::sync::oneshot;
@@ -19,17 +19,14 @@ use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
 
+type PendingResponse = (
+    FlatBufferBuilder<'static>,
+    Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
+);
+
 pub struct RaftManager {
     raft_node: Mutex<RawNode<MemStorage>>,
-    pending_responses: Mutex<
-        HashMap<
-            u128,
-            (
-                FlatBufferBuilder<'static>,
-                Sender<FlatBufferBuilder<'static>>,
-            ),
-        >,
-    >,
+    pending_responses: Mutex<HashMap<u128, PendingResponse>>,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     leader_requests: Mutex<Vec<Sender<u64>>>,
     applied_index: Mutex<u64>,
@@ -249,7 +246,7 @@ impl RaftManager {
                     pending_responses.remove(&u128::from_le_bytes(uuid))
                 {
                     match commit_write(request, &self.file_storage, builder) {
-                        Ok(builder) => sender.send(builder).ok().unwrap(),
+                        Ok(response) => sender.send(Ok(response)).ok().unwrap(),
                         // TODO: handle this somehow. If not all nodes failed, then the filesystem
                         // is probably corrupted, since some will have applied the write, but not all
                         // There should only be a few types of messages that can fail here. truncate is one,
@@ -261,16 +258,7 @@ impl RaftManager {
                                 error_code,
                                 request.request_type()
                             );
-                            let mut builder = FlatBufferBuilder::new();
-                            let args = ErrorResponseArgs { error_code };
-                            let response_offset =
-                                ErrorResponse::create(&mut builder, &args).as_union_value();
-                            finalize_response(
-                                &mut builder,
-                                ResponseType::ErrorResponse,
-                                response_offset,
-                            );
-                            sender.send(builder).ok().unwrap()
+                            sender.send(Err(error_code)).ok().unwrap()
                         }
                     }
                 } else {
@@ -325,8 +313,7 @@ impl RaftManager {
         &self,
         request: GenericRequest,
         builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Item = FlatBufferBuilder<'static>, Error = ()> {
-        assert!(is_write_request(request.request_type()));
+    ) -> impl Future<Item = FlatBufferResponse<'static>, Error = ErrorCode> {
         let uuid: u128 = rand::thread_rng().gen();
 
         self._propose(uuid, request._tab.buf.to_vec());
@@ -340,7 +327,9 @@ impl RaftManager {
 
         self.process_raft_queue();
 
-        return receiver.map_err(|_| ());
+        return receiver
+            .map_err(|_| ErrorCode::Uncategorized)
+            .and_then(|x| x);
     }
 }
 
@@ -348,7 +337,7 @@ pub fn commit_write<'a, 'b>(
     request: GenericRequest<'a>,
     file_storage: &FileStorage,
     builder: FlatBufferBuilder<'b>,
-) -> Result<FlatBufferBuilder<'b>, ErrorCode> {
+) -> Result<FlatBufferResponse<'b>, ErrorCode> {
     let response;
 
     match request.request_type() {
@@ -498,8 +487,5 @@ pub fn commit_write<'a, 'b>(
         RequestType::NONE => unreachable!(),
     }
 
-    response.map(|(mut builder, response_type, response_offset)| {
-        finalize_response(&mut builder, response_type, response_offset);
-        builder
-    })
+    response
 }

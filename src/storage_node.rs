@@ -7,7 +7,8 @@ use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 
-use crate::handlers::client_request_handler;
+use crate::generated::get_root_as_generic_request;
+use crate::handlers::request_router;
 use crate::storage::raft_manager::RaftManager;
 use crate::utils::WritableFlatBuffer;
 use std::net::SocketAddr;
@@ -74,8 +75,11 @@ impl Node {
 
                 let cloned_raft = raft_manager.clone();
                 let builder = FlatBufferBuilder::new();
-                let conn = reader.fold((writer, builder), move |(writer, builder), frame| {
-                    let response = client_request_handler(builder, frame, cloned_raft.clone());
+                let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
+                    let request = get_root_as_generic_request(&frame);
+                    builder.reset();
+
+                    let response = request_router(request, cloned_raft.clone(), builder);
                     response
                         .map(|builder| {
                             let writable = WritableFlatBuffer::new(builder);
