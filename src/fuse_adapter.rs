@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use libc;
 use log::debug;
+use log::error;
 use log::warn;
 use time::Timespec;
 
@@ -45,25 +46,47 @@ impl FleetFUSE {
 
     fn allocate_file_handle(&self, read: bool, write: bool) -> u64 {
         let handle = self.next_file_handle.fetch_add(1, Ordering::SeqCst);
-        let mut handles = self.file_handles.lock().unwrap();
+        let mut handles = self
+            .file_handles
+            .lock()
+            .expect("file_handles lock is poisoned");
         handles.insert(handle, FileHandleAttributes { read, write });
 
         handle
     }
 
     fn deallocate_file_handle(&self, handle: u64) {
-        let mut handles = self.file_handles.lock().unwrap();
+        let mut handles = self
+            .file_handles
+            .lock()
+            .expect("file_handles lock is poisoned");
         handles.remove(&handle);
     }
 
     fn check_read(&self, handle: u64) -> bool {
-        let handles = self.file_handles.lock().unwrap();
-        handles.get(&handle).unwrap().read
+        let handles = self
+            .file_handles
+            .lock()
+            .expect("file_handles lock is poisoned");
+        if let Some(value) = handles.get(&handle).map(|x| x.read) {
+            return value;
+        } else {
+            error!("Undefined file handle: {}", handle);
+            return false;
+        }
     }
 
     fn check_write(&self, handle: u64) -> bool {
-        let handles = self.file_handles.lock().unwrap();
-        handles.get(&handle).unwrap().write
+        let handles = self
+            .file_handles
+            .lock()
+            .expect("file_handles lock is poisoned");
+        if let Some(value) = handles.get(&handle).map(|x| x.write) {
+            return value;
+        } else {
+            error!("Undefined file handle: {}", handle);
+            return false;
+        }
     }
 }
 
@@ -105,12 +128,18 @@ impl Filesystem for FleetFUSE {
     fn destroy(&mut self, _req: &Request) {}
 
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
         // TODO: avoid this double lookup
-        match self.client.lookup(
-            parent,
-            name.to_str().unwrap(),
-            UserContext::new(req.uid(), req.gid()),
-        ) {
+        match self
+            .client
+            .lookup(parent, name, UserContext::new(req.uid(), req.gid()))
+        {
             Ok(inode) => match self.client.getattr(inode) {
                 Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -244,6 +273,13 @@ impl Filesystem for FleetFUSE {
         _rdev: u32,
         reply: ReplyEntry,
     ) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
         if (mode & (libc::S_IFREG | libc::S_IFLNK)) == 0 {
             // TODO
             warn!("mknod() implementation is incomplete. Only supports regular files and symlinks. Got {:o}", mode);
@@ -251,7 +287,7 @@ impl Filesystem for FleetFUSE {
         } else {
             match self.client.create(
                 parent,
-                name.to_str().unwrap(),
+                name,
                 req.uid(),
                 req.gid(),
                 mode as u16,
@@ -265,13 +301,17 @@ impl Filesystem for FleetFUSE {
 
     fn mkdir(&mut self, req: &Request, parent: u64, name: &OsStr, mode: u32, reply: ReplyEntry) {
         debug!("mkdir() called with {:?} {:?} {:o}", parent, name, mode);
-        match self.client.mkdir(
-            parent,
-            name.to_str().unwrap(),
-            req.uid(),
-            req.gid(),
-            mode as u16,
-        ) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        match self
+            .client
+            .mkdir(parent, name, req.uid(), req.gid(), mode as u16)
+        {
             Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
@@ -279,11 +319,17 @@ impl Filesystem for FleetFUSE {
 
     fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("unlink() called with {:?} {:?}", parent, name);
-        if let Err(error_code) = self.client.unlink(
-            parent,
-            name.to_str().unwrap(),
-            UserContext::new(req.uid(), req.gid()),
-        ) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        if let Err(error_code) =
+            self.client
+                .unlink(parent, name, UserContext::new(req.uid(), req.gid()))
+        {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
@@ -292,11 +338,17 @@ impl Filesystem for FleetFUSE {
 
     fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("rmdir() called with {:?} {:?}", parent, name);
-        if let Err(error_code) = self.client.rmdir(
-            parent,
-            name.to_str().unwrap(),
-            UserContext::new(req.uid(), req.gid()),
-        ) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        if let Err(error_code) =
+            self.client
+                .rmdir(parent, name, UserContext::new(req.uid(), req.gid()))
+        {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
@@ -312,24 +364,42 @@ impl Filesystem for FleetFUSE {
         reply: ReplyEntry,
     ) {
         debug!("symlink() called with {:?} {:?} {:?}", parent, name, link);
-        let name = name.to_str().unwrap();
-        // TODO: Error handling
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        let link = if let Some(value) = link.to_str() {
+            value
+        } else {
+            error!("Link is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+
         match self
             .client
             .create(parent, name, req.uid(), req.gid(), 0o755, FileKind::Symlink)
         {
             Ok(attrs) => {
-                self.client
-                    .truncate(attrs.ino, 0, UserContext::new(req.uid(), req.gid()))
-                    .unwrap();
-                self.client
-                    .write(
-                        attrs.ino,
-                        &Vec::from(link.to_str().unwrap().to_string()),
-                        0,
-                        UserContext::new(req.uid(), req.gid()),
-                    )
-                    .unwrap();
+                if let Err(error_code) =
+                    self.client
+                        .truncate(attrs.ino, 0, UserContext::new(req.uid(), req.gid()))
+                {
+                    reply.error(into_fuse_error(error_code));
+                    return;
+                }
+                if let Err(error_code) = self.client.write(
+                    attrs.ino,
+                    &Vec::from(link.to_string()),
+                    0,
+                    UserContext::new(req.uid(), req.gid()),
+                ) {
+                    reply.error(into_fuse_error(error_code));
+                    return;
+                }
 
                 reply.entry(&Timespec { sec: 0, nsec: 0 }, &attrs, 0);
             }
@@ -346,11 +416,25 @@ impl Filesystem for FleetFUSE {
         new_name: &OsStr,
         reply: ReplyEmpty,
     ) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        let new_name = if let Some(value) = new_name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
         if let Err(error_code) = self.client.rename(
             parent,
-            name.to_str().unwrap(),
+            name,
             new_parent,
-            new_name.to_str().unwrap(),
+            new_name,
             UserContext::new(req.uid(), req.gid()),
         ) {
             reply.error(into_fuse_error(error_code));
@@ -371,10 +455,17 @@ impl Filesystem for FleetFUSE {
             "link() called for {}, {}, {:?}",
             inode, new_parent, new_name
         );
+        let new_name = if let Some(value) = new_name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
         match self.client.hardlink(
             inode,
             new_parent,
-            new_name.to_str().unwrap(),
+            new_name,
             UserContext::new(req.uid(), req.gid()),
         ) {
             Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
@@ -616,7 +707,14 @@ impl Filesystem for FleetFUSE {
         reply: ReplyEmpty,
     ) {
         debug!("setxattr() called with {:?} {:?} {:?}", inode, name, value);
-        if let Err(error_code) = self.client.setxattr(inode, name.to_str().unwrap(), value) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Key is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        if let Err(error_code) = self.client.setxattr(inode, name, value) {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
@@ -625,7 +723,14 @@ impl Filesystem for FleetFUSE {
 
     fn getxattr(&mut self, _req: &Request, inode: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
         debug!("getxattr() called with {:?} {:?}", inode, name);
-        match self.client.getxattr(inode, name.to_str().unwrap()) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Key is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        match self.client.getxattr(inode, name) {
             Ok(data) => {
                 if size == 0 {
                     reply.size(data.len() as u32);
@@ -665,7 +770,14 @@ impl Filesystem for FleetFUSE {
 
     fn removexattr(&mut self, _req: &Request, inode: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("removexattr() called with {:?} {:?}", inode, name);
-        if let Err(error_code) = self.client.removexattr(inode, name.to_str().unwrap()) {
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Key is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
+        if let Err(error_code) = self.client.removexattr(inode, name) {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
@@ -696,6 +808,13 @@ impl Filesystem for FleetFUSE {
         reply: ReplyCreate,
     ) {
         debug!("create() called with {:?} {:?}", parent, name);
+        let name = if let Some(value) = name.to_str() {
+            value
+        } else {
+            error!("Path component is not UTF-8");
+            reply.error(libc::EINVAL);
+            return;
+        };
         let (read, write) = match flags as i32 & libc::O_ACCMODE {
             libc::O_RDONLY => (true, false),
             libc::O_WRONLY => (false, true),
@@ -708,7 +827,7 @@ impl Filesystem for FleetFUSE {
         };
         match self.client.create(
             parent,
-            name.to_str().unwrap(),
+            name,
             req.uid(),
             req.gid(),
             mode as u16,
