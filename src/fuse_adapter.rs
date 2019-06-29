@@ -93,6 +93,7 @@ impl FleetFUSE {
 fn into_fuse_error(error: ErrorCode) -> c_int {
     match error {
         ErrorCode::DoesNotExist => libc::ENOENT,
+        ErrorCode::InodeDoesNotExist => libc::EBADFD,
         ErrorCode::Uncategorized => libc::EIO,
         ErrorCode::Corrupted => libc::EIO,
         ErrorCode::RaftFailure => libc::EIO,
