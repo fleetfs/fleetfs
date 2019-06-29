@@ -313,14 +313,12 @@ impl RaftManager {
     ) -> impl Future<Item = FlatBufferResponse<'static>, Error = ErrorCode> {
         let uuid: u128 = rand::thread_rng().gen();
 
-        self._propose(uuid, request._tab.buf.to_vec());
-
-        // TODO: fix race. proposal could get accepted before this builder is inserted into response map
         let (sender, receiver) = oneshot::channel();
         {
             let mut pending_responses = self.pending_responses.lock().unwrap();
             pending_responses.insert(uuid, (builder, sender));
         }
+        self._propose(uuid, request._tab.buf.to_vec());
 
         self.process_raft_queue();
 
