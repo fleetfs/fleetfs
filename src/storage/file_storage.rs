@@ -105,11 +105,8 @@ impl FileStorage {
     }
 
     pub fn getattr<'a>(&self, inode: u64, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
-        if let Some(attributes) = self.metadata_storage.get_attributes(inode) {
-            return to_fileattr_response(builder, attributes);
-        } else {
-            return Err(ErrorCode::DoesNotExist);
-        }
+        let attributes = self.metadata_storage.get_attributes(inode)?;
+        return to_fileattr_response(builder, attributes);
     }
 
     pub fn utimens<'a>(
@@ -253,7 +250,7 @@ impl FileStorage {
         inode: u64,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        let attrs = self.metadata_storage.list_xattrs(inode);
+        let attrs = self.metadata_storage.list_xattrs(inode)?;
         return to_xattrs_response(builder, &attrs);
     }
 
@@ -264,7 +261,7 @@ impl FileStorage {
         value: &[u8],
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage.set_xattr(inode, key, value);
+        self.metadata_storage.set_xattr(inode, key, value)?;
         return empty_response(builder);
     }
 
@@ -274,7 +271,7 @@ impl FileStorage {
         key: &str,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage.remove_xattr(inode, key);
+        self.metadata_storage.remove_xattr(inode, key)?;
         return empty_response(builder);
     }
 

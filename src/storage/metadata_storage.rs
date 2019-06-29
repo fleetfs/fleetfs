@@ -93,8 +93,8 @@ impl MetadataStorage {
             return Err(ErrorCode::NameTooLong);
         }
 
-        let directories = self.directories.lock().unwrap();
-        let metadata = self.metadata.lock().unwrap();
+        let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_attrs = metadata.get(&parent).unwrap();
         if !check_access(
             parent_attrs.uid,
@@ -116,7 +116,7 @@ impl MetadataStorage {
     }
 
     pub fn read(&self, inode: Inode, context: UserContext) -> Result<(), ErrorCode> {
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         if !check_access(
             inode_attrs.uid,
@@ -133,7 +133,7 @@ impl MetadataStorage {
     }
 
     pub fn get_xattr(&self, inode: Inode, key: &str) -> Result<Vec<u8>, ErrorCode> {
-        let metadata = self.metadata.lock().unwrap();
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         if let Some(value) = metadata.get(&inode).unwrap().xattrs.get(key).cloned() {
             Ok(value)
         } else {
@@ -141,31 +141,38 @@ impl MetadataStorage {
         }
     }
 
-    pub fn list_xattrs(&self, inode: Inode) -> Vec<String> {
-        let metadata = self.metadata.lock().unwrap();
-        metadata
+    pub fn list_xattrs(&self, inode: Inode) -> Result<Vec<String>, ErrorCode> {
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        Ok(metadata
             .get(&inode)
             .map(|x| x.xattrs.keys().cloned().collect())
-            .unwrap_or_else(|| vec![])
+            .unwrap_or_else(|| vec![]))
     }
 
-    pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) {
-        let mut metadata = self.metadata.lock().unwrap();
+    pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.xattrs.insert(key.to_string(), value.to_vec());
         inode_attrs.last_metadata_changed = now();
+
+        Ok(())
     }
 
-    pub fn remove_xattr(&self, inode: Inode, key: &str) {
-        let mut metadata = self.metadata.lock().unwrap();
+    pub fn remove_xattr(&self, inode: Inode, key: &str) -> Result<(), ErrorCode> {
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         inode_attrs.xattrs.remove(key);
         inode_attrs.last_metadata_changed = now();
+
+        Ok(())
     }
 
     pub fn readdir(&self, inode: Inode) -> Result<Vec<(Inode, String, FileKind)>, ErrorCode> {
-        let directories = self.directories.lock().unwrap();
-        let parents = self.directory_parents.lock().unwrap();
+        let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let parents = self
+            .directory_parents
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
 
         if let Some(entries) = directories.get(&inode) {
             let parent_inode = *parents.get(&inode).unwrap();
@@ -189,7 +196,7 @@ impl MetadataStorage {
         mtime: Option<&Timestamp>,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         let inode_attrs = metadata.get(&inode).unwrap();
         if inode_attrs.uid != context.uid()
@@ -237,7 +244,7 @@ impl MetadataStorage {
         mut mode: u32,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         if context.uid() != 0 && inode_attrs.uid != context.uid() {
             return Err(ErrorCode::OperationNotPermitted);
@@ -258,7 +265,7 @@ impl MetadataStorage {
         gid: Option<u32>,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_metadata = metadata.get_mut(&inode).unwrap();
 
         // Only root can change uid
@@ -295,8 +302,8 @@ impl MetadataStorage {
         new_name: &str,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().unwrap();
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let new_parent_attrs = metadata.get_mut(&new_parent).unwrap();
         if !check_access(
             new_parent_attrs.uid,
@@ -331,9 +338,12 @@ impl MetadataStorage {
         gid: u32,
         mode: u16,
     ) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().unwrap();
-        let mut parents = self.directory_parents.lock().unwrap();
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut parents = self
+            .directory_parents
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_attrs = metadata.get(&parent).unwrap();
         if !check_access(
             parent_attrs.uid,
@@ -384,9 +394,12 @@ impl MetadataStorage {
         new_name: &str,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().unwrap();
-        let mut parents = self.directory_parents.lock().unwrap();
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut parents = self
+            .directory_parents
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
             let parent_attrs = metadata.get(&parent).unwrap();
             if !check_access(
@@ -494,7 +507,7 @@ impl MetadataStorage {
             return Err(ErrorCode::FileTooLarge);
         }
 
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get_mut(&inode).unwrap();
         if !check_access(
             inode_attrs.uid,
@@ -521,8 +534,8 @@ impl MetadataStorage {
         name: &str,
         context: UserContext,
     ) -> Result<Option<Inode>, ErrorCode> {
-        let mut directories = self.directories.lock().unwrap();
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_directory = directories.get_mut(&parent).unwrap();
         let (inode, _) = parent_directory.get(name).unwrap();
 
@@ -563,9 +576,12 @@ impl MetadataStorage {
     }
 
     pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().unwrap();
-        let mut parents = self.directory_parents.lock().unwrap();
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut parents = self
+            .directory_parents
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
             if !directories
                 .get(&inode)
@@ -616,7 +632,7 @@ impl MetadataStorage {
         length: u32,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut metadata = self.metadata.lock().unwrap();
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_metadata = metadata.get_mut(&inode).unwrap();
         if !check_access(
             inode_metadata.uid,
@@ -650,8 +666,8 @@ impl MetadataStorage {
             .lookup(parent, name, UserContext::new(uid, gid))?
             .is_none()
         {
-            let mut directories = self.directories.lock().unwrap();
-            let mut metadata = self.metadata.lock().unwrap();
+            let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+            let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
             let parent_attrs = metadata.get(&parent).unwrap();
             if !check_access(
                 parent_attrs.uid,
@@ -693,9 +709,14 @@ impl MetadataStorage {
         }
     }
 
-    pub fn get_attributes(&self, inode: Inode) -> Option<InodeAttributes> {
+    pub fn get_attributes(&self, inode: Inode) -> Result<InodeAttributes, ErrorCode> {
         // TODO: find a way to avoid this clone()
-        self.metadata.lock().unwrap().get(&inode).cloned()
+        self.metadata
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?
+            .get(&inode)
+            .cloned()
+            .ok_or(ErrorCode::DoesNotExist)
     }
 
     fn allocate_inode(&self) -> u64 {
