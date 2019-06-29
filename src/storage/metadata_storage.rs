@@ -33,8 +33,8 @@ pub struct InodeAttributes {
 }
 
 // TODO: add persistence
+// When acquiring locks on multiple fields, they must be in alphabetical order
 pub struct MetadataStorage {
-    metadata: Mutex<HashMap<Inode, InodeAttributes>>,
     // Directory contents. This is considered metadata rather than data,
     // because it's replicated to all nodes to allow better searching.
     // Maybe we should revisit that design?
@@ -42,6 +42,7 @@ pub struct MetadataStorage {
     directories: Mutex<HashMap<Inode, DirectoryDescriptor>>,
     // Stores mapping of directory inodes to their parent
     directory_parents: Mutex<HashMap<Inode, Inode>>,
+    metadata: Mutex<HashMap<Inode, InodeAttributes>>,
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
@@ -92,6 +93,7 @@ impl MetadataStorage {
             return Err(ErrorCode::NameTooLong);
         }
 
+        let directories = self.directories.lock().unwrap();
         let metadata = self.metadata.lock().unwrap();
         let parent_attrs = metadata.get(&parent).unwrap();
         if !check_access(
@@ -105,7 +107,6 @@ impl MetadataStorage {
             return Err(ErrorCode::AccessDenied);
         }
 
-        let directories = self.directories.lock().unwrap();
         let maybe_inode = directories
             .get(&parent)
             .unwrap()
@@ -294,6 +295,7 @@ impl MetadataStorage {
         new_name: &str,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
+        let mut directories = self.directories.lock().unwrap();
         let mut metadata = self.metadata.lock().unwrap();
         let new_parent_attrs = metadata.get_mut(&new_parent).unwrap();
         if !check_access(
@@ -313,7 +315,6 @@ impl MetadataStorage {
         inode_attrs.hardlinks += 1;
         inode_attrs.last_metadata_changed = now();
 
-        let mut directories = self.directories.lock().unwrap();
         directories
             .get_mut(&new_parent)
             .unwrap()
@@ -330,6 +331,8 @@ impl MetadataStorage {
         gid: u32,
         mode: u16,
     ) -> Result<(), ErrorCode> {
+        let mut directories = self.directories.lock().unwrap();
+        let mut parents = self.directory_parents.lock().unwrap();
         let mut metadata = self.metadata.lock().unwrap();
         let parent_attrs = metadata.get(&parent).unwrap();
         if !check_access(
@@ -344,14 +347,12 @@ impl MetadataStorage {
         }
 
         let inode = self.allocate_inode();
-        let mut directories = self.directories.lock().unwrap();
         directories
             .get_mut(&parent)
             .unwrap()
             .insert(name.to_string(), (inode, FileKind::Directory));
         directories.insert(inode, HashMap::new());
 
-        let mut parents = self.directory_parents.lock().unwrap();
         parents.insert(inode, parent);
 
         let inode_metadata = InodeAttributes {
@@ -384,6 +385,7 @@ impl MetadataStorage {
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
+        let mut parents = self.directory_parents.lock().unwrap();
         let mut metadata = self.metadata.lock().unwrap();
         if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
             let parent_attrs = metadata.get(&parent).unwrap();
@@ -470,7 +472,6 @@ impl MetadataStorage {
 
         let (inode, kind) = entry;
         if kind == FileKind::Directory {
-            let mut parents = self.directory_parents.lock().unwrap();
             parents.insert(inode, new_parent);
         }
 
@@ -521,10 +522,9 @@ impl MetadataStorage {
         context: UserContext,
     ) -> Result<Option<Inode>, ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
+        let mut metadata = self.metadata.lock().unwrap();
         let parent_directory = directories.get_mut(&parent).unwrap();
         let (inode, _) = parent_directory.get(name).unwrap();
-
-        let mut metadata = self.metadata.lock().unwrap();
 
         let parent_attrs = metadata.get(&parent).unwrap();
         if !check_access(
@@ -564,6 +564,7 @@ impl MetadataStorage {
 
     pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
         let mut directories = self.directories.lock().unwrap();
+        let mut parents = self.directory_parents.lock().unwrap();
         let mut metadata = self.metadata.lock().unwrap();
         if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
             if !directories
@@ -602,7 +603,6 @@ impl MetadataStorage {
             metadata.remove(&inode);
             metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
             metadata.get_mut(&parent).unwrap().last_modified = now();
-            let mut parents = self.directory_parents.lock().unwrap();
             parents.remove(&inode);
         }
 
@@ -650,6 +650,7 @@ impl MetadataStorage {
             .lookup(parent, name, UserContext::new(uid, gid))?
             .is_none()
         {
+            let mut directories = self.directories.lock().unwrap();
             let mut metadata = self.metadata.lock().unwrap();
             let parent_attrs = metadata.get(&parent).unwrap();
             if !check_access(
@@ -664,7 +665,6 @@ impl MetadataStorage {
             }
 
             let inode = self.allocate_inode();
-            let mut directories = self.directories.lock().unwrap();
             directories
                 .get_mut(&parent)
                 .unwrap()
