@@ -18,6 +18,7 @@ use futures::Future;
 use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 type PendingResponse = (
     FlatBufferBuilder<'static>,
@@ -29,7 +30,7 @@ pub struct RaftManager {
     pending_responses: Mutex<HashMap<u128, PendingResponse>>,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     leader_requests: Mutex<Vec<Sender<u64>>>,
-    applied_index: Mutex<u64>,
+    applied_index: AtomicU64,
     peers: HashMap<u64, PeerClient>,
     node_id: u64,
     context: LocalContext,
@@ -68,7 +69,7 @@ impl RaftManager {
             pending_responses: Mutex::new(HashMap::new()),
             leader_requests: Mutex::new(vec![]),
             sync_requests: Mutex::new(vec![]),
-            applied_index: Mutex::new(0),
+            applied_index: AtomicU64::new(0),
             peers: context
                 .peers
                 .iter()
@@ -119,7 +120,7 @@ impl RaftManager {
         let raft_node = self.raft_node.lock().unwrap();
 
         if raft_node.raft.leader_id == self.node_id {
-            return *self.applied_index.lock().unwrap();
+            return self.applied_index.load(Ordering::SeqCst);
         }
 
         unreachable!();
@@ -130,7 +131,7 @@ impl RaftManager {
 
         let commit: Box<Future<Item = u64, Error = ()> + Send>;
         if raft_node.raft.leader_id == self.node_id {
-            commit = Box::new(ok(*self.applied_index.lock().unwrap()));
+            commit = Box::new(ok(self.applied_index.load(Ordering::SeqCst)));
         } else if raft_node.raft.leader_id == 0 {
             // TODO: wait for a leader
             commit = Box::new(ok(0));
@@ -164,7 +165,7 @@ impl RaftManager {
         let _raft_node_locked = self.raft_node.lock().unwrap();
 
         let commit: Box<Future<Item = (), Error = ()> + Send> =
-            if *self.applied_index.lock().unwrap() >= index {
+            if self.applied_index.load(Ordering::SeqCst) >= index {
                 Box::new(ok(()))
             } else {
                 let (sender, receiver) = oneshot::channel();
@@ -224,7 +225,7 @@ impl RaftManager {
             raft_node.mut_store().wl().set_hardstate(hard_state.clone());
         }
 
-        let mut applied_index = *self.applied_index.lock().unwrap();
+        let mut applied_index = self.applied_index.load(Ordering::SeqCst);
         if let Some(committed_entries) = ready.committed_entries.take() {
             for entry in committed_entries {
                 // TODO: probably need to save the term too
@@ -283,7 +284,7 @@ impl RaftManager {
             }
         }
 
-        *self.applied_index.lock().unwrap() = applied_index;
+        self.applied_index.store(applied_index, Ordering::SeqCst);
 
         // TODO: once drain_filter is stable, it could be used to make this a lot nicer
         let mut sync_requests = self.sync_requests.lock().unwrap();
