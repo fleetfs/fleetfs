@@ -185,6 +185,7 @@ enum ErrorCode: byte {
   NotEmpty,
   MissingXattrKey,
   BadResponse,
+  BadRequest,
   Corrupted,
   RaftFailure,
   Uncategorized
