@@ -343,7 +343,9 @@ pub fn commit_write<'a, 'b>(
 
     match request.request_type() {
         RequestType::HardlinkRequest => {
-            let hardlink_request = request.request_as_hardlink_request().unwrap();
+            let hardlink_request = request
+                .request_as_hardlink_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.hardlink(
                 hardlink_request.inode(),
                 hardlink_request.new_parent(),
@@ -353,7 +355,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::RenameRequest => {
-            let rename_request = request.request_as_rename_request().unwrap();
+            let rename_request = request
+                .request_as_rename_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.rename(
                 rename_request.parent(),
                 rename_request.name(),
@@ -364,7 +368,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::ChmodRequest => {
-            let chmod_request = request.request_as_chmod_request().unwrap();
+            let chmod_request = request
+                .request_as_chmod_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.chmod(
                 chmod_request.inode(),
                 chmod_request.mode(),
@@ -373,7 +379,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::ChownRequest => {
-            let chown_request = request.request_as_chown_request().unwrap();
+            let chown_request = request
+                .request_as_chown_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.chown(
                 chown_request.inode(),
                 chown_request.uid().map(OptionalUInt::value),
@@ -383,7 +391,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::TruncateRequest => {
-            let truncate_request = request.request_as_truncate_request().unwrap();
+            let truncate_request = request
+                .request_as_truncate_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.truncate(
                 truncate_request.inode(),
                 truncate_request.new_length(),
@@ -392,11 +402,15 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::FsyncRequest => {
-            let fsync_request = request.request_as_fsync_request().unwrap();
+            let fsync_request = request
+                .request_as_fsync_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.fsync(fsync_request.inode(), builder);
         }
         RequestType::CreateRequest => {
-            let create_request = request.request_as_create_request().unwrap();
+            let create_request = request
+                .request_as_create_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.create(
                 create_request.parent(),
                 create_request.name(),
@@ -408,7 +422,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::SetXattrRequest => {
-            let set_xattr_request = request.request_as_set_xattr_request().unwrap();
+            let set_xattr_request = request
+                .request_as_set_xattr_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.set_xattr(
                 set_xattr_request.inode(),
                 set_xattr_request.key(),
@@ -417,7 +433,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::RemoveXattrRequest => {
-            let remove_xattr_request = request.request_as_remove_xattr_request().unwrap();
+            let remove_xattr_request = request
+                .request_as_remove_xattr_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.remove_xattr(
                 remove_xattr_request.inode(),
                 remove_xattr_request.key(),
@@ -425,7 +443,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::UnlinkRequest => {
-            let unlink_request = request.request_as_unlink_request().unwrap();
+            let unlink_request = request
+                .request_as_unlink_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.unlink(
                 unlink_request.parent(),
                 unlink_request.name(),
@@ -434,7 +454,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::RmdirRequest => {
-            let rmdir_request = request.request_as_rmdir_request().unwrap();
+            let rmdir_request = request
+                .request_as_rmdir_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.rmdir(
                 rmdir_request.parent(),
                 rmdir_request.name(),
@@ -443,7 +465,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::WriteRequest => {
-            let write_request = request.request_as_write_request().unwrap();
+            let write_request = request
+                .request_as_write_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.write(
                 write_request.inode(),
                 write_request.offset(),
@@ -453,7 +477,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::UtimensRequest => {
-            let utimens_request = request.request_as_utimens_request().unwrap();
+            let utimens_request = request
+                .request_as_utimens_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.utimens(
                 utimens_request.inode(),
                 utimens_request.atime(),
@@ -463,7 +489,9 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::MkdirRequest => {
-            let mkdir_request = request.request_as_mkdir_request().unwrap();
+            let mkdir_request = request
+                .request_as_mkdir_request()
+                .ok_or(ErrorCode::BadRequest)?;
             response = file_storage.mkdir(
                 mkdir_request.parent(),
                 mkdir_request.name(),
