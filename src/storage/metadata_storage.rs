@@ -524,7 +524,7 @@ impl MetadataStorage {
             .get_mut(&parent)
             .ok_or(ErrorCode::InodeDoesNotExist)?
             .remove(name)
-            .unwrap();
+            .ok_or(ErrorCode::DoesNotExist)?;
         directories
             .get_mut(&new_parent)
             .ok_or(ErrorCode::InodeDoesNotExist)?
@@ -603,7 +603,7 @@ impl MetadataStorage {
         let parent_directory = directories
             .get_mut(&parent)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
-        let (inode, _) = parent_directory.get(name).unwrap();
+        let (inode, _) = parent_directory.get(name).ok_or(ErrorCode::DoesNotExist)?;
 
         let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
@@ -631,7 +631,9 @@ impl MetadataStorage {
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         parent_attrs.last_metadata_changed = now();
         parent_attrs.last_modified = now();
-        let (inode, _) = parent_directory.remove(name).unwrap();
+        let (inode, _) = parent_directory
+            .remove(name)
+            .ok_or(ErrorCode::DoesNotExist)?;
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
