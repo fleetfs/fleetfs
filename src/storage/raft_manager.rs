@@ -11,7 +11,7 @@ use crate::storage::file_storage::FileStorage;
 use crate::storage_node::LocalContext;
 use crate::utils::FlatBufferResponse;
 use flatbuffers::FlatBufferBuilder;
-use futures::future::ok;
+use futures::future::{ok, Either};
 use futures::sync::oneshot;
 use futures::sync::oneshot::Sender;
 use futures::Future;
@@ -143,20 +143,16 @@ impl RaftManager {
         commit
     }
 
-    #[allow(clippy::useless_let_if_seq)]
     pub fn get_leader(&self) -> impl Future<Item = u64, Error = ()> {
         let raft_node = self.raft_node.lock().unwrap();
 
-        let leader: Box<Future<Item = u64, Error = ()> + Send>;
         if raft_node.raft.leader_id > 0 {
-            leader = Box::new(ok(raft_node.raft.leader_id));
+            Either::A(ok(raft_node.raft.leader_id))
         } else {
             let (sender, receiver) = oneshot::channel();
             self.leader_requests.lock().unwrap().push(sender);
-            leader = Box::new(receiver.map_err(|_| ()));
+            Either::B(receiver.map_err(|_| ()))
         }
-
-        leader
     }
 
     // Wait until the given index has been committed
