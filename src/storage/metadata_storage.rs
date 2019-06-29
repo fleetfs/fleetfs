@@ -95,7 +95,7 @@ impl MetadataStorage {
 
         let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let parent_attrs = metadata.get(&parent).unwrap();
+        let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             parent_attrs.uid,
             parent_attrs.gid,
@@ -107,17 +107,15 @@ impl MetadataStorage {
             return Err(ErrorCode::AccessDenied);
         }
 
-        let maybe_inode = directories
-            .get(&parent)
-            .unwrap()
-            .get(name)
-            .map(|(inode, _)| *inode);
+        let maybe_inode = directories[&parent].get(name).map(|(inode, _)| *inode);
         Ok(maybe_inode)
     }
 
     pub fn read(&self, inode: Inode, context: UserContext) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             inode_attrs.uid,
             inode_attrs.gid,
@@ -134,7 +132,13 @@ impl MetadataStorage {
 
     pub fn get_xattr(&self, inode: Inode, key: &str) -> Result<Vec<u8>, ErrorCode> {
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        if let Some(value) = metadata.get(&inode).unwrap().xattrs.get(key).cloned() {
+        if let Some(value) = metadata
+            .get(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .xattrs
+            .get(key)
+            .cloned()
+        {
             Ok(value)
         } else {
             Err(ErrorCode::MissingXattrKey)
@@ -151,7 +155,9 @@ impl MetadataStorage {
 
     pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         inode_attrs.xattrs.insert(key.to_string(), value.to_vec());
         inode_attrs.last_metadata_changed = now();
 
@@ -160,7 +166,9 @@ impl MetadataStorage {
 
     pub fn remove_xattr(&self, inode: Inode, key: &str) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         inode_attrs.xattrs.remove(key);
         inode_attrs.last_metadata_changed = now();
 
@@ -175,7 +183,7 @@ impl MetadataStorage {
             .map_err(|_| ErrorCode::Corrupted)?;
 
         if let Some(entries) = directories.get(&inode) {
-            let parent_inode = *parents.get(&inode).unwrap();
+            let parent_inode = *parents.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
             let mut result: Vec<(Inode, String, FileKind)> = entries
                 .iter()
                 .map(|(name, (inode, kind))| (*inode, name.clone(), *kind))
@@ -198,7 +206,7 @@ impl MetadataStorage {
     ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
 
-        let inode_attrs = metadata.get(&inode).unwrap();
+        let inode_attrs = metadata.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
         if inode_attrs.uid != context.uid()
             && !check_access(
                 inode_attrs.uid,
@@ -245,7 +253,9 @@ impl MetadataStorage {
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         if context.uid() != 0 && inode_attrs.uid != context.uid() {
             return Err(ErrorCode::OperationNotPermitted);
         }
@@ -266,7 +276,9 @@ impl MetadataStorage {
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_metadata = metadata.get_mut(&inode).unwrap();
+        let inode_metadata = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
 
         // Only root can change uid
         if let Some(uid) = uid {
@@ -304,7 +316,9 @@ impl MetadataStorage {
     ) -> Result<(), ErrorCode> {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let new_parent_attrs = metadata.get_mut(&new_parent).unwrap();
+        let new_parent_attrs = metadata
+            .get_mut(&new_parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             new_parent_attrs.uid,
             new_parent_attrs.gid,
@@ -318,13 +332,15 @@ impl MetadataStorage {
         new_parent_attrs.last_modified = now();
         new_parent_attrs.last_metadata_changed = now();
 
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         inode_attrs.hardlinks += 1;
         inode_attrs.last_metadata_changed = now();
 
         directories
             .get_mut(&new_parent)
-            .unwrap()
+            .ok_or(ErrorCode::InodeDoesNotExist)?
             .insert(new_name.to_string(), (inode, inode_attrs.kind));
 
         Ok(())
@@ -344,7 +360,7 @@ impl MetadataStorage {
             .lock()
             .map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let parent_attrs = metadata.get(&parent).unwrap();
+        let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             parent_attrs.uid,
             parent_attrs.gid,
@@ -359,7 +375,7 @@ impl MetadataStorage {
         let inode = self.allocate_inode();
         directories
             .get_mut(&parent)
-            .unwrap()
+            .ok_or(ErrorCode::InodeDoesNotExist)?
             .insert(name.to_string(), (inode, FileKind::Directory));
         directories.insert(inode, HashMap::new());
 
@@ -380,8 +396,14 @@ impl MetadataStorage {
             xattrs: Default::default(),
         };
         metadata.insert(inode, inode_metadata);
-        metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
-        metadata.get_mut(&parent).unwrap().last_modified = now();
+        metadata
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_metadata_changed = now();
+        metadata
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_modified = now();
 
         Ok(())
     }
@@ -400,8 +422,12 @@ impl MetadataStorage {
             .lock()
             .map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
-            let parent_attrs = metadata.get(&parent).unwrap();
+        if let Some((inode, _)) = directories
+            .get(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .get(name)
+        {
+            let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
             if !check_access(
                 parent_attrs.uid,
                 parent_attrs.gid,
@@ -415,7 +441,7 @@ impl MetadataStorage {
 
             // "Sticky bit" handling
             if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-                let inode_attrs = metadata.get(inode).unwrap();
+                let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
                 if context.uid() != 0
                     && context.uid() != parent_attrs.uid
                     && context.uid() != inode_attrs.uid
@@ -424,7 +450,9 @@ impl MetadataStorage {
                 }
             }
 
-            let new_parent_attrs = metadata.get(&new_parent).unwrap();
+            let new_parent_attrs = metadata
+                .get(&new_parent)
+                .ok_or(ErrorCode::InodeDoesNotExist)?;
             if !check_access(
                 new_parent_attrs.uid,
                 new_parent_attrs.gid,
@@ -438,8 +466,14 @@ impl MetadataStorage {
 
             // "Sticky bit" handling in new_parent
             if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-                if let Some((new_inode, _)) = directories.get(&new_parent).unwrap().get(new_name) {
-                    let new_inode_attrs = metadata.get(new_inode).unwrap();
+                if let Some((new_inode, _)) = directories
+                    .get(&new_parent)
+                    .ok_or(ErrorCode::InodeDoesNotExist)?
+                    .get(new_name)
+                {
+                    let new_inode_attrs = metadata
+                        .get(new_inode)
+                        .ok_or(ErrorCode::InodeDoesNotExist)?;
                     if context.uid() != 0
                         && context.uid() != new_parent_attrs.uid
                         && context.uid() != new_inode_attrs.uid
@@ -450,10 +484,19 @@ impl MetadataStorage {
             }
 
             // Only overwrite an existing directory if it's empty
-            if let Some((new_inode, _)) = directories.get(&new_parent).unwrap().get(new_name) {
-                let new_inode_attrs = metadata.get(new_inode).unwrap();
+            if let Some((new_inode, _)) = directories
+                .get(&new_parent)
+                .ok_or(ErrorCode::InodeDoesNotExist)?
+                .get(new_name)
+            {
+                let new_inode_attrs = metadata
+                    .get(new_inode)
+                    .ok_or(ErrorCode::InodeDoesNotExist)?;
                 if new_inode_attrs.kind == FileKind::Directory
-                    && !directories.get(&new_inode).unwrap().is_empty()
+                    && !directories
+                        .get(&new_inode)
+                        .ok_or(ErrorCode::InodeDoesNotExist)?
+                        .is_empty()
                 {
                     return Err(ErrorCode::NotEmpty);
                 }
@@ -461,7 +504,7 @@ impl MetadataStorage {
 
             // Only move an existing directory to a new parent, if we have write access to it,
             // because that will change the ".." link in it
-            let inode_attrs = metadata.get(inode).unwrap();
+            let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
             if inode_attrs.kind == FileKind::Directory
                 && parent != new_parent
                 && !check_access(
@@ -477,10 +520,14 @@ impl MetadataStorage {
             }
         }
 
-        let entry = directories.get_mut(&parent).unwrap().remove(name).unwrap();
+        let entry = directories
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .remove(name)
+            .unwrap();
         directories
             .get_mut(&new_parent)
-            .unwrap()
+            .ok_or(ErrorCode::InodeDoesNotExist)?
             .insert(new_name.to_string(), entry);
 
         let (inode, kind) = entry;
@@ -488,11 +535,26 @@ impl MetadataStorage {
             parents.insert(inode, new_parent);
         }
 
-        metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
-        metadata.get_mut(&parent).unwrap().last_modified = now();
-        metadata.get_mut(&new_parent).unwrap().last_metadata_changed = now();
-        metadata.get_mut(&new_parent).unwrap().last_modified = now();
-        metadata.get_mut(&inode).unwrap().last_metadata_changed = now();
+        metadata
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_metadata_changed = now();
+        metadata
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_modified = now();
+        metadata
+            .get_mut(&new_parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_metadata_changed = now();
+        metadata
+            .get_mut(&new_parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_modified = now();
+        metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .last_metadata_changed = now();
 
         Ok(())
     }
@@ -508,7 +570,9 @@ impl MetadataStorage {
         }
 
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             inode_attrs.uid,
             inode_attrs.gid,
@@ -536,10 +600,12 @@ impl MetadataStorage {
     ) -> Result<Option<Inode>, ErrorCode> {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let parent_directory = directories.get_mut(&parent).unwrap();
+        let parent_directory = directories
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         let (inode, _) = parent_directory.get(name).unwrap();
 
-        let parent_attrs = metadata.get(&parent).unwrap();
+        let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             parent_attrs.uid,
             parent_attrs.gid,
@@ -554,17 +620,21 @@ impl MetadataStorage {
         let uid = context.uid();
         // "Sticky bit" handling
         if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-            let inode_attrs = metadata.get(inode).unwrap();
+            let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
             if uid != 0 && uid != parent_attrs.uid && uid != inode_attrs.uid {
                 return Err(ErrorCode::AccessDenied);
             }
         }
 
-        let parent_attrs = metadata.get_mut(&parent).unwrap();
+        let parent_attrs = metadata
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         parent_attrs.last_metadata_changed = now();
         parent_attrs.last_modified = now();
         let (inode, _) = parent_directory.remove(name).unwrap();
-        let inode_attrs = metadata.get_mut(&inode).unwrap();
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         inode_attrs.hardlinks -= 1;
         inode_attrs.last_metadata_changed = now();
         if inode_attrs.hardlinks == 0 {
@@ -582,7 +652,11 @@ impl MetadataStorage {
             .lock()
             .map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        if let Some((inode, _)) = directories.get(&parent).unwrap().get(name) {
+        if let Some((inode, _)) = directories
+            .get(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .get(name)
+        {
             if !directories
                 .get(&inode)
                 .map(HashMap::is_empty)
@@ -590,7 +664,7 @@ impl MetadataStorage {
             {
                 return Err(ErrorCode::NotEmpty);
             }
-            let parent_attrs = metadata.get(&parent).unwrap();
+            let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
             if !check_access(
                 parent_attrs.uid,
                 parent_attrs.gid,
@@ -604,7 +678,7 @@ impl MetadataStorage {
 
             // "Sticky bit" handling
             if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-                let inode_attrs = metadata.get(inode).unwrap();
+                let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
                 if context.uid() != 0
                     && context.uid() != parent_attrs.uid
                     && context.uid() != inode_attrs.uid
@@ -614,11 +688,21 @@ impl MetadataStorage {
             }
         }
 
-        if let Some((inode, _)) = directories.get_mut(&parent).unwrap().remove(name) {
+        if let Some((inode, _)) = directories
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .remove(name)
+        {
             directories.remove(&inode);
             metadata.remove(&inode);
-            metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
-            metadata.get_mut(&parent).unwrap().last_modified = now();
+            metadata
+                .get_mut(&parent)
+                .ok_or(ErrorCode::InodeDoesNotExist)?
+                .last_metadata_changed = now();
+            metadata
+                .get_mut(&parent)
+                .ok_or(ErrorCode::InodeDoesNotExist)?
+                .last_modified = now();
             parents.remove(&inode);
         }
 
@@ -633,7 +717,9 @@ impl MetadataStorage {
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_metadata = metadata.get_mut(&inode).unwrap();
+        let inode_metadata = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             inode_metadata.uid,
             inode_metadata.gid,
@@ -668,7 +754,7 @@ impl MetadataStorage {
         {
             let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
             let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-            let parent_attrs = metadata.get(&parent).unwrap();
+            let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
             if !check_access(
                 parent_attrs.uid,
                 parent_attrs.gid,
@@ -683,7 +769,7 @@ impl MetadataStorage {
             let inode = self.allocate_inode();
             directories
                 .get_mut(&parent)
-                .unwrap()
+                .ok_or(ErrorCode::InodeDoesNotExist)?
                 .insert(name.to_string(), (inode, FileKind::File));
 
             let inode_metadata = InodeAttributes {
@@ -701,8 +787,14 @@ impl MetadataStorage {
                 xattrs: Default::default(),
             };
             metadata.insert(inode, inode_metadata.clone());
-            metadata.get_mut(&parent).unwrap().last_metadata_changed = now();
-            metadata.get_mut(&parent).unwrap().last_modified = now();
+            metadata
+                .get_mut(&parent)
+                .ok_or(ErrorCode::InodeDoesNotExist)?
+                .last_metadata_changed = now();
+            metadata
+                .get_mut(&parent)
+                .ok_or(ErrorCode::InodeDoesNotExist)?
+                .last_modified = now();
             Ok((inode, inode_metadata))
         } else {
             Err(ErrorCode::AlreadyExists)

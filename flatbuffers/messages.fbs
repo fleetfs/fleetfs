@@ -177,6 +177,7 @@ root_type GenericRequest;
 enum ErrorCode: byte {
   DefaultValueNotAnError = 0,
   DoesNotExist,
+  InodeDoesNotExist,
   FileTooLarge,
   AccessDenied,
   OperationNotPermitted,
