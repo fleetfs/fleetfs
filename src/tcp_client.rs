@@ -32,10 +32,10 @@ impl TcpClient {
             let stream = TcpStream::connect_timeout(&self.server, Duration::from_secs(TIMEOUT))?;
             stream
                 .set_read_timeout(Some(Duration::from_secs(TIMEOUT)))
-                .unwrap();
+                .expect("Timeout cannot be zero");
             stream
                 .set_write_timeout(Some(Duration::from_secs(TIMEOUT)))
-                .unwrap();
+                .expect("Timeout cannot be zero");
             locked.replace(stream);
         }
 
@@ -48,10 +48,10 @@ impl TcpClient {
                 stream = TcpStream::connect_timeout(&self.server, Duration::from_secs(TIMEOUT))?;
                 stream
                     .set_read_timeout(Some(Duration::from_secs(TIMEOUT)))
-                    .unwrap();
+                    .expect("Timeout cannot be zero");
                 stream
                     .set_write_timeout(Some(Duration::from_secs(TIMEOUT)))
-                    .unwrap();
+                    .expect("Timeout cannot be zero");
                 stream.write_all(data)?;
             }
         }
