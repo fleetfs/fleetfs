@@ -5,7 +5,7 @@ use crate::peer_client::PeerClient;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
 use crate::utils::into_error_code;
-use futures::future::join_all;
+use futures::future::{err, join_all, Either};
 use log::info;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -181,8 +181,12 @@ impl DataStorage {
         global_offset: u64,
         global_size: u32,
     ) -> impl Future<Item = Vec<u8>, Error = ErrorCode> {
-        // TODO: error handling
-        let local_data = self.read_raw(inode, global_offset, global_size).unwrap();
+        let local_data = match self.read_raw(inode, global_offset, global_size) {
+            Ok(value) => value,
+            Err(error) => {
+                return Either::A(err(into_error_code(error)));
+            }
+        };
 
         let mut remote_data_blocks = vec![];
         for node_id in self.node_ids.iter() {
@@ -197,7 +201,7 @@ impl DataStorage {
         }
 
         let local_rank = self.local_rank;
-        join_all(remote_data_blocks)
+        let result = join_all(remote_data_blocks)
             .map(move |mut data_blocks| {
                 data_blocks.insert(local_rank as usize, local_data);
 
@@ -220,7 +224,9 @@ impl DataStorage {
 
                 result
             })
-            .map_err(into_error_code)
+            .map_err(into_error_code);
+
+        Either::B(result)
     }
 
     pub fn truncate(&self, inode: u64, global_length: u64) -> io::Result<()> {
