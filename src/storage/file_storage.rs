@@ -7,9 +7,9 @@ use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
 use crate::utils::{
-    empty_response, into_error_code, to_fileattr_response, to_inode_response, to_read_response,
-    to_write_response, to_xattrs_response, FlatBufferResponse, FutureResultResponse,
-    ResultResponse,
+    empty_response, into_error_code, to_fast_read_response, to_fileattr_response,
+    to_inode_response, to_read_response, to_write_response, to_xattrs_response, FlatBufferResponse,
+    FlatBufferWithResponse, FutureResultResponse, ResultResponse,
 };
 use futures::future::err;
 use futures::Future;
@@ -188,12 +188,12 @@ impl FileStorage {
         offset: u64,
         read_size: u32,
         builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
+    ) -> FlatBufferWithResponse<'a> {
         let data = self
             .data_storage
             .read_raw(inode, offset, read_size)
-            .map_err(into_error_code)?;
-        return to_read_response(builder, &data);
+            .map_err(into_error_code);
+        return to_fast_read_response(builder, data);
     }
 
     pub fn write<'a>(
