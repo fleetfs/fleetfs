@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 
 use flatbuffers::FlatBufferBuilder;
+use futures::future::Future;
 use futures::Stream;
 use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
@@ -10,7 +11,6 @@ use tokio::prelude::*;
 use crate::generated::get_root_as_generic_request;
 use crate::handlers::request_router;
 use crate::storage::raft_manager::RaftManager;
-use crate::utils::WritableFlatBuffer;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -81,10 +81,7 @@ impl Node {
 
                     let response = request_router(request, cloned_raft.clone(), builder);
                     response
-                        .map(|builder| {
-                            let writable = WritableFlatBuffer::new(builder);
-                            tokio::io::write_all(writer, writable)
-                        })
+                        .map(|response| tokio::io::write_all(writer, response))
                         .flatten()
                         .map(|(writer, written)| (writer, written.into_buffer()))
                 });
