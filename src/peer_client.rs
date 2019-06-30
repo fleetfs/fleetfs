@@ -10,6 +10,7 @@ use futures::Future;
 use log::error;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
+use std::slice::from_raw_parts;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
 
@@ -132,12 +133,12 @@ impl PeerClient {
             })
     }
 
-    pub fn read_raw(
+    pub fn read_raw<'a>(
         &self,
         inode: u64,
         offset: u64,
         size: u32,
-    ) -> impl Future<Item = Vec<u8>, Error = std::io::Error> {
+    ) -> impl Future<Item = OwnedReadResponse<'a>, Error = std::io::Error> {
         let mut builder = FlatBufferBuilder::new();
         let mut request_builder = ReadRawRequestBuilder::new(&mut builder);
         request_builder.add_offset(offset);
@@ -148,12 +149,40 @@ impl PeerClient {
 
         self.send_and_receive_length_prefixed(WritableFlatBuffer::new(builder))
             .map(|response| {
-                response_or_error(&response)
-                    .unwrap()
-                    .response_as_read_response()
-                    .unwrap()
-                    .data()
-                    .to_vec()
+                // TODO: Error handling
+                OwnedReadResponse::new(response).unwrap()
             })
+    }
+}
+
+// This struct is only used for performance reasons to avoid calling .to_vec() in read_raw()
+pub struct OwnedReadResponse<'a> {
+    response: Vec<u8>,
+    data: &'a [u8],
+}
+
+impl<'a> OwnedReadResponse<'a> {
+    fn new(response: Vec<u8>) -> Result<OwnedReadResponse<'a>, ErrorCode> {
+        unsafe {
+            let generic_response = response_or_error(&response)?;
+            let data = generic_response.response_as_read_response().unwrap().data();
+
+            // cast away the borrow of generic_response, since this is just a pointer into response
+            let unsafe_data = from_raw_parts::<'a, u8>(data.as_ptr(), data.len());
+            Ok(OwnedReadResponse {
+                response,
+                data: unsafe_data,
+            })
+        }
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.response
+    }
+}
+
+impl<'a> AsRef<[u8]> for OwnedReadResponse<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.data
     }
 }

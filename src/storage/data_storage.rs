@@ -202,8 +202,10 @@ impl DataStorage {
 
         let local_rank = self.local_rank;
         let result = join_all(remote_data_blocks)
-            .map(move |mut data_blocks| {
-                data_blocks.insert(local_rank as usize, local_data);
+            .map(move |fetched_data_blocks| {
+                let mut data_blocks: Vec<&[u8]> =
+                    fetched_data_blocks.iter().map(AsRef::as_ref).collect();
+                data_blocks.insert(local_rank as usize, &local_data);
 
                 let mut result = Vec::with_capacity(global_size as usize);
                 let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
