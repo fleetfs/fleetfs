@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 
 use crate::generated::*;
-use crate::utils::{finalize_request, response_or_error};
+use crate::utils::{finalize_request, response_or_error, WritableFlatBuffer};
 use byteorder::{ByteOrder, LittleEndian};
 use futures::future::ok;
 use futures::Future;
@@ -49,9 +49,9 @@ impl PeerClient {
         }
     }
 
-    pub fn send_and_receive_length_prefixed(
+    pub fn send_and_receive_length_prefixed<T: AsRef<[u8]>>(
         &self,
-        data: Vec<u8>,
+        data: T,
     ) -> impl Future<Item = Vec<u8>, Error = std::io::Error> {
         let pool = self.pool.clone();
 
@@ -146,7 +146,7 @@ impl PeerClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRawRequest, finish_offset);
 
-        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
+        self.send_and_receive_length_prefixed(WritableFlatBuffer::new(builder))
             .map(|response| {
                 response_or_error(&response)
                     .unwrap()
