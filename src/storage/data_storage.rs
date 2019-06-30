@@ -205,19 +205,21 @@ impl DataStorage {
             .map(move |mut data_blocks| {
                 data_blocks.insert(local_rank as usize, local_data);
 
-                let mut result = vec![];
+                let mut result = Vec::with_capacity(global_size as usize);
                 let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
                 let first_block_size = data_blocks[0].len();
-                result.extend(
-                    data_blocks[0].drain(0..min(partial_first_block as usize, first_block_size)),
-                );
+                let mut indices = vec![0; data_blocks.len()];
+                let first_block_read = min(partial_first_block as usize, first_block_size);
+                result.extend(&data_blocks[0][0..first_block_read]);
+                indices[0] = first_block_read;
 
                 let mut next_block = min(1, data_blocks.len() - 1);
-                while !data_blocks[next_block].is_empty() {
-                    let remaining = data_blocks[next_block].len();
-                    result.extend(
-                        data_blocks[next_block].drain(0..min(BLOCK_SIZE as usize, remaining)),
-                    );
+                while indices[next_block] < data_blocks[next_block].len() {
+                    let index = indices[next_block];
+                    let remaining = data_blocks[next_block].len() - index;
+                    let block_read = min(BLOCK_SIZE as usize, remaining);
+                    result.extend(&data_blocks[next_block][index..(index + block_read)]);
+                    indices[next_block] += block_read;
                     next_block += 1;
                     next_block %= data_blocks.len();
                 }
