@@ -5,7 +5,7 @@ use crate::utils::{
     empty_response, finalize_response, FlatBufferWithResponse, FutureResultResponse,
 };
 use flatbuffers::FlatBufferBuilder;
-use futures::future::{err, ok, result};
+use futures::future::{err, ok, result, Either};
 use futures::Future;
 use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;
@@ -58,7 +58,7 @@ pub fn request_router(
         }
         RequestType::ReadRawRequest => {
             if let Some(read_request) = request.request_as_read_raw_request() {
-                response = Box::new(result(raft.file_storage().read_raw(
+                return Either::A(ok(raft.file_storage().read_raw(
                     read_request.inode(),
                     read_request.offset(),
                     read_request.read_size(),
@@ -189,18 +189,20 @@ pub fn request_router(
         RequestType::NONE => unreachable!(),
     }
 
-    response
-        .map(|(mut builder, response_type, response_offset)| {
-            finalize_response(&mut builder, response_type, response_offset);
-            builder
-        })
-        .or_else(|error_code| {
-            let mut builder = FlatBufferBuilder::new();
-            let args = ErrorResponseArgs { error_code };
-            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-            finalize_response(&mut builder, ResponseType::ErrorResponse, response_offset);
+    Either::B(
+        response
+            .map(|(mut builder, response_type, response_offset)| {
+                finalize_response(&mut builder, response_type, response_offset);
+                builder
+            })
+            .or_else(|error_code| {
+                let mut builder = FlatBufferBuilder::new();
+                let args = ErrorResponseArgs { error_code };
+                let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+                finalize_response(&mut builder, ResponseType::ErrorResponse, response_offset);
 
-            Ok(builder)
-        })
-        .map(FlatBufferWithResponse::new)
+                Ok(builder)
+            })
+            .map(FlatBufferWithResponse::new),
+    )
 }

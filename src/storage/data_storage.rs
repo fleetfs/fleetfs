@@ -4,7 +4,7 @@ use crate::generated::ErrorCode;
 use crate::peer_client::PeerClient;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
-use crate::utils::into_error_code;
+use crate::utils::{into_error_code, LengthPrefixedVec};
 use futures::future::{err, join_all, Either};
 use log::info;
 use std::cmp::min;
@@ -152,7 +152,7 @@ impl DataStorage {
         inode: u64,
         global_offset: u64,
         global_size: u32,
-    ) -> io::Result<Vec<u8>> {
+    ) -> io::Result<LengthPrefixedVec> {
         assert_ne!(inode, ROOT_INODE);
 
         let local_start =
@@ -168,8 +168,8 @@ impl DataStorage {
         let size = local_end - local_start;
         let file = File::open(self.to_local_path(&inode.to_string()))?;
 
-        let mut contents = vec![0; size as usize];
-        let bytes_read = file.read_at(&mut contents, local_start)?;
+        let mut contents = LengthPrefixedVec::zeros(size as usize);
+        let bytes_read = file.read_at(contents.bytes_mut(), local_start)?;
         contents.truncate(bytes_read);
 
         Ok(contents)
@@ -205,7 +205,7 @@ impl DataStorage {
             .map(move |fetched_data_blocks| {
                 let mut data_blocks: Vec<&[u8]> =
                     fetched_data_blocks.iter().map(AsRef::as_ref).collect();
-                data_blocks.insert(local_rank as usize, &local_data);
+                data_blocks.insert(local_rank as usize, local_data.bytes());
 
                 let mut result = Vec::with_capacity(global_size as usize);
                 let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;

@@ -3,6 +3,7 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use crate::generated::*;
 use crate::storage::data_storage::BLOCK_SIZE;
 use crate::storage::metadata_storage::InodeAttributes;
+use byteorder::{ByteOrder, LittleEndian};
 use futures::Future;
 use std::fs::File;
 use std::io;
@@ -77,7 +78,7 @@ pub fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
 // along, so that it can be reused.
 pub struct FlatBufferWithResponse<'a> {
     buffer: FlatBufferBuilder<'a>,
-    response: Option<Vec<u8>>,
+    response: Option<LengthPrefixedVec>,
 }
 
 impl<'a> FlatBufferWithResponse<'a> {
@@ -90,7 +91,7 @@ impl<'a> FlatBufferWithResponse<'a> {
 
     pub fn with_separate_response(
         buffer: FlatBufferBuilder<'a>,
-        response: Vec<u8>,
+        response: LengthPrefixedVec,
     ) -> FlatBufferWithResponse<'a> {
         FlatBufferWithResponse {
             buffer,
@@ -106,7 +107,7 @@ impl<'a> FlatBufferWithResponse<'a> {
 impl<'a> AsRef<[u8]> for FlatBufferWithResponse<'a> {
     fn as_ref(&self) -> &[u8] {
         if let Some(ref response) = self.response {
-            response
+            response.length_prefixed_bytes()
         } else {
             self.buffer.finished_data()
         }
@@ -134,6 +135,23 @@ pub fn to_xattrs_response<'a, T: AsRef<str>>(
     let response_offset = response_builder.finish().as_union_value();
 
     return Ok((builder, ResponseType::XattrsResponse, response_offset));
+}
+
+pub fn to_fast_read_response(
+    builder: FlatBufferBuilder,
+    response: Result<LengthPrefixedVec, ErrorCode>,
+) -> FlatBufferWithResponse {
+    match response {
+        Ok(mut data) => {
+            data.push(ErrorCode::DefaultValueNotAnError as u8);
+            FlatBufferWithResponse::with_separate_response(builder, data)
+        }
+        Err(error_code) => {
+            let mut data = LengthPrefixedVec::zeros(0);
+            data.push(error_code as u8);
+            FlatBufferWithResponse::with_separate_response(builder, data)
+        }
+    }
 }
 
 pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
@@ -210,4 +228,40 @@ pub fn check_access(
     }
 
     return access_mask == 0;
+}
+
+pub struct LengthPrefixedVec {
+    data: Vec<u8>,
+}
+
+impl LengthPrefixedVec {
+    pub fn zeros(length: usize) -> LengthPrefixedVec {
+        let mut data = vec![0; length + 4];
+        LittleEndian::write_u32(&mut data, length as u32);
+        LengthPrefixedVec { data }
+    }
+
+    pub fn length_prefixed_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.data[4..]
+    }
+
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.data[4..]
+    }
+
+    pub fn truncate(&mut self, new_length: usize) {
+        self.data.truncate(new_length + 4);
+        let length = self.data.len() as u32;
+        LittleEndian::write_u32(&mut self.data, length - 4);
+    }
+
+    pub fn push(&mut self, value: u8) {
+        self.data.push(value);
+        let length = self.data.len() as u32;
+        LittleEndian::write_u32(&mut self.data, length - 4);
+    }
 }
