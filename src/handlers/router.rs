@@ -1,7 +1,9 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::storage::raft_manager::RaftManager;
-use crate::utils::{empty_response, finalize_response, FutureResultResponse};
+use crate::utils::{
+    empty_response, finalize_response, FlatBufferWithResponse, FutureResultResponse,
+};
 use flatbuffers::FlatBufferBuilder;
 use futures::future::{err, ok, result};
 use futures::Future;
@@ -22,7 +24,7 @@ pub fn request_router(
     request: GenericRequest,
     raft: Arc<RaftManager>,
     mut builder: FlatBufferBuilder<'static>,
-) -> impl Future<Item = FlatBufferBuilder<'static>, Error = std::io::Error> {
+) -> impl Future<Item = FlatBufferWithResponse<'static>, Error = std::io::Error> {
     let response: Box<FutureResultResponse<'static>>;
 
     match request.request_type() {
@@ -200,4 +202,5 @@ pub fn request_router(
 
             Ok(builder)
         })
+        .map(FlatBufferWithResponse::new)
 }
