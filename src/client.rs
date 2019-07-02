@@ -10,7 +10,7 @@ use crate::generated::*;
 use crate::storage::data_storage::BLOCK_SIZE;
 use crate::storage::ROOT_INODE;
 use crate::tcp_client::TcpClient;
-use crate::utils::{finalize_request, response_or_error};
+use crate::utils::{decode_fast_read_response_inplace, finalize_request, response_or_error};
 use fuse::FileAttr;
 
 fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
@@ -79,6 +79,17 @@ impl NodeClient {
             .response_buffer
             .get_or(|| Box::new(RefCell::new(vec![])))
             .borrow_mut();
+    }
+
+    fn send_receive_raw<'b>(
+        &self,
+        request: &[u8],
+        buffer: &'b mut Vec<u8>,
+    ) -> Result<&'b mut Vec<u8>, ErrorCode> {
+        self.tcp_client
+            .send_and_receive_length_prefixed(request, buffer.as_mut())
+            .map_err(|_| ErrorCode::Uncategorized)?;
+        Ok(buffer)
     }
 
     fn send<'b>(
@@ -455,18 +466,8 @@ impl NodeClient {
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = match self.send(builder.finished_data(), &mut buffer) {
-            Ok(response) => response,
-            Err(e) => {
-                return Err(e);
-            }
-        };
-
-        Ok(response
-            .response_as_read_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .data()
-            .to_vec())
+        let response = self.send_receive_raw(builder.finished_data(), &mut buffer)?;
+        decode_fast_read_response_inplace(response).map(Clone::clone)
     }
 
     pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(
@@ -489,18 +490,22 @@ impl NodeClient {
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = match self.send(builder.finished_data(), &mut buffer) {
-            Ok(response) => response,
+        match self.send_receive_raw(builder.finished_data(), &mut buffer) {
+            Ok(response) => match decode_fast_read_response_inplace(response) {
+                Ok(data) => {
+                    callback(Ok(data));
+                    return;
+                }
+                Err(e) => {
+                    callback(Err(e));
+                    return;
+                }
+            },
             Err(e) => {
                 callback(Err(e));
                 return;
             }
         };
-        if let Some(read_response) = response.response_as_read_response() {
-            callback(Ok(read_response.data()));
-        } else {
-            callback(Err(ErrorCode::BadResponse));
-        }
     }
 
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuse::FileType)>, ErrorCode> {

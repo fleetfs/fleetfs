@@ -4,6 +4,7 @@ use crate::generated::*;
 use crate::storage::data_storage::BLOCK_SIZE;
 use crate::storage::metadata_storage::InodeAttributes;
 use byteorder::{ByteOrder, LittleEndian};
+use flatbuffers::EndianScalar;
 use futures::Future;
 use std::fs::File;
 use std::io;
@@ -154,6 +155,17 @@ pub fn to_fast_read_response(
     }
 }
 
+pub fn decode_fast_read_response_inplace(response: &mut Vec<u8>) -> Result<&Vec<u8>, ErrorCode> {
+    let value = response.pop().unwrap().from_little_endian() as i8;
+    let p = &value as *const i8 as *const ErrorCode;
+    let error_code = unsafe { *p };
+    if error_code == ErrorCode::DefaultValueNotAnError {
+        Ok(response)
+    } else {
+        Err(error_code)
+    }
+}
+
 pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
     let data_offset = builder.create_vector_direct(data);
     let mut response_builder = ReadResponseBuilder::new(&mut builder);
@@ -235,6 +247,12 @@ pub struct LengthPrefixedVec {
 }
 
 impl LengthPrefixedVec {
+    pub fn with_capacity(length: usize) -> LengthPrefixedVec {
+        let mut data = Vec::with_capacity(length + 4);
+        data.extend(vec![0; 4]);
+        LengthPrefixedVec { data }
+    }
+
     pub fn zeros(length: usize) -> LengthPrefixedVec {
         let mut data = vec![0; length + 4];
         LittleEndian::write_u32(&mut data, length as u32);
@@ -251,6 +269,12 @@ impl LengthPrefixedVec {
 
     pub fn bytes_mut(&mut self) -> &mut [u8] {
         &mut self.data[4..]
+    }
+
+    pub fn extend<'a, T: IntoIterator<Item = &'a u8>>(&mut self, iter: T) {
+        self.data.extend(iter);
+        let length = self.data.len() as u32;
+        LittleEndian::write_u32(&mut self.data, length - 4);
     }
 
     pub fn truncate(&mut self, new_length: usize) {
