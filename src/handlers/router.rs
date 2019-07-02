@@ -51,19 +51,22 @@ pub fn request_router(
                             .read(inode, offset, read_size, user_context, builder)
                     })
                     .flatten();
-                response = Box::new(response_after_sync);
+                return Either::A(Either::A(
+                    response_after_sync
+                        .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other)),
+                ));
             } else {
                 response = Box::new(err(ErrorCode::BadRequest));
             }
         }
         RequestType::ReadRawRequest => {
             if let Some(read_request) = request.request_as_read_raw_request() {
-                return Either::A(ok(raft.file_storage().read_raw(
+                return Either::A(Either::B(ok(raft.file_storage().read_raw(
                     read_request.inode(),
                     read_request.offset(),
                     read_request.read_size(),
                     builder,
-                )));
+                ))));
             } else {
                 response = Box::new(err(ErrorCode::BadRequest));
             }

@@ -180,7 +180,7 @@ impl DataStorage {
         inode: u64,
         global_offset: u64,
         global_size: u32,
-    ) -> impl Future<Item = Vec<u8>, Error = ErrorCode> {
+    ) -> impl Future<Item = LengthPrefixedVec, Error = ErrorCode> {
         let local_data = match self.read_raw(inode, global_offset, global_size) {
             Ok(value) => value,
             Err(error) => {
@@ -207,7 +207,7 @@ impl DataStorage {
                     fetched_data_blocks.iter().map(AsRef::as_ref).collect();
                 data_blocks.insert(local_rank as usize, local_data.bytes());
 
-                let mut result = Vec::with_capacity(global_size as usize);
+                let mut result = LengthPrefixedVec::with_capacity(global_size as usize);
                 let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
                 let first_block_size = data_blocks[0].len();
                 let mut indices = vec![0; data_blocks.len()];

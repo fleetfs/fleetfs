@@ -8,10 +8,10 @@ use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
 use crate::utils::{
     empty_response, into_error_code, to_fast_read_response, to_fileattr_response,
-    to_inode_response, to_read_response, to_write_response, to_xattrs_response, FlatBufferResponse,
-    FlatBufferWithResponse, FutureResultResponse, ResultResponse,
+    to_inode_response, to_read_response, to_write_response, to_xattrs_response,
+    FlatBufferWithResponse, ResultResponse,
 };
-use futures::future::err;
+use futures::future::{ok, Either};
 use futures::Future;
 
 pub struct FileStorage {
@@ -169,17 +169,15 @@ impl FileStorage {
         read_size: u32,
         context: UserContext,
         builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Item = FlatBufferResponse<'static>, Error = ErrorCode> {
-        let result: Box<FutureResultResponse>;
+    ) -> impl Future<Item = FlatBufferWithResponse<'static>, Error = ErrorCode> {
         if let Err(error_code) = self.metadata_storage.read(inode, context) {
-            result = Box::new(err(error_code));
+            Either::A(ok(to_fast_read_response(builder, Err(error_code))))
         } else {
             let read_result = self.data_storage.read(inode, offset, read_size);
-            result =
-                Box::new(read_result.map(move |data| to_read_response(builder, &data).unwrap()));
+            Either::B(
+                read_result.then(move |response| Ok(to_fast_read_response(builder, response))),
+            )
         }
-
-        return result;
     }
 
     pub fn read_raw<'a>(
