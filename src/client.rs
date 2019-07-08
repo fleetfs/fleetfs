@@ -508,6 +508,31 @@ impl NodeClient {
         };
     }
 
+    pub fn read_to_vec(
+        &self,
+        inode: u64,
+        offset: u64,
+        size: u32,
+        context: UserContext,
+    ) -> Result<Vec<u8>, ErrorCode> {
+        assert_ne!(inode, ROOT_INODE);
+
+        let mut builder = self.get_or_create_builder();
+        let mut request_builder = ReadRequestBuilder::new(&mut builder);
+        request_builder.add_inode(inode);
+        request_builder.add_offset(offset);
+        request_builder.add_read_size(size);
+        request_builder.add_context(&context);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
+
+        let mut buffer = Vec::with_capacity((size + 1) as usize);
+        self.send_receive_raw(builder.finished_data(), &mut buffer)?;
+        decode_fast_read_response_inplace(&mut buffer)?;
+
+        Ok(buffer)
+    }
+
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuse::FileType)>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
