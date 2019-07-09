@@ -4,7 +4,6 @@ use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
 use thread_local::CachedThreadLocal;
-use time::Timespec;
 
 use crate::generated::*;
 use crate::storage::data_storage::BLOCK_SIZE;
@@ -12,6 +11,8 @@ use crate::storage::ROOT_INODE;
 use crate::tcp_client::TcpClient;
 use crate::utils::{decode_fast_read_response_inplace, finalize_request, response_or_error};
 use fuse::FileAttr;
+use std::ops::Add;
+use std::time::{Duration, SystemTime};
 
 fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
     match file_type {
@@ -27,19 +28,19 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
         ino: metadata.inode(),
         size: metadata.size_bytes(),
         blocks: metadata.size_blocks(),
-        atime: Timespec {
-            sec: metadata.last_access_time().seconds(),
-            nsec: metadata.last_access_time().nanos(),
-        },
-        mtime: Timespec {
-            sec: metadata.last_modified_time().seconds(),
-            nsec: metadata.last_modified_time().nanos(),
-        },
-        ctime: Timespec {
-            sec: metadata.last_metadata_modified_time().seconds(),
-            nsec: metadata.last_metadata_modified_time().nanos(),
-        },
-        crtime: Timespec { sec: 0, nsec: 0 },
+        atime: SystemTime::UNIX_EPOCH.add(Duration::new(
+            metadata.last_access_time().seconds() as u64,
+            metadata.last_access_time().nanos() as u32,
+        )),
+        mtime: SystemTime::UNIX_EPOCH.add(Duration::new(
+            metadata.last_modified_time().seconds() as u64,
+            metadata.last_modified_time().nanos() as u32,
+        )),
+        ctime: SystemTime::UNIX_EPOCH.add(Duration::new(
+            metadata.last_metadata_modified_time().seconds() as u64,
+            metadata.last_metadata_modified_time().nanos() as u32,
+        )),
+        crtime: SystemTime::UNIX_EPOCH,
         kind: to_fuse_file_type(metadata.kind()),
         perm: metadata.mode(),
         nlink: metadata.hard_links(),
