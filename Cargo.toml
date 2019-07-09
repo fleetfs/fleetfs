@@ -14,7 +14,7 @@ tokio = "0.1"
 clap = "2.32"
 log = "0.4"
 env_logger = "0.6"
-fuse = "0.3"
+fuse = { git = "https://github.com/cberner/rust-fuse", version = "=0.4.0-dev" }
 time = "0.1"
 libc = "0.2"
 byteorder = "1.3"

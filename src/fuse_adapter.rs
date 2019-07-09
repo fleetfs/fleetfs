@@ -9,7 +9,8 @@ use libc;
 use log::debug;
 use log::error;
 use log::warn;
-use time::{Duration, PreciseTime, Timespec};
+use time::Duration as TimeDuration;
+use time::PreciseTime;
 
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
@@ -24,6 +25,7 @@ use libc::ENOSYS;
 use std::collections::HashMap;
 use std::os::raw::c_int;
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const READ_AHEAD_CACHE_TTL_MS: i64 = 1;
 // Fuse splits reads larger than 128kb into multiple smaller reads
@@ -165,7 +167,7 @@ impl Filesystem for FleetFUSE {
             .lookup(parent, name, UserContext::new(req.uid(), req.gid()))
         {
             Ok(inode) => match self.client.getattr(inode) {
-                Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+                Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
             },
             Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -177,7 +179,7 @@ impl Filesystem for FleetFUSE {
     fn getattr(&mut self, _req: &Request, inode: u64, reply: ReplyAttr) {
         debug!("getattr() called with {:?}", inode);
         match self.client.getattr(inode) {
-            Ok(attr) => reply.attr(&Timespec { sec: 0, nsec: 0 }, &attr),
+            Ok(attr) => reply.attr(&Duration::new(0, 0), &attr),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
@@ -190,12 +192,12 @@ impl Filesystem for FleetFUSE {
         uid: Option<u32>,
         gid: Option<u32>,
         size: Option<u64>,
-        atime: Option<Timespec>,
-        mtime: Option<Timespec>,
+        atime: Option<SystemTime>,
+        mtime: Option<SystemTime>,
         fh: Option<u64>,
-        _crtime: Option<Timespec>,
-        _chgtime: Option<Timespec>,
-        _bkuptime: Option<Timespec>,
+        _crtime: Option<SystemTime>,
+        _chgtime: Option<SystemTime>,
+        _bkuptime: Option<SystemTime>,
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
@@ -262,8 +264,12 @@ impl Filesystem for FleetFUSE {
             );
             if let Err(error_code) = self.client.utimens(
                 inode,
-                atime.map(|x| Timestamp::new(x.sec, x.nsec)),
-                mtime.map(|x| Timestamp::new(x.sec, x.nsec)),
+                atime
+                    .map(|x| x.duration_since(UNIX_EPOCH).unwrap())
+                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32)),
+                mtime
+                    .map(|x| x.duration_since(UNIX_EPOCH).unwrap())
+                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32)),
                 UserContext::new(req.uid(), req.gid()),
             ) {
                 reply.error(into_fuse_error(error_code));
@@ -272,7 +278,7 @@ impl Filesystem for FleetFUSE {
         }
 
         match self.client.getattr(inode) {
-            Ok(attr) => reply.attr(&Timespec { sec: 0, nsec: 0 }, &attr),
+            Ok(attr) => reply.attr(&Duration::new(0, 0), &attr),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
@@ -317,7 +323,7 @@ impl Filesystem for FleetFUSE {
                 mode as u16,
                 as_file_kind(mode),
             ) {
-                Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+                Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
             }
         }
@@ -336,7 +342,7 @@ impl Filesystem for FleetFUSE {
             .client
             .mkdir(parent, name, req.uid(), req.gid(), mode as u16)
         {
-            Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+            Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
@@ -425,7 +431,7 @@ impl Filesystem for FleetFUSE {
                     return;
                 }
 
-                reply.entry(&Timespec { sec: 0, nsec: 0 }, &attrs, 0);
+                reply.entry(&Duration::new(0, 0), &attrs, 0);
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
@@ -492,7 +498,7 @@ impl Filesystem for FleetFUSE {
             new_name,
             UserContext::new(req.uid(), req.gid()),
         ) {
-            Ok(attr) => reply.entry(&Timespec { sec: 0, nsec: 0 }, &attr, 0),
+            Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
@@ -564,7 +570,7 @@ impl Filesystem for FleetFUSE {
                     && req.pid() == cached.process_id
                     && size <= cached.data.len() as u32
                     && cached.read_at.to(PreciseTime::now())
-                        < Duration::milliseconds(READ_AHEAD_CACHE_TTL_MS)
+                        < TimeDuration::milliseconds(READ_AHEAD_CACHE_TTL_MS)
                 {
                     reply.data(&cached.data[0..size as usize]);
                     cached.data.advance(size as usize);
@@ -912,7 +918,7 @@ impl Filesystem for FleetFUSE {
             Ok(attr) => {
                 // TODO: implement flags
                 reply.created(
-                    &Timespec { sec: 0, nsec: 0 },
+                    &Duration::new(0, 0),
                     &attr,
                     0,
                     self.allocate_file_handle(read, write),
