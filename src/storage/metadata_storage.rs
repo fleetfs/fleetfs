@@ -234,10 +234,20 @@ impl MetadataStorage {
             }
 
             if let Some(atime) = atime {
-                inode_metadata.last_accessed = *atime;
+                if atime.nanos() == libc::UTIME_NOW as i32 {
+                    // TODO: this should be set during proposal. Currently each node set its own timestamp
+                    inode_metadata.last_accessed = now();
+                } else {
+                    inode_metadata.last_accessed = *atime;
+                }
             }
             if let Some(mtime) = mtime {
-                inode_metadata.last_modified = *mtime;
+                if mtime.nanos() == libc::UTIME_NOW as i32 {
+                    // TODO: this should be set during proposal. Currently each node set its own timestamp
+                    inode_metadata.last_modified = now();
+                } else {
+                    inode_metadata.last_modified = *mtime;
+                }
             }
 
             Ok(())

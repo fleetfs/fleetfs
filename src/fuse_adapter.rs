@@ -193,7 +193,9 @@ impl Filesystem for FleetFUSE {
         gid: Option<u32>,
         size: Option<u64>,
         atime: Option<SystemTime>,
+        atime_now: bool,
         mtime: Option<SystemTime>,
+        mtime_now: bool,
         fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
@@ -262,14 +264,24 @@ impl Filesystem for FleetFUSE {
                 "utimens() called with {:?}, {:?}, {:?}",
                 inode, atime, mtime
             );
-            if let Err(error_code) = self.client.utimens(
-                inode,
+            let atimestamp = if atime_now {
+                Some(Timestamp::new(0, libc::UTIME_NOW as i32))
+            } else {
                 atime
                     .map(|x| x.duration_since(UNIX_EPOCH).unwrap())
-                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32)),
+                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32))
+            };
+            let mtimestamp = if mtime_now {
+                Some(Timestamp::new(0, libc::UTIME_NOW as i32))
+            } else {
                 mtime
                     .map(|x| x.duration_since(UNIX_EPOCH).unwrap())
-                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32)),
+                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32))
+            };
+            if let Err(error_code) = self.client.utimens(
+                inode,
+                atimestamp,
+                mtimestamp,
                 UserContext::new(req.uid(), req.gid()),
             ) {
                 reply.error(into_fuse_error(error_code));

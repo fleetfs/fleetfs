@@ -48,6 +48,8 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
         gid: metadata.group_id(),
         rdev: metadata.device_id(),
         flags: 0,
+        blksize: BLOCK_SIZE as u32,
+        padding: 0,
     }
 }
 
