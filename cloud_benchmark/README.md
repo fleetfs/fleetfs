@@ -1,0 +1,1 @@
+1. Create Kubernetes cluster (`terraform/` folder can be used to setup GKE)
