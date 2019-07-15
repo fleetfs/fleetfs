@@ -1,2 +1,7 @@
-target/
-.idea/
+*
+!src/
+!flatbuffers/
+!./Cargo.*
+!./build.rs
+!./integration_test.sh
+!./LICENSE
