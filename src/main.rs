@@ -9,10 +9,12 @@ use crate::fuse_adapter::FleetFUSE;
 use crate::storage_node::Node;
 use log::LevelFilter;
 use std::ffi::OsStr;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use crate::generated::ErrorCode;
 use crate::utils::fuse_allow_other_enabled;
+use std::thread::sleep;
+use std::time::Duration;
 
 pub mod client;
 pub mod fuse_adapter;
@@ -50,7 +52,16 @@ fn main() -> Result<(), ErrorCode> {
                 .long("peers")
                 .value_name("PEERS")
                 .default_value("")
-                .help("Comma separated list of peer IP:PORT")
+                .help("Comma separated list of peer IP:PORT, or DNS-RECORD:PORT in which case DNS-RECORD must resolve to an A record containing --num-peers peers")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("num-peers")
+                .long("num-peers")
+                .value_name("NUM-PEERS")
+                .default_value("0")
+                .requires("peers")
+                .help("Number of peer records to expect in the DNS record specified in --peers")
                 .takes_value(true),
         )
         .arg(
@@ -112,14 +123,30 @@ fn main() -> Result<(), ErrorCode> {
     let fsck: bool = matches.is_present("fsck");
     let get_leader: bool = matches.is_present("get-leader");
     let verbosity: u64 = matches.occurrences_of("v");
-    let peers: Vec<SocketAddr> = matches
-        .value_of("peers")
+    let num_peers: usize = matches
+        .value_of("num-peers")
         .unwrap_or_default()
-        .split(',')
-        .map(ToString::to_string)
-        .filter(|x| !x.is_empty())
-        .map(|x| x.parse().unwrap())
-        .collect();
+        .parse()
+        .unwrap();
+    let peers: Vec<SocketAddr> = if num_peers > 0 {
+        let record = matches.value_of("peers").unwrap_or_default();
+        let mut found_peers: Vec<SocketAddr> = record.to_socket_addrs().unwrap().collect();
+        while found_peers.len() < num_peers {
+            found_peers = record.to_socket_addrs().unwrap().collect();
+            sleep(Duration::from_secs(1));
+        }
+
+        found_peers
+    } else {
+        matches
+            .value_of("peers")
+            .unwrap_or_default()
+            .split(',')
+            .map(ToString::to_string)
+            .filter(|x| !x.is_empty())
+            .map(|x| x.parse().unwrap())
+            .collect()
+    };
 
     let log_level = match verbosity {
         0 => LevelFilter::Error,
