@@ -1,3 +1,5 @@
+VERSION = $(shell git describe --tags --always --dirty)
+
 build: pre
 	cargo build
 
@@ -18,4 +20,5 @@ test:
 	docker run --rm -it --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined -v "$(shell pwd)/logs:/code/logs" fleetfs:tests
 
 publish:
-	docker build --secret id=source-code,src=./ -t fleetfs .
+	docker build -t cberner/fleetfs:${VERSION} .
+	docker push cberner/fleetfs:${VERSION}
