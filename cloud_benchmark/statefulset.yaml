@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleetfs
+  labels:
+    app: fleetfs
+spec:
+  ports:
+  - port: 3000
+    name: tcp
+  clusterIP: None
+  selector:
+    app: fleetfs
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fleetfs
+spec:
+  serviceName: "fleetfs"
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fleetfs
+  template:
+    metadata:
+      labels:
+        app: fleetfs
+    spec:
+      containers:
+      - name: fleetfs
+        image: cberner/fleetfs:v0.1.0-128-gb5c7540-dirty
+        imagePullPolicy: Always
+        command: ["fleetfs"]
+        args: ["--peers", "fleetfs.default.svc.cluster.local", "--num-peers", "2", "-vvv"]
+        env:
+        - name: "RUST_BACKTRACE"
+          value: "1"
+        resources:
+          # Make sure only 1 pod can fit on each node
+          requests:
+            cpu: "3.1"
+            memory: "3Gi"
+        ports:
+        - containerPort: 3000
+          name: tcp
+        volumeMounts:
+        - name: datavol
+          mountPath: "/tmp/fleetfs"
+      volumes:
+      - name: datavol
+        hostPath:
+          # Local SSD
+          path: "/mnt/disks/ssd0"
