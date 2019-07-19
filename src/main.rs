@@ -7,6 +7,8 @@ use clap::Arg;
 use crate::client::NodeClient;
 use crate::fuse_adapter::FleetFUSE;
 use crate::storage_node::Node;
+use log::debug;
+use log::warn;
 use log::LevelFilter;
 use std::ffi::OsStr;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -104,6 +106,20 @@ fn main() -> Result<(), ErrorCode> {
         )
         .get_matches();
 
+    let verbosity: u64 = matches.occurrences_of("v");
+    let log_level = match verbosity {
+        0 => LevelFilter::Error,
+        1 => LevelFilter::Warn,
+        2 => LevelFilter::Info,
+        3 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
+    };
+
+    env_logger::builder()
+        .default_format_timestamp_nanos(true)
+        .filter_level(log_level)
+        .init();
+
     let port: u16 = matches
         .value_of("port")
         .unwrap_or_default()
@@ -122,17 +138,32 @@ fn main() -> Result<(), ErrorCode> {
     let direct_io: bool = matches.is_present("direct-io");
     let fsck: bool = matches.is_present("fsck");
     let get_leader: bool = matches.is_present("get-leader");
-    let verbosity: u64 = matches.occurrences_of("v");
     let num_peers: usize = matches
         .value_of("num-peers")
         .unwrap_or_default()
         .parse()
         .unwrap();
     let peers: Vec<SocketAddr> = if num_peers > 0 {
-        let record = matches.value_of("peers").unwrap_or_default();
-        let mut found_peers: Vec<SocketAddr> = record.to_socket_addrs().unwrap().collect();
+        let record = format!("{}:{}", matches.value_of("peers").unwrap_or_default(), port);
+        let mut found_peers: Vec<SocketAddr> = match record.to_socket_addrs() {
+            Ok(addresses) => addresses.collect(),
+            Err(error) => {
+                warn!("Encountered error in DNS lookup of {}: {:?}", record, error);
+                vec![]
+            }
+        };
         while found_peers.len() < num_peers {
-            found_peers = record.to_socket_addrs().unwrap().collect();
+            found_peers = match record.to_socket_addrs() {
+                Ok(addresses) => addresses.collect(),
+                Err(error) => {
+                    warn!("Encountered error in DNS lookup of {}: {:?}", record, error);
+                    vec![]
+                }
+            };
+            debug!(
+                "Found {:?} peers. Waiting for {} peers",
+                found_peers, num_peers
+            );
             sleep(Duration::from_secs(1));
         }
 
@@ -147,19 +178,6 @@ fn main() -> Result<(), ErrorCode> {
             .map(|x| x.parse().unwrap())
             .collect()
     };
-
-    let log_level = match verbosity {
-        0 => LevelFilter::Error,
-        1 => LevelFilter::Warn,
-        2 => LevelFilter::Info,
-        3 => LevelFilter::Debug,
-        _ => LevelFilter::Trace,
-    };
-
-    env_logger::builder()
-        .default_format_timestamp_nanos(true)
-        .filter_level(log_level)
-        .init();
 
     if fsck {
         let client = NodeClient::new(server_ip_port);
