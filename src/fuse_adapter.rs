@@ -586,7 +586,7 @@ impl Filesystem for FleetFUSE {
                 {
                     reply.data(&cached.data[0..size as usize]);
                     cached.data.advance(size as usize);
-                    cached.file_offset += size as u64;
+                    cached.file_offset += u64::from(size);
                     // TODO: should drop cached reads that have been fully consumed
                     return;
                 }
@@ -611,7 +611,7 @@ impl Filesystem for FleetFUSE {
                         data_bytes.advance(size as usize);
                         let cached = CachedRead {
                             data: data_bytes,
-                            file_offset: (offset + size as i64) as u64,
+                            file_offset: (offset + i64::from(size)) as u64,
                             process_id: req.pid(),
                             read_at: PreciseTime::now(),
                         };

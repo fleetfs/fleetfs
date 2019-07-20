@@ -11,6 +11,7 @@ use tokio::prelude::*;
 use crate::generated::get_root_as_generic_request;
 use crate::handlers::request_router;
 use crate::storage::raft_manager::RaftManager;
+use crate::utils::node_id_from_address;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -37,20 +38,19 @@ impl LocalContext {
 pub struct Node {
     context: LocalContext,
     raft_manager: RaftManager,
-    port: u16,
+    bind_address: SocketAddr,
 }
 
 impl Node {
-    pub fn new(node_dir: &str, port: u16, peers: Vec<SocketAddr>) -> Node {
+    pub fn new(node_dir: &str, bind_address: SocketAddr, peers: Vec<SocketAddr>) -> Node {
         let data_dir = Path::new(node_dir).join("data");
-        // TODO huge hack. Should be generated randomly and then dynamically discovered
         // Unique ID of node within the cluster. Never 0.
-        let node_id = u64::from(port);
+        let node_id = node_id_from_address(&bind_address);
         let context = LocalContext::new(data_dir.to_str().unwrap(), peers, node_id);
         Node {
             context: context.clone(),
             raft_manager: RaftManager::new(context.clone()),
-            port,
+            bind_address,
         }
     }
 
@@ -59,8 +59,7 @@ impl Node {
             panic!("Couldn't create storage dir: {}", why.description());
         };
 
-        let address = ([127, 0, 0, 1], self.port).into();
-        let listener = TcpListener::bind(&address).expect("unable to bind API listener");
+        let listener = TcpListener::bind(&self.bind_address).expect("unable to bind API listener");
 
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();

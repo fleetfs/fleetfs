@@ -4,7 +4,7 @@ use crate::generated::ErrorCode;
 use crate::peer_client::PeerClient;
 use crate::storage::ROOT_INODE;
 use crate::storage_node::LocalContext;
-use crate::utils::{into_error_code, LengthPrefixedVec};
+use crate::utils::{into_error_code, node_id_from_address, LengthPrefixedVec};
 use futures::future::{err, join_all, Either};
 use log::info;
 use std::cmp::min;
@@ -97,7 +97,7 @@ impl DataStorage {
             peers: context
                 .peers
                 .iter()
-                .map(|peer| (u64::from(peer.port()), PeerClient::new(*peer)))
+                .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
                 .collect(),
         }
     }

@@ -29,13 +29,17 @@ spec:
     spec:
       containers:
       - name: fleetfs
-        image: cberner/fleetfs:v0.1.0-128-gb5c7540-dirty
+        image: cberner/fleetfs:v0.1.0-130-g9b65709-dirty
         imagePullPolicy: Always
         command: ["fleetfs"]
-        args: ["--peers", "fleetfs.default.svc.cluster.local", "--num-peers", "2", "-vvv"]
+        args: ["--peers", "fleetfs.default.svc.cluster.local", "--bind-ip", "$(POD_IP)", "--num-peers", "2", "-vvv"]
         env:
         - name: "RUST_BACKTRACE"
           value: "1"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         resources:
           # Make sure only 1 pod can fit on each node
           requests:

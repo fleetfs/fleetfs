@@ -11,7 +11,7 @@ use log::debug;
 use log::warn;
 use log::LevelFilter;
 use std::ffi::OsStr;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 use crate::generated::ErrorCode;
 use crate::utils::fuse_allow_other_enabled;
@@ -39,6 +39,14 @@ fn main() -> Result<(), ErrorCode> {
                 .value_name("PORT")
                 .default_value("3000")
                 .help("Set server port")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("bind-ip")
+                .long("bind-ip")
+                .value_name("BIND_IP")
+                .default_value("127.0.0.1")
+                .help("Address for server to listen on")
                 .takes_value(true),
         )
         .arg(
@@ -126,6 +134,12 @@ fn main() -> Result<(), ErrorCode> {
         .parse()
         .unwrap();
     let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
+    let bind_ip: IpAddr = matches
+        .value_of("bind-ip")
+        .unwrap_or_default()
+        .parse()
+        .unwrap();
+    let bind_address: SocketAddr = (bind_ip, port).into();
     let server_ip_port: SocketAddr = matches
         .value_of("server-ip-port")
         .unwrap_or_default()
@@ -167,6 +181,7 @@ fn main() -> Result<(), ErrorCode> {
             sleep(Duration::from_secs(1));
         }
 
+        found_peers.retain(|x| *x != bind_address);
         found_peers
     } else {
         matches
@@ -196,7 +211,7 @@ fn main() -> Result<(), ErrorCode> {
         println!("Leader: {}", client.leader_id()?);
     } else if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
-        Node::new(&data_dir, port, peers).run();
+        Node::new(&data_dir, bind_address, peers).run();
     } else {
         println!(
             "Connecting to server {} and mounting FUSE at {}",
