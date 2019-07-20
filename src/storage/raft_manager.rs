@@ -9,7 +9,7 @@ use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage::file_storage::FileStorage;
 use crate::storage_node::LocalContext;
-use crate::utils::FlatBufferResponse;
+use crate::utils::{node_id_from_address, FlatBufferResponse};
 use flatbuffers::FlatBufferBuilder;
 use futures::future::{ok, Either};
 use futures::sync::oneshot;
@@ -43,8 +43,7 @@ impl RaftManager {
         let mut peer_ids: Vec<u64> = context
             .peers
             .iter()
-            // TODO: huge hack. Assume the port is the node id
-            .map(|peer| u64::from(peer.port()))
+            .map(|peer| node_id_from_address(peer))
             .collect();
         peer_ids.push(node_id);
 
@@ -73,7 +72,7 @@ impl RaftManager {
             peers: context
                 .peers
                 .iter()
-                .map(|peer| (u64::from(peer.port()), PeerClient::new(*peer)))
+                .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
                 .collect(),
             node_id,
             context: context.clone(),

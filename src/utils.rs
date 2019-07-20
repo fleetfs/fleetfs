@@ -6,9 +6,12 @@ use crate::storage::metadata_storage::InodeAttributes;
 use byteorder::{ByteOrder, LittleEndian};
 use flatbuffers::EndianScalar;
 use futures::Future;
+use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::io::{BufRead, BufReader, ErrorKind};
+use std::net::{IpAddr, SocketAddr};
 
 pub type FutureResultResponse<'a> = Future<Item = FlatBufferResponse<'a>, Error = ErrorCode> + Send;
 
@@ -287,5 +290,26 @@ impl LengthPrefixedVec {
         self.data.push(value);
         let length = self.data.len() as u32;
         LittleEndian::write_u32(&mut self.data, length - 4);
+    }
+}
+
+pub fn node_id_from_address(address: &SocketAddr) -> u64 {
+    let port = address.port();
+    match address.ip() {
+        IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            u64::from(octets[0]) << 40
+                | u64::from(octets[1]) << 32
+                | u64::from(octets[2]) << 24
+                | u64::from(octets[3]) << 16
+                | u64::from(port)
+        }
+        IpAddr::V6(v6) => {
+            // TODO: there could be collisions. Should be generated randomly and then dynamically discovered
+            let mut hasher = DefaultHasher::new();
+            v6.hash(&mut hasher);
+            port.hash(&mut hasher);
+            hasher.finish()
+        }
     }
 }
