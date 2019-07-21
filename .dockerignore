@@ -4,4 +4,5 @@
 !./Cargo.*
 !./build.rs
 !./integration_test.sh
+!./cloud_fio.sh
 !./LICENSE

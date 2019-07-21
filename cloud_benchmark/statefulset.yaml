@@ -26,13 +26,16 @@ spec:
     metadata:
       labels:
         app: fleetfs
+      annotations:
+        # Needed to mount FUSE
+        container.apparmor.security.beta.kubernetes.io/fio: unconfined
     spec:
       containers:
       - name: fleetfs
-        image: cberner/fleetfs:v0.1.0-130-g9b65709-dirty
+        image: cberner/fleetfs:v0.1.0-131-g613ebb2-dirty
         imagePullPolicy: Always
         command: ["fleetfs"]
-        args: ["--peers", "fleetfs.default.svc.cluster.local", "--bind-ip", "$(POD_IP)", "--num-peers", "2", "-vvv"]
+        args: ["--peers", "fleetfs.default.svc.cluster.local", "--bind-ip", "$(POD_IP)", "--num-peers", "2", "-vv"]
         env:
         - name: "RUST_BACKTRACE"
           value: "1"
@@ -43,16 +46,47 @@ spec:
         resources:
           # Make sure only 1 pod can fit on each node
           requests:
-            cpu: "3.1"
-            memory: "3Gi"
+            cpu: "2.1"
+            memory: "2Gi"
         ports:
         - containerPort: 3000
           name: tcp
         volumeMounts:
-        - name: datavol
-          mountPath: "/tmp/fleetfs"
+          - name: datavol
+            mountPath: "/tmp/fleetfs"
+      - name: fio
+        image: cberner/fleetfs:v0.1.0-131-g613ebb2-dirty
+        imagePullPolicy: Always
+        command: ["bash"]
+        args: ["-c", "/code/fleetfs/cloud_fio.sh $(POD_IP):3000"]
+        env:
+          - name: "RUST_BACKTRACE"
+            value: "1"
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        resources:
+          # Make sure only 1 pod can fit on each node
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+        ports:
+        - containerPort: 8765
+          name: fio
+        volumeMounts:
+          - name: fuse
+            mountPath: "/dev/fuse"
       volumes:
       - name: datavol
         hostPath:
           # Local SSD
           path: "/mnt/disks/ssd0"
+      - name: fuse
+        hostPath:
+          path: "/dev/fuse"
