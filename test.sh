@@ -23,8 +23,9 @@ cargo run -- --port 3300 --data-dir $DATA_DIR --peers 127.0.0.1:3301 &
 cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers 127.0.0.1:3300 &
 
 # Wait for leader to be elected
-sleep 0.5
-cargo run -- --server-ip-port 127.0.0.1:3300 --get-leader
+until cargo run -- --server-ip-port 127.0.0.1:3300 --get-leader; do
+    sleep 0.1
+done
 
 cargo run -- --server-ip-port 127.0.0.1:3300 --mount-point $DIR &
 FUSE_PID=$!
