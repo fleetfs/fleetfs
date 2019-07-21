@@ -27,10 +27,10 @@ echo "mounting at $DIR"
 
 echo -e "$GREEN FleetFS sequential read $NC"
 fio --name read-test --eta-newline=5s --filename=${DIR}/fio-tempfile.dat --rw=read --size=10m --io_size=10g --blocksize=1m \
-    --ioengine=libaio --fsync=1000 --iodepth=32 --direct=1 --numjobs=1 --runtime=20 --group_reporting
+    --ioengine=libaio --fsync=1000 --iodepth=32 --direct=1 --numjobs=1 --runtime=20 --group_reporting --fallocate=none
 
 echo -e "$GREEN FleetFS sequential read on second server $NC"
 fio --name read-test --eta-newline=5s --filename=${DIR2}/fio-tempfile.dat --rw=read --size=10m --io_size=10g --blocksize=1m \
-    --ioengine=libaio --fsync=1000 --iodepth=32 --direct=1 --numjobs=1 --runtime=20 --group_reporting
+    --ioengine=libaio --fsync=1000 --iodepth=32 --direct=1 --numjobs=1 --runtime=20 --group_reporting --fallocate=none
 
 rm ${DIR}/fio-tempfile.dat

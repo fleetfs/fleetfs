@@ -55,7 +55,7 @@ spec:
           - name: datavol
             mountPath: "/tmp/fleetfs"
       - name: fio
-        image: cberner/fleetfs:v0.1.0-131-g613ebb2-dirty
+        image: cberner/fleetfs:v0.1.0-133-gfa14df6-dirty
         imagePullPolicy: Always
         command: ["bash"]
         args: ["-c", "/code/fleetfs/cloud_fio.sh $(POD_IP):3000"]
