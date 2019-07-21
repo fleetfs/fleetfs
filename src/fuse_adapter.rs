@@ -9,8 +9,6 @@ use libc;
 use log::debug;
 use log::error;
 use log::warn;
-use time::Duration as TimeDuration;
-use time::PreciseTime;
 
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
@@ -25,9 +23,9 @@ use libc::ENOSYS;
 use std::collections::HashMap;
 use std::os::raw::c_int;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const READ_AHEAD_CACHE_TTL_MS: i64 = 1;
+const READ_AHEAD_CACHE_TTL_MS: u64 = 1;
 // Fuse splits reads larger than 128kb into multiple smaller reads
 const FUSE_MAX_READ_SIZE: u32 = 128 * 1024;
 // TODO: should dynamically size this, based on prediction of what client process will read
@@ -43,7 +41,7 @@ struct CachedRead {
     data: Bytes,
     file_offset: u64,
     process_id: u32,
-    read_at: time::PreciseTime,
+    read_at: Instant,
 }
 
 pub struct FleetFUSE {
@@ -581,8 +579,7 @@ impl Filesystem for FleetFUSE {
                 if cached.file_offset == offset as u64
                     && req.pid() == cached.process_id
                     && size <= cached.data.len() as u32
-                    && cached.read_at.to(PreciseTime::now())
-                        < TimeDuration::milliseconds(READ_AHEAD_CACHE_TTL_MS)
+                    && cached.read_at.elapsed() < Duration::from_millis(READ_AHEAD_CACHE_TTL_MS)
                 {
                     reply.data(&cached.data[0..size as usize]);
                     cached.data.advance(size as usize);
@@ -613,7 +610,7 @@ impl Filesystem for FleetFUSE {
                             data: data_bytes,
                             file_offset: (offset + i64::from(size)) as u64,
                             process_id: req.pid(),
-                            read_at: PreciseTime::now(),
+                            read_at: Instant::now(),
                         };
 
                         read_cache.insert(fh, cached);
