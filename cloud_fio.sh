@@ -6,6 +6,7 @@ until fleetfs --server-ip-port ${1} --get-leader; do
 done
 fleetfs --server-ip-port ${1} --mount-point $DIR --direct-io -vvv &
 sleep 3
+# TODO: this currently fails because FleetFS doesn't support IOCTL
 fio --name read-test --eta-newline=5s --filename=${DIR}/fio-tempfile.dat --rw=read --size=10m --io_size=10g --blocksize=1m \
     --ioengine=libaio --fsync=1000 --iodepth=32 --direct=1 --numjobs=1 --runtime=20 --group_reporting --fallocate=none > ${DIR}/${1}.results
 
