@@ -36,6 +36,7 @@ resource "google_container_node_pool" "preemptible_nodes" {
   node_config {
     preemptible  = true
     machine_type = "custom-6-5632" # Minimum to get >10Gbit/s worth of networking
+    image_type = "UBUNTU"
     disk_size_gb = 20
     local_ssd_count = 1
 
