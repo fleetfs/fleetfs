@@ -1,0 +1,7 @@
+version: 2
+analyze:
+  modules:
+  - name: cargo-fleetfs
+    type: cargo
+    target: .
+    dir: .
