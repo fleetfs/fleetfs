@@ -71,7 +71,7 @@ impl NodeClient {
     fn get_or_create_builder(&self) -> RefMut<FlatBufferBuilder<'static>> {
         let mut builder = self
             .request_builder
-            .get_or(|| Box::new(RefCell::new(FlatBufferBuilder::new())))
+            .get_or(|| RefCell::new(FlatBufferBuilder::new()))
             .borrow_mut();
         builder.reset();
         return builder;
@@ -80,7 +80,7 @@ impl NodeClient {
     fn get_or_create_buffer(&self) -> RefMut<Vec<u8>> {
         return self
             .response_buffer
-            .get_or(|| Box::new(RefCell::new(vec![])))
+            .get_or(|| RefCell::new(vec![]))
             .borrow_mut();
     }
 
