@@ -124,7 +124,7 @@ fn main() -> Result<(), ErrorCode> {
     };
 
     env_logger::builder()
-        .default_format_timestamp_nanos(true)
+        .format_timestamp_nanos()
         .filter_level(log_level)
         .init();
 
