@@ -13,7 +13,7 @@ pre:
 profile:
 	RUSTFLAGS='-Cforce-frame-pointers' cargo build --release
 
-test:
+test: pre
 	./test.sh
 	docker build -t fleetfs:tests -f Dockerfile.integration_tests .
 	# Additional permissions are needed to be able to mount FUSE
