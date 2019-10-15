@@ -16,10 +16,6 @@ FleetFS distributed filesystem
 ## Status
 Very very alpha. Expect FleetFS to eat your data :)
 
-**Features implemented:**
-* basic operations: read/write/create/delete/rename
-* file permissions (read/write/exec), but not ownership
-
 ## Design decisions
 * Clients only need to talk to a single node
   * Context: There is significant overhead in opening TCP connections, so we want the client to keep its
