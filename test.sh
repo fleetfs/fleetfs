@@ -53,6 +53,16 @@ else
     exit
 fi
 
+# TODO: support an IOCTL, and test that it works
+# This is just to test that it doesn't *crash* the FUSE mount
+if ! python3 -c "import fcntl; import termios; a = open('${DIR}/1.txt'); fcntl.ioctl(a, termios.TIOCGPGRP, '')"; then
+    echo -e "$GREEN OK 0.ioctl $NC"
+else
+    echo -e "$RED FAILED on 1.txt ioctl $NC"
+    export TEST_EXIT_STATUS=1
+    exit
+fi
+
 echo 2 > ${DIR}/1.txt
 if [[ $(cat ${DIR}/1.txt) = "2" ]]; then
     echo -e "$GREEN OK 1 $NC"
