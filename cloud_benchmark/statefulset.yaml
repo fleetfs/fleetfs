@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
       - name: fleetfs
-        image: cberner/fleetfs:v0.1.0-143-g9fe00d9
+        image: cberner/fleetfs:v0.1.0-146-g6507cee-dirty
         imagePullPolicy: Always
         command: ["fleetfs"]
         args: ["--peers", "fleetfs.default.svc.cluster.local", "--bind-ip", "$(POD_IP)", "--num-peers", "2", "-vv"]
@@ -56,10 +56,10 @@ spec:
           - name: datavol
             mountPath: "/tmp/fleetfs"
       - name: fio
-        image: cberner/fleetfs:v0.1.0-143-g9fe00d9
+        image: cberner/fleetfs:v0.1.0-146-g6507cee-dirty
         imagePullPolicy: Always
         command: ["bash"]
-        args: ["-c", "/code/fleetfs/cloud_fio.sh $(POD_IP):3000"]
+        args: ["-c", "/code/fleetfs/cloud_benchmark/cloud_fio.sh $(POD_IP):3000"]
         env:
           - name: "RUST_BACKTRACE"
             value: "1"
