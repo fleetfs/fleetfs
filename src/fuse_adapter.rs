@@ -602,8 +602,8 @@ impl Filesystem for FleetFUSE {
                         .read_ahead_cache
                         .lock()
                         .expect("read_ahead_cache lock is poisoned");
-                    reply.data(&data[0..size as usize]);
                     if data.len() > size as usize {
+                        reply.data(&data[0..size as usize]);
                         let mut data_bytes = Bytes::from(data);
                         data_bytes.advance(size as usize);
                         let cached = CachedRead {
@@ -614,6 +614,8 @@ impl Filesystem for FleetFUSE {
                         };
 
                         read_cache.insert(fh, cached);
+                    } else {
+                        reply.data(&data);
                     }
                 }
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
