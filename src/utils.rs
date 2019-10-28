@@ -13,7 +13,8 @@ use std::io;
 use std::io::{BufRead, BufReader, ErrorKind};
 use std::net::{IpAddr, SocketAddr};
 
-pub type FutureResultResponse<'a> = Future<Item = FlatBufferResponse<'a>, Error = ErrorCode> + Send;
+pub type FutureResultResponse<'a> =
+    dyn Future<Item = FlatBufferResponse<'a>, Error = ErrorCode> + Send;
 
 pub type ResultResponse<'a> = Result<FlatBufferResponse<'a>, ErrorCode>;
 

@@ -128,7 +128,7 @@ impl RaftManager {
     pub fn get_latest_commit_from_leader(&self) -> impl Future<Item = u64, Error = ()> {
         let raft_node = self.raft_node.lock().unwrap();
 
-        let commit: Box<Future<Item = u64, Error = ()> + Send>;
+        let commit: Box<dyn Future<Item = u64, Error = ()> + Send>;
         if raft_node.raft.leader_id == self.node_id {
             commit = Box::new(ok(self.applied_index.load(Ordering::SeqCst)));
         } else if raft_node.raft.leader_id == 0 {
@@ -159,7 +159,7 @@ impl RaftManager {
         // Make sure we have the lock on all data structures
         let _raft_node_locked = self.raft_node.lock().unwrap();
 
-        let commit: Box<Future<Item = (), Error = ()> + Send> =
+        let commit: Box<dyn Future<Item = (), Error = ()> + Send> =
             if self.applied_index.load(Ordering::SeqCst) >= index {
                 Box::new(ok(()))
             } else {

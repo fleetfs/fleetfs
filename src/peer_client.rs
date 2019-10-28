@@ -31,7 +31,7 @@ impl PeerClient {
 
     fn connect(&self) -> impl Future<Item = TcpStream, Error = std::io::Error> + Send {
         let mut locked = self.pool.lock().unwrap();
-        let result: Box<Future<Item = TcpStream, Error = std::io::Error> + Send>;
+        let result: Box<dyn Future<Item = TcpStream, Error = std::io::Error> + Send>;
         if let Some(stream) = locked.pop() {
             result = Box::new(ok(stream));
         } else {
