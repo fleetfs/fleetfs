@@ -199,7 +199,7 @@ dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "fuse 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=ioctl)",
+ "fuse 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=fallocate)",
  "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -239,10 +239,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "fuse"
 version = "0.4.0-dev"
-source = "git+https://github.com/cberner/rust-fuse?branch=ioctl#647707323d9d2732c916ebc282f1030629039838"
+source = "git+https://github.com/cberner/rust-fuse?branch=fallocate#33e78dca794c07d9d2674c3d08401362a855954d"
 dependencies = [
- "fuse-abi 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=ioctl)",
- "fuse-sys 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=ioctl)",
+ "fuse-abi 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=fallocate)",
+ "fuse-sys 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=fallocate)",
  "libc 0.2.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "thread-scoped 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -251,12 +251,12 @@ dependencies = [
 [[package]]
 name = "fuse-abi"
 version = "0.4.0-dev"
-source = "git+https://github.com/cberner/rust-fuse?branch=ioctl#647707323d9d2732c916ebc282f1030629039838"
+source = "git+https://github.com/cberner/rust-fuse?branch=fallocate#33e78dca794c07d9d2674c3d08401362a855954d"
 
 [[package]]
 name = "fuse-sys"
 version = "0.4.0-dev"
-source = "git+https://github.com/cberner/rust-fuse?branch=ioctl#647707323d9d2732c916ebc282f1030629039838"
+source = "git+https://github.com/cberner/rust-fuse?branch=fallocate#33e78dca794c07d9d2674c3d08401362a855954d"
 dependencies = [
  "pkg-config 0.3.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1124,9 +1124,9 @@ dependencies = [
 "checksum fuchsia-cprng 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
 "checksum fuchsia-zircon 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "2e9763c69ebaae630ba35f74888db465e49e259ba1bc0eda7d06f4a067615d82"
 "checksum fuchsia-zircon-sys 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3dcaa9ae7725d12cdb85b3ad99a434db70b468c09ded17e012d86b5c1010f7a7"
-"checksum fuse 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=ioctl)" = "<none>"
-"checksum fuse-abi 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=ioctl)" = "<none>"
-"checksum fuse-sys 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=ioctl)" = "<none>"
+"checksum fuse 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=fallocate)" = "<none>"
+"checksum fuse-abi 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=fallocate)" = "<none>"
+"checksum fuse-sys 0.4.0-dev (git+https://github.com/cberner/rust-fuse?branch=fallocate)" = "<none>"
 "checksum futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)" = "45dc39533a6cae6da2b56da48edae506bb767ec07370f86f70fc062e9d435869"
 "checksum generic-array 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c68f0274ae0e023facc3c97b2e00f076be70e254bc851d972503b328db79b2ec"
 "checksum getrandom 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "e65cce4e5084b14874c4e7097f38cab54f47ee554f9194673456ea379dcc4c55"
