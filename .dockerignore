@@ -4,6 +4,7 @@
 !./Cargo.*
 !./build.rs
 !./integration_test.sh
+!./xfstests.sh
 !./cloud_benchmark/cloud_fio.sh
 !./cloud_benchmark/aggregate_fio.py
 !./LICENSE
