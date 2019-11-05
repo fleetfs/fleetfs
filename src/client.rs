@@ -345,7 +345,9 @@ impl NodeClient {
     }
 
     pub fn chmod(&self, inode: u64, mode: u32, context: UserContext) -> Result<(), ErrorCode> {
-        assert_ne!(inode, ROOT_INODE);
+        if inode == ROOT_INODE {
+            return Err(ErrorCode::OperationNotPermitted);
+        }
 
         let mut builder = self.get_or_create_builder();
         let mut request_builder = ChmodRequestBuilder::new(&mut builder);
