@@ -50,8 +50,10 @@ echo "generic/431" >> xfs_excludes.txt
 echo "generic/434" >> xfs_excludes.txt
 echo "generic/478" >> xfs_excludes.txt
 
-# TODO: Broken. Dunno why
+# TODO: requires supporting orphaned files, that have an open file handle, but no links
 echo "generic/035" >> xfs_excludes.txt
+
+# TODO: Broken. Dunno why
 echo "generic/075" >> xfs_excludes.txt
 echo "generic/088" >> xfs_excludes.txt
 echo "generic/091" >> xfs_excludes.txt
