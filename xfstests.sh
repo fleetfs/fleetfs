@@ -51,7 +51,6 @@ echo "generic/434" >> xfs_excludes.txt
 echo "generic/478" >> xfs_excludes.txt
 
 # TODO: Broken. Dunno why
-echo "generic/001" >> xfs_excludes.txt
 echo "generic/013" >> xfs_excludes.txt
 echo "generic/035" >> xfs_excludes.txt
 echo "generic/075" >> xfs_excludes.txt

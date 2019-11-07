@@ -111,15 +111,15 @@ else
     exit
 fi
 
-yes 0123 | head -n 10000 > ${DIR}/big.txt
-if [[ $(cat ${DIR}/big.txt | wc) = "$(yes 0123 | head -n 10000 | wc)" ]]; then
+yes 0123456 | head -n 512 > ${DIR}/big.txt
+if [[ $(cat ${DIR}/big.txt | wc) = "$(yes 0123456 | head -n 512 | wc)" ]]; then
     echo -e "$GREEN OK 4 $NC"
 else
     echo -e "$RED FAILED on big.txt $NC"
     export TEST_EXIT_STATUS=1
     exit
 fi
-if [[ $(cat ${DIR2}/big.txt | wc) = "$(yes 0123 | head -n 10000 | wc)" ]]; then
+if [[ $(cat ${DIR2}/big.txt | wc) = "$(yes 0123456 | head -n 512 | wc)" ]]; then
     echo -e "$GREEN OK 4 replica $NC"
 else
     echo -e "$RED FAILED on big.txt replica $NC"

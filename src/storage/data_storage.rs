@@ -26,30 +26,9 @@ pub struct DataStorage {
     peers: HashMap<u64, PeerClient>,
 }
 
-// Convert to local index, or the nearest lesser index on this (local_rank) node, if this index lives on another node
-// If global_index is on the local_rank node, returns the local index of that byte
-// Otherwise, selects the nearest global index less than global_index, that is stored on local_rank node, and returns that local index
-// Returns None if there is no global index less than global_index, that is stored on local_rank node
-fn to_local_index_floor(global_index: u64, local_rank: u64, total_nodes: u64) -> Option<u64> {
-    let global_block = global_index / BLOCK_SIZE;
-    let remainder_bytes = global_index % BLOCK_SIZE;
-    let remainder_blocks = global_block % total_nodes;
-    let blocks = global_block / total_nodes * BLOCK_SIZE;
-
-    if local_rank < remainder_blocks {
-        Some(blocks + BLOCK_SIZE - 1)
-    } else if local_rank == remainder_blocks {
-        Some(blocks + remainder_bytes)
-    } else if blocks == 0 {
-        None
-    } else {
-        Some(blocks - 1)
-    }
-}
-
 // Convert to local index, or the nearest greater index on this (local_rank) node, if this index lives on another node
 // If global_index is on the local_rank node, returns the local index of that byte
-// Otherwise, selects the nearest global index greather than global_index, that is stored on local_rank node, and returns that local index
+// Otherwise, selects the nearest global index greater than global_index, that is stored on local_rank node, and returns that local index
 fn to_local_index_ceiling(global_index: u64, local_rank: u64, total_nodes: u64) -> u64 {
     let global_block = global_index / BLOCK_SIZE;
     let remainder_bytes = global_index % BLOCK_SIZE;
@@ -157,20 +136,22 @@ impl DataStorage {
 
         let local_start =
             to_local_index_ceiling(global_offset, self.local_rank, self.node_ids.len() as u64);
-        let local_end = to_local_index_floor(
+        let local_end = to_local_index_ceiling(
             global_offset + u64::from(global_size),
             self.local_rank,
             self.node_ids.len() as u64,
-        )
-        .unwrap_or(0);
+        );
         assert!(local_end >= local_start);
 
-        let size = local_end - local_start;
         let file = File::open(self.to_local_path(&inode.to_string()))?;
+        // Requested read is from the client, so it could be past the end of the file
+        // TODO: it seems like this could cause a bug, if reads and writes are interleaved, and one
+        // replica whose bytes are in the middle of the read has already been truncated and therefore
+        // returns an incomplete read
+        let size = min(local_end, file.metadata()?.len()) - local_start;
 
         let mut contents = LengthPrefixedVec::zeros(size as usize);
-        let bytes_read = file.read_at(contents.bytes_mut(), local_start)?;
-        contents.truncate(bytes_read);
+        file.read_exact_at(contents.bytes_mut(), local_start)?;
 
         Ok(contents)
     }
@@ -235,8 +216,7 @@ impl DataStorage {
 
     pub fn truncate(&self, inode: u64, global_length: u64) -> io::Result<()> {
         let local_bytes =
-            to_local_index_floor(global_length, self.local_rank, self.node_ids.len() as u64)
-                .unwrap_or(0);
+            to_local_index_ceiling(global_length, self.local_rank, self.node_ids.len() as u64);
         let local_path = self.to_local_path(&inode.to_string());
         let file = File::create(&local_path).expect("Couldn't create file");
         file.set_len(local_bytes)?;
@@ -268,38 +248,8 @@ impl DataStorage {
 #[cfg(test)]
 mod tests {
     use crate::storage::data_storage::{
-        stores_index, to_global_index, to_local_index_ceiling, to_local_index_floor, BLOCK_SIZE,
+        stores_index, to_global_index, to_local_index_ceiling, BLOCK_SIZE,
     };
-
-    #[test]
-    fn local_index_floor() {
-        assert_eq!(to_local_index_floor(0, 0, 2), Some(0));
-        assert_eq!(to_local_index_floor(0, 1, 2), None);
-        assert_eq!(
-            to_local_index_floor(BLOCK_SIZE - 1, 0, 2),
-            Some(BLOCK_SIZE - 1)
-        );
-        assert_eq!(to_local_index_floor(BLOCK_SIZE, 0, 2), Some(BLOCK_SIZE - 1));
-        assert_eq!(to_local_index_floor(BLOCK_SIZE, 1, 2), Some(0));
-        assert_eq!(
-            to_local_index_floor(BLOCK_SIZE * 2 - 1, 1, 2),
-            Some(BLOCK_SIZE - 1)
-        );
-        assert_eq!(to_local_index_floor(BLOCK_SIZE * 2, 0, 2), Some(BLOCK_SIZE));
-
-        assert_eq!(
-            to_local_index_floor(BLOCK_SIZE * 2 + 1, 0, 2),
-            Some(BLOCK_SIZE + 1)
-        );
-        assert_eq!(
-            to_local_index_floor(BLOCK_SIZE * 2 + 1, 1, 2),
-            Some(BLOCK_SIZE - 1)
-        );
-        assert_eq!(
-            to_local_index_floor(BLOCK_SIZE * 3 + 1, 1, 2),
-            Some(BLOCK_SIZE + 1)
-        );
-    }
 
     #[test]
     fn local_index_ceiling() {
@@ -332,8 +282,7 @@ mod tests {
             assert_ne!(stores_index(index, 0, 2), stores_index(index, 1, 2));
             for rank in 0..=1 {
                 if stores_index(index, rank, 2) {
-                    let local_index = to_local_index_floor(index, rank, 2).unwrap();
-                    assert_eq!(local_index, to_local_index_ceiling(index, rank, 2));
+                    let local_index = to_local_index_ceiling(index, rank, 2);
                     assert_eq!(index, to_global_index(local_index, rank, 2));
                 }
             }
