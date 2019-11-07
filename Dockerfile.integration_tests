@@ -14,7 +14,7 @@ RUN cd /code && git clone https://github.com/google/flatbuffers && cd flatbuffer
   && cmake -G "Unix Makefiles" && make flatc && cp flatc /bin/flatc
 
 RUN mkdir -p /code && cd /code && git clone https://github.com/fleetfs/fuse-xfstests && cd fuse-xfstests \
-  && git checkout 7f535feaac6217cf4dff9d46a4afdf9363286aab && make
+  && git checkout dec1036f9ce939f97934ec746be0192f6a9f9442 && make
 
 ADD . /code/fleetfs/
 
