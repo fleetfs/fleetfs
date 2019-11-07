@@ -535,6 +535,22 @@ impl MetadataStorage {
             .ok_or(ErrorCode::InodeDoesNotExist)?
             .remove(name)
             .ok_or(ErrorCode::DoesNotExist)?;
+        // If target already exists decrement its hardlink count
+        if let Some((new_inode, _)) = directories
+            .get(&new_parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .get(new_name)
+        {
+            let new_inode_attrs = metadata
+                .get_mut(new_inode)
+                .ok_or(ErrorCode::InodeDoesNotExist)?;
+            new_inode_attrs.hardlinks -= 1;
+            new_inode_attrs.last_metadata_changed = now();
+            // Directories cannot be hardlinked, so remove them immediately, if overwritten
+            if new_inode_attrs.hardlinks == 0 || new_inode_attrs.kind == FileKind::Directory {
+                metadata.remove(&new_inode);
+            }
+        }
         directories
             .get_mut(&new_parent)
             .ok_or(ErrorCode::InodeDoesNotExist)?
