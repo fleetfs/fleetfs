@@ -148,7 +148,9 @@ impl DataStorage {
         // TODO: it seems like this could cause a bug, if reads and writes are interleaved, and one
         // replica whose bytes are in the middle of the read has already been truncated and therefore
         // returns an incomplete read
-        let size = min(local_end, file.metadata()?.len()) - local_start;
+        let local_size = file.metadata()?.len();
+        // Could underflow if file length is less than local_start
+        let size = min(local_end, local_size).saturating_sub(local_start);
 
         let mut contents = LengthPrefixedVec::zeros(size as usize);
         file.read_exact_at(contents.bytes_mut(), local_start)?;
