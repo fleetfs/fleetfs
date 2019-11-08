@@ -11,7 +11,6 @@ use crate::utils::{
     to_inode_response, to_read_response, to_write_response, to_xattrs_response,
     FlatBufferWithResponse, ResultResponse,
 };
-use futures::future::{ok, Either};
 use futures::Future;
 
 pub struct FileStorage {
@@ -167,17 +166,11 @@ impl FileStorage {
         inode: u64,
         offset: u64,
         read_size: u32,
-        context: UserContext,
         builder: FlatBufferBuilder<'static>,
     ) -> impl Future<Item = FlatBufferWithResponse<'static>, Error = ErrorCode> {
-        if let Err(error_code) = self.metadata_storage.read(inode, context) {
-            Either::A(ok(to_fast_read_response(builder, Err(error_code))))
-        } else {
-            let read_result = self.data_storage.read(inode, offset, read_size);
-            Either::B(
-                read_result.then(move |response| Ok(to_fast_read_response(builder, response))),
-            )
-        }
+        // No access check is needed, since we rely on the client to do it
+        let read_result = self.data_storage.read(inode, offset, read_size);
+        read_result.then(move |response| Ok(to_fast_read_response(builder, response)))
     }
 
     pub fn read_raw<'a>(

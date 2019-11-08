@@ -70,7 +70,6 @@ table ReadRequest {
   inode: ulong;
   offset: ulong;
   read_size: uint;
-  context: UserContext (required);
 }
 
 table GetattrRequest {

@@ -57,7 +57,6 @@ echo "generic/035" >> xfs_excludes.txt
 echo "generic/075" >> xfs_excludes.txt
 echo "generic/091" >> xfs_excludes.txt
 echo "generic/112" >> xfs_excludes.txt
-echo "generic/126" >> xfs_excludes.txt
 echo "generic/184" >> xfs_excludes.txt
 echo "generic/198" >> xfs_excludes.txt
 echo "generic/221" >> xfs_excludes.txt
@@ -75,7 +74,7 @@ echo "generic/477" >> xfs_excludes.txt
 echo "generic/484" >> xfs_excludes.txt
 echo "generic/504" >> xfs_excludes.txt
 
-TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
+FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
 ./check-fleetfs -g quick -E xfs_excludes.txt \
 | tee /code/logs/xfstests.log
 

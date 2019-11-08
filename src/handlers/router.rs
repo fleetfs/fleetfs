@@ -44,12 +44,8 @@ pub fn request_router(
                 let inode = read_request.inode();
                 let offset = read_request.offset();
                 let read_size = read_request.read_size();
-                let user_context = *read_request.context();
                 let response_after_sync = after_sync
-                    .map(move |_| {
-                        raft.file_storage()
-                            .read(inode, offset, read_size, user_context, builder)
-                    })
+                    .map(move |_| raft.file_storage().read(inode, offset, read_size, builder))
                     .flatten();
                 return Either::A(Either::A(
                     response_after_sync

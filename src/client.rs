@@ -458,7 +458,7 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn readlink(&self, inode: u64, context: UserContext) -> Result<Vec<u8>, ErrorCode> {
+    pub fn readlink(&self, inode: u64) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
@@ -466,7 +466,6 @@ impl NodeClient {
         request_builder.add_inode(inode);
         request_builder.add_offset(0);
         request_builder.add_read_size(BLOCK_SIZE as u32);
-        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
@@ -480,7 +479,6 @@ impl NodeClient {
         inode: u64,
         offset: u64,
         size: u32,
-        context: UserContext,
         callback: F,
     ) {
         assert_ne!(inode, ROOT_INODE);
@@ -490,7 +488,6 @@ impl NodeClient {
         request_builder.add_inode(inode);
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
-        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
@@ -513,13 +510,7 @@ impl NodeClient {
         };
     }
 
-    pub fn read_to_vec(
-        &self,
-        inode: u64,
-        offset: u64,
-        size: u32,
-        context: UserContext,
-    ) -> Result<Vec<u8>, ErrorCode> {
+    pub fn read_to_vec(&self, inode: u64, offset: u64, size: u32) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
         let mut builder = self.get_or_create_builder();
@@ -527,7 +518,6 @@ impl NodeClient {
         request_builder.add_inode(inode);
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
-        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 
