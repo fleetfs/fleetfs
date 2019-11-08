@@ -465,7 +465,6 @@ pub fn commit_write<'a, 'b>(
                 write_request.inode(),
                 write_request.offset(),
                 write_request.data(),
-                *write_request.context(),
                 builder,
             );
         }

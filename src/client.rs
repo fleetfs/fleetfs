@@ -575,20 +575,13 @@ impl NodeClient {
         return Ok(());
     }
 
-    pub fn write(
-        &self,
-        inode: u64,
-        data: &[u8],
-        offset: u64,
-        context: UserContext,
-    ) -> Result<u32, ErrorCode> {
+    pub fn write(&self, inode: u64, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let data_offset = builder.create_vector_direct(data);
         let mut request_builder = WriteRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_offset(offset);
         request_builder.add_data(data_offset);
-        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::WriteRequest, finish_offset);
 

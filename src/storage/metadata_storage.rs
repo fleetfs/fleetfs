@@ -718,28 +718,11 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn write(
-        &self,
-        inode: Inode,
-        offset: u64,
-        length: u32,
-        context: UserContext,
-    ) -> Result<(), ErrorCode> {
+    pub fn write(&self, inode: Inode, offset: u64, length: u32) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_metadata = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
-        // TODO: this check should probably be removed, and done on the fh that the client has
-        if !check_access(
-            inode_metadata.uid,
-            inode_metadata.gid,
-            inode_metadata.mode,
-            context.uid(),
-            context.gid(),
-            libc::W_OK as u32,
-        ) {
-            return Err(ErrorCode::AccessDenied);
-        }
 
         let current_length = inode_metadata.size;
         inode_metadata.size = max(current_length, u64::from(length) + offset);
