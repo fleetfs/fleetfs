@@ -430,12 +430,10 @@ impl Filesystem for FleetFUSE {
                     reply.error(into_fuse_error(error_code));
                     return;
                 }
-                if let Err(error_code) = self.client.write(
-                    attrs.ino,
-                    &Vec::from(link.to_string()),
-                    0,
-                    UserContext::new(req.uid(), req.gid()),
-                ) {
+                if let Err(error_code) =
+                    self.client
+                        .write(attrs.ino, &Vec::from(link.to_string()), 0)
+                {
                     reply.error(into_fuse_error(error_code));
                     return;
                 }
@@ -633,7 +631,7 @@ impl Filesystem for FleetFUSE {
 
     fn write(
         &mut self,
-        req: &Request,
+        _req: &Request,
         inode: u64,
         fh: u64,
         offset: i64,
@@ -647,12 +645,7 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EACCES);
             return;
         }
-        match self.client.write(
-            inode,
-            &data,
-            offset as u64,
-            UserContext::new(req.uid(), req.gid()),
-        ) {
+        match self.client.write(inode, &data, offset as u64) {
             Ok(written) => reply.written(written),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }

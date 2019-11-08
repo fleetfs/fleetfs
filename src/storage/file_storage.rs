@@ -192,12 +192,11 @@ impl FileStorage {
         inode: u64,
         offset: u64,
         data: &[u8],
-        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        if let Err(error_code) =
-            self.metadata_storage
-                .write(inode, offset, data.len() as u32, context)
+        if let Err(error_code) = self
+            .metadata_storage
+            .write(inode, offset, data.len() as u32)
         {
             return Err(error_code);
         } else {
