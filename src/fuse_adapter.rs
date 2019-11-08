@@ -32,6 +32,8 @@ const FUSE_MAX_READ_SIZE: u32 = 128 * 1024;
 // TODO: should also track wasted read aheads
 const SPECULATIVE_READ_SIZE: u32 = 8 * FUSE_MAX_READ_SIZE;
 
+const FMODE_EXEC: i32 = 0x20;
+
 struct FileHandleAttributes {
     read: bool,
     write: bool,
@@ -293,12 +295,9 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn readlink(&mut self, req: &Request, inode: u64, reply: ReplyData) {
+    fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
         debug!("readlink() called on {:?}", inode);
-        match self
-            .client
-            .readlink(inode, UserContext::new(req.uid(), req.gid()))
-        {
+        match self.client.readlink(inode) {
             Ok(data) => reply.data(&data),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
@@ -522,7 +521,12 @@ impl Filesystem for FleetFUSE {
                     reply.error(libc::EACCES);
                     return;
                 }
-                (libc::R_OK, true, false)
+                if flags as i32 & FMODE_EXEC != 0 {
+                    // Open is from internal exec syscall
+                    (libc::X_OK, true, false)
+                } else {
+                    (libc::R_OK, true, false)
+                }
             }
             libc::O_WRONLY => (libc::W_OK, false, true),
             libc::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
@@ -591,12 +595,10 @@ impl Filesystem for FleetFUSE {
         }
 
         if size >= FUSE_MAX_READ_SIZE {
-            match self.client.read_to_vec(
-                inode,
-                offset as u64,
-                SPECULATIVE_READ_SIZE,
-                UserContext::new(req.uid(), req.gid()),
-            ) {
+            match self
+                .client
+                .read_to_vec(inode, offset as u64, SPECULATIVE_READ_SIZE)
+            {
                 Ok(data) => {
                     let mut read_cache = self
                         .read_ahead_cache
@@ -621,16 +623,11 @@ impl Filesystem for FleetFUSE {
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
             }
         } else {
-            self.client.read(
-                inode,
-                offset as u64,
-                size,
-                UserContext::new(req.uid(), req.gid()),
-                move |result| match result {
+            self.client
+                .read(inode, offset as u64, size, move |result| match result {
                     Ok(data) => reply.data(data),
                     Err(error_code) => reply.error(into_fuse_error(error_code)),
-                },
-            );
+                });
         }
     }
 

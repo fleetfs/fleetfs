@@ -111,25 +111,6 @@ impl MetadataStorage {
         Ok(maybe_inode)
     }
 
-    pub fn read(&self, inode: Inode, context: UserContext) -> Result<(), ErrorCode> {
-        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let inode_attrs = metadata
-            .get_mut(&inode)
-            .ok_or(ErrorCode::InodeDoesNotExist)?;
-        if !check_access(
-            inode_attrs.uid,
-            inode_attrs.gid,
-            inode_attrs.mode,
-            context.uid(),
-            context.gid(),
-            libc::R_OK as u32,
-        ) {
-            return Err(ErrorCode::AccessDenied);
-        }
-
-        Ok(())
-    }
-
     pub fn get_xattr(&self, inode: Inode, key: &str) -> Result<Vec<u8>, ErrorCode> {
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         if let Some(value) = metadata
@@ -748,6 +729,7 @@ impl MetadataStorage {
         let inode_metadata = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
+        // TODO: this check should probably be removed, and done on the fh that the client has
         if !check_access(
             inode_metadata.uid,
             inode_metadata.gid,
