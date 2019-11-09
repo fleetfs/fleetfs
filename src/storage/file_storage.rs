@@ -12,6 +12,7 @@ use crate::utils::{
     FlatBufferWithResponse, ResultResponse,
 };
 use futures::Future;
+use futures::FutureExt;
 
 pub struct FileStorage {
     data_storage: DataStorage,
@@ -167,10 +168,10 @@ impl FileStorage {
         offset: u64,
         read_size: u32,
         builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Item = FlatBufferWithResponse<'static>, Error = ErrorCode> {
+    ) -> impl Future<Output = Result<FlatBufferWithResponse<'static>, ErrorCode>> {
         // No access check is needed, since we rely on the client to do it
         let read_result = self.data_storage.read(inode, offset, read_size);
-        read_result.then(move |response| Ok(to_fast_read_response(builder, response)))
+        read_result.map(move |response| Ok(to_fast_read_response(builder, response)))
     }
 
     pub fn read_raw<'a>(

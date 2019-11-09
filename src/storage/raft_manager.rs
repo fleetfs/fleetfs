@@ -11,10 +11,11 @@ use crate::storage::file_storage::FileStorage;
 use crate::storage_node::LocalContext;
 use crate::utils::{node_id_from_address, FlatBufferResponse};
 use flatbuffers::FlatBufferBuilder;
-use futures::future::{ok, Either};
-use futures::sync::oneshot;
-use futures::sync::oneshot::Sender;
-use futures::Future;
+use futures::channel::oneshot;
+use futures::channel::oneshot::Sender;
+use futures::future::{ready, Either};
+use futures::FutureExt;
+use futures::{Future, TryFutureExt};
 use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -125,50 +126,48 @@ impl RaftManager {
         unreachable!();
     }
 
-    pub fn get_latest_commit_from_leader(&self) -> impl Future<Item = u64, Error = ()> {
+    pub fn get_latest_commit_from_leader(&self) -> impl Future<Output = Result<u64, ErrorCode>> {
         let raft_node = self.raft_node.lock().unwrap();
 
-        let commit: Box<dyn Future<Item = u64, Error = ()> + Send>;
         if raft_node.raft.leader_id == self.node_id {
-            commit = Box::new(ok(self.applied_index.load(Ordering::SeqCst)));
+            Either::Left(ready(Ok(self.applied_index.load(Ordering::SeqCst))))
         } else if raft_node.raft.leader_id == 0 {
             // TODO: wait for a leader
-            commit = Box::new(ok(0));
+            Either::Left(ready(Ok(0)))
         } else {
             let leader = &self.peers[&raft_node.raft.leader_id];
-            commit = Box::new(leader.get_latest_commit());
+            Either::Right(
+                leader
+                    .get_latest_commit()
+                    .map_err(|_| ErrorCode::Uncategorized),
+            )
         }
-
-        commit
     }
 
-    pub fn get_leader(&self) -> impl Future<Item = u64, Error = ()> {
+    pub fn get_leader(&self) -> impl Future<Output = Result<u64, ErrorCode>> {
         let raft_node = self.raft_node.lock().unwrap();
 
         if raft_node.raft.leader_id > 0 {
-            Either::A(ok(raft_node.raft.leader_id))
+            Either::Left(ready(Ok(raft_node.raft.leader_id)))
         } else {
             let (sender, receiver) = oneshot::channel();
             self.leader_requests.lock().unwrap().push(sender);
-            Either::B(receiver.map_err(|_| ()))
+            Either::Right(receiver.map(|x| x.map_err(|_| ErrorCode::Uncategorized)))
         }
     }
 
     // Wait until the given index has been committed
-    pub fn sync(&self, index: u64) -> impl Future<Item = (), Error = ()> {
+    pub fn sync(&self, index: u64) -> impl Future<Output = Result<(), ErrorCode>> {
         // Make sure we have the lock on all data structures
         let _raft_node_locked = self.raft_node.lock().unwrap();
 
-        let commit: Box<dyn Future<Item = (), Error = ()> + Send> =
-            if self.applied_index.load(Ordering::SeqCst) >= index {
-                Box::new(ok(()))
-            } else {
-                let (sender, receiver) = oneshot::channel();
-                self.sync_requests.lock().unwrap().push((index, sender));
-                Box::new(receiver.map_err(|_| ()))
-            };
-
-        commit
+        if self.applied_index.load(Ordering::SeqCst) >= index {
+            Either::Left(ready(Ok(())))
+        } else {
+            let (sender, receiver) = oneshot::channel();
+            self.sync_requests.lock().unwrap().push((index, sender));
+            Either::Right(receiver.map(|x| x.map_err(|_| ErrorCode::Uncategorized)))
+        }
     }
 
     // Should be called once every 100ms to handle background tasks
@@ -309,7 +308,7 @@ impl RaftManager {
         &self,
         request: GenericRequest,
         builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Item = FlatBufferResponse<'static>, Error = ErrorCode> {
+    ) -> impl Future<Output = Result<FlatBufferResponse<'static>, ErrorCode>> {
         let uuid: u128 = rand::thread_rng().gen();
 
         let (sender, receiver) = oneshot::channel();
@@ -321,9 +320,7 @@ impl RaftManager {
 
         self.process_raft_queue();
 
-        return receiver
-            .map_err(|_| ErrorCode::Uncategorized)
-            .and_then(|x| x);
+        return receiver.map(|x| x.unwrap_or_else(|_| Err(ErrorCode::Uncategorized)));
     }
 }
 

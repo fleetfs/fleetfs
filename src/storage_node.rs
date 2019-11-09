@@ -2,11 +2,12 @@ use std::error::Error;
 use std::fs;
 
 use flatbuffers::FlatBufferBuilder;
-use futures::future::Future;
-use futures::Stream;
+use futures::future::ready;
 use tokio::codec::length_delimited;
 use tokio::net::TcpListener;
 use tokio::prelude::*;
+
+use log::{debug, error};
 
 use crate::generated::get_root_as_generic_request;
 use crate::handlers::request_router;
@@ -59,48 +60,75 @@ impl Node {
             panic!("Couldn't create storage dir: {}", why.description());
         };
 
-        let listener = TcpListener::bind(&self.bind_address).expect("unable to bind API listener");
+        let bind_address = self.bind_address;
 
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();
-        let server = listener
-            .incoming()
-            .map_err(|e| eprintln!("accept connection failed = {:?}", e))
-            .for_each(move |socket| {
-                let (reader, writer) = socket.split();
-                let reader = length_delimited::Builder::new()
-                    .little_endian()
-                    .new_read(reader);
-
+        let server = async move {
+            let listener = match TcpListener::bind(bind_address).await {
+                Ok(x) => x,
+                Err(e) => {
+                    error!("Error binding listener: {}", e);
+                    return;
+                }
+            };
+            let mut sockets = listener.incoming();
+            loop {
+                let mut socket = match sockets.next().await {
+                    None => return,
+                    Some(connection) => match connection {
+                        Ok(x) => x,
+                        Err(e) => {
+                            debug!("Client error on connect: {}", e);
+                            continue;
+                        }
+                    },
+                };
                 let cloned_raft = raft_manager.clone();
-                let builder = FlatBufferBuilder::new();
-                let conn = reader.fold((writer, builder), move |(writer, mut builder), frame| {
-                    let request = get_root_as_generic_request(&frame);
-                    builder.reset();
 
-                    let response = request_router(request, cloned_raft.clone(), builder);
-                    response
-                        .map(|response| tokio::io::write_all(writer, response))
-                        .flatten()
-                        .map(|(writer, written)| (writer, written.into_buffer()))
+                tokio::spawn(async move {
+                    let (reader, mut writer) = socket.split();
+                    let mut reader = length_delimited::Builder::new()
+                        .little_endian()
+                        .new_read(reader);
+
+                    let mut builder = FlatBufferBuilder::new();
+                    loop {
+                        let frame = match reader.next().await {
+                            None => return,
+                            Some(bytes) => match bytes {
+                                Ok(x) => x,
+                                Err(e) => {
+                                    debug!("Client connection closed: {}", e);
+                                    return;
+                                }
+                            },
+                        };
+                        builder.reset();
+                        let request = get_root_as_generic_request(&frame);
+                        let response = request_router(request, cloned_raft.clone(), builder).await;
+                        if let Err(e) = writer.write_all(response.as_ref()).await {
+                            debug!("Client connection closed: {}", e);
+                            return;
+                        };
+                        builder = response.into_buffer();
+                    }
                 });
+            }
+        };
 
-                tokio::spawn(conn.map(|_| ()).map_err(|_| ()))
+        let background_raft =
+            Interval::new(Instant::now(), Duration::from_millis(100)).for_each(move |_| {
+                raft_manager_cloned.background_tick();
+                ready(())
             });
 
-        let background_raft = Interval::new(Instant::now(), Duration::from_millis(100))
-            .for_each(move |_| {
-                raft_manager_cloned.background_tick();
-                Ok(())
-            })
-            .map_err(|e| panic!("Background Raft thread failed error: {:?}", e));
-
         // TODO: currently we run single threaded to uncover deadlocks more easily
-        let mut runtime = tokio::runtime::Builder::new()
+        let runtime = tokio::runtime::Builder::new()
             .core_threads(1)
             .build()
             .unwrap();
         runtime.spawn(server);
-        runtime.block_on_all(background_raft.map(|_| ())).unwrap();
+        runtime.block_on(background_raft);
     }
 }
