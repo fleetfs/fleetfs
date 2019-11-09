@@ -9,8 +9,8 @@ edition = "2018"
 exclude = ["*.sh"]
 
 [dependencies]
-futures = "0.1"
-tokio = "0.1"
+futures = "0.3"
+tokio = "0.2.0-alpha.6"
 clap = "2.32"
 log = "0.4"
 env_logger = "0.7"

@@ -3,8 +3,7 @@ use crate::peer_client::PeerClient;
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, into_error_code, FlatBufferResponse, ResultResponse};
 use flatbuffers::FlatBufferBuilder;
-use futures::future::result;
-use futures::Future;
+use futures::FutureExt;
 use sha2::{Digest, Sha256};
 use std::io;
 use std::io::Write;
@@ -29,33 +28,37 @@ fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
     return Ok(hasher.result().to_vec());
 }
 
-pub fn fsck<'a>(
-    context: &LocalContext,
-    mut builder: FlatBufferBuilder<'a>,
-) -> impl Future<Item = FlatBufferResponse<'a>, Error = ErrorCode> {
-    let future_checksum = result(checksum(&context.data_dir).map_err(into_error_code));
+pub async fn fsck(
+    context: LocalContext,
+    mut builder: FlatBufferBuilder<'_>,
+) -> Result<FlatBufferResponse<'_>, ErrorCode> {
+    let checksum = checksum(&context.data_dir).map_err(into_error_code)?;
     let mut peer_futures = vec![];
     for peer in context.peers.iter() {
         let client = PeerClient::new(*peer);
-        peer_futures.push(client.filesystem_checksum().map_err(into_error_code));
+        peer_futures.push(
+            client
+                .filesystem_checksum()
+                .map(|x| x.map_err(into_error_code)),
+        );
     }
 
     futures::future::join_all(peer_futures)
-        .join(future_checksum)
-        .map(move |(peer_checksums, checksum)| {
+        .map(move |peer_checksums| {
             for peer_checksum in peer_checksums {
-                if checksum != peer_checksum {
+                if checksum != peer_checksum? {
                     let args = ErrorResponseArgs {
                         error_code: ErrorCode::Corrupted,
                     };
                     let response_offset =
                         ErrorResponse::create(&mut builder, &args).as_union_value();
-                    return (builder, ResponseType::ErrorResponse, response_offset);
+                    return Ok((builder, ResponseType::ErrorResponse, response_offset));
                 }
             }
 
-            return empty_response(builder).unwrap();
+            return empty_response(builder);
         })
+        .await
 }
 
 pub fn checksum_request<'a>(

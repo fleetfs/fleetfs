@@ -1,4 +1,5 @@
 use futures::Future;
+use futures::FutureExt;
 
 use crate::generated::ErrorCode;
 use crate::peer_client::PeerClient;
@@ -163,11 +164,11 @@ impl DataStorage {
         inode: u64,
         global_offset: u64,
         global_size: u32,
-    ) -> impl Future<Item = LengthPrefixedVec, Error = ErrorCode> {
+    ) -> impl Future<Output = Result<LengthPrefixedVec, ErrorCode>> {
         let local_data = match self.read_raw(inode, global_offset, global_size) {
             Ok(value) => value,
             Err(error) => {
-                return Either::A(err(into_error_code(error)));
+                return Either::Left(err(into_error_code(error)));
             }
         };
 
@@ -176,44 +177,48 @@ impl DataStorage {
             if *node_id == self.local_node_id {
                 continue;
             }
-            remote_data_blocks.push(self.peers[node_id].read_raw(
-                inode,
-                global_offset,
-                global_size,
-            ));
+            remote_data_blocks.push(
+                self.peers[node_id]
+                    .read_raw(inode, global_offset, global_size)
+                    .map(|x| x.map_err(into_error_code)),
+            );
         }
 
         let local_rank = self.local_rank;
-        let result = join_all(remote_data_blocks)
-            .map(move |fetched_data_blocks| {
-                let mut data_blocks: Vec<&[u8]> =
-                    fetched_data_blocks.iter().map(AsRef::as_ref).collect();
-                data_blocks.insert(local_rank as usize, local_data.bytes());
+        let result = join_all(remote_data_blocks).map(move |fetched_data_blocks| {
+            let mut data_blocks: Vec<&[u8]> = vec![];
+            let mut tmp_blocks = vec![];
+            for x in fetched_data_blocks {
+                tmp_blocks.push(x?);
+            }
+            for x in tmp_blocks.iter() {
+                data_blocks.push(x);
+            }
+            data_blocks.insert(local_rank as usize, local_data.bytes());
 
-                let mut result = LengthPrefixedVec::with_capacity(global_size as usize);
-                let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
-                let first_block_size = data_blocks[0].len();
-                let mut indices = vec![0; data_blocks.len()];
-                let first_block_read = min(partial_first_block as usize, first_block_size);
-                result.extend(&data_blocks[0][0..first_block_read]);
-                indices[0] = first_block_read;
+            let mut result = LengthPrefixedVec::with_capacity(global_size as usize);
+            let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
+            let first_block_size = data_blocks[0].len();
+            let mut indices = vec![0; data_blocks.len()];
+            let first_block_read = min(partial_first_block as usize, first_block_size);
+            result.extend(&data_blocks[0][0..first_block_read]);
+            indices[0] = first_block_read;
 
-                let mut next_block = min(1, data_blocks.len() - 1);
-                while indices[next_block] < data_blocks[next_block].len() {
-                    let index = indices[next_block];
-                    let remaining = data_blocks[next_block].len() - index;
-                    let block_read = min(BLOCK_SIZE as usize, remaining);
-                    result.extend(&data_blocks[next_block][index..(index + block_read)]);
-                    indices[next_block] += block_read;
-                    next_block += 1;
-                    next_block %= data_blocks.len();
-                }
+            let mut next_block = min(1, data_blocks.len() - 1);
+            while indices[next_block] < data_blocks[next_block].len() {
+                let index = indices[next_block];
+                let remaining = data_blocks[next_block].len() - index;
+                let block_read = min(BLOCK_SIZE as usize, remaining);
+                result.extend(&data_blocks[next_block][index..(index + block_read)]);
+                indices[next_block] += block_read;
+                next_block += 1;
+                next_block %= data_blocks.len();
+            }
 
-                result
-            })
-            .map_err(into_error_code);
+            Ok(result)
+        });
 
-        Either::B(result)
+        Either::Right(result)
     }
 
     pub fn truncate(&self, inode: u64, global_length: u64) -> io::Result<()> {
