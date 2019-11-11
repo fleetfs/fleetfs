@@ -4,7 +4,7 @@ use std::fs;
 use flatbuffers::FlatBufferBuilder;
 use futures::future::ready;
 use tokio::codec::length_delimited;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
 use log::{debug, error};
@@ -34,6 +34,37 @@ impl LocalContext {
             node_id,
         }
     }
+}
+
+fn spawn_connection_handler(mut socket: TcpStream, raft: Arc<RaftManager>) {
+    tokio::spawn(async move {
+        let (reader, mut writer) = socket.split();
+        let mut reader = length_delimited::Builder::new()
+            .little_endian()
+            .new_read(reader);
+
+        let mut builder = FlatBufferBuilder::new();
+        loop {
+            let frame = match reader.next().await {
+                None => return,
+                Some(bytes) => match bytes {
+                    Ok(x) => x,
+                    Err(e) => {
+                        debug!("Client connection closed: {}", e);
+                        return;
+                    }
+                },
+            };
+            builder.reset();
+            let request = get_root_as_generic_request(&frame);
+            let response = request_router(request, raft.clone(), builder).await;
+            if let Err(e) = writer.write_all(response.as_ref()).await {
+                debug!("Client connection closed: {}", e);
+                return;
+            };
+            builder = response.into_buffer();
+        }
+    });
 }
 
 pub struct Node {
@@ -74,7 +105,7 @@ impl Node {
             };
             let mut sockets = listener.incoming();
             loop {
-                let mut socket = match sockets.next().await {
+                let socket = match sockets.next().await {
                     None => return,
                     Some(connection) => match connection {
                         Ok(x) => x,
@@ -84,36 +115,7 @@ impl Node {
                         }
                     },
                 };
-                let cloned_raft = raft_manager.clone();
-
-                tokio::spawn(async move {
-                    let (reader, mut writer) = socket.split();
-                    let mut reader = length_delimited::Builder::new()
-                        .little_endian()
-                        .new_read(reader);
-
-                    let mut builder = FlatBufferBuilder::new();
-                    loop {
-                        let frame = match reader.next().await {
-                            None => return,
-                            Some(bytes) => match bytes {
-                                Ok(x) => x,
-                                Err(e) => {
-                                    debug!("Client connection closed: {}", e);
-                                    return;
-                                }
-                            },
-                        };
-                        builder.reset();
-                        let request = get_root_as_generic_request(&frame);
-                        let response = request_router(request, cloned_raft.clone(), builder).await;
-                        if let Err(e) = writer.write_all(response.as_ref()).await {
-                            debug!("Client connection closed: {}", e);
-                            return;
-                        };
-                        builder = response.into_buffer();
-                    }
-                });
+                spawn_connection_handler(socket, raft_manager.clone());
             }
         };
 
