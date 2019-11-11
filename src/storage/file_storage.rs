@@ -195,19 +195,14 @@ impl FileStorage {
         data: &[u8],
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        if let Err(error_code) = self
-            .metadata_storage
-            .write(inode, offset, data.len() as u32)
-        {
-            return Err(error_code);
-        } else {
-            let write_result = self.data_storage.write_local_blocks(inode, offset, data);
-            // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
-            let total_bytes = data.len() as u32;
-            return write_result
-                .map(move |_| to_write_response(builder, total_bytes).unwrap())
-                .map_err(into_error_code);
-        }
+        self.metadata_storage
+            .write(inode, offset, data.len() as u32)?;
+        let write_result = self.data_storage.write_local_blocks(inode, offset, data);
+        // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
+        let total_bytes = data.len() as u32;
+        return write_result
+            .map(move |_| to_write_response(builder, total_bytes).unwrap())
+            .map_err(into_error_code);
     }
 
     pub fn hardlink<'a>(
