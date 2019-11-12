@@ -58,7 +58,6 @@ echo "generic/075" >> xfs_excludes.txt
 echo "generic/091" >> xfs_excludes.txt
 echo "generic/112" >> xfs_excludes.txt
 echo "generic/184" >> xfs_excludes.txt
-echo "generic/198" >> xfs_excludes.txt
 echo "generic/221" >> xfs_excludes.txt
 echo "generic/247" >> xfs_excludes.txt
 echo "generic/249" >> xfs_excludes.txt
