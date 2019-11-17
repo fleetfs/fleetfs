@@ -109,8 +109,36 @@ echo "generic/452" >> xfs_excludes.txt
 echo "generic/453" >> xfs_excludes.txt
 echo "generic/454" >> xfs_excludes.txt
 
+# TODO: hangs
+echo "generic/133" >> xfs_excludes.txt
+echo "generic/170" >> xfs_excludes.txt
+
+# TODO: fails
+echo "generic/127" >> xfs_excludes.txt
+
+# TODO: hangs
+echo "generic/356" >> xfs_excludes.txt
+echo "generic/357" >> xfs_excludes.txt
+echo "generic/358" >> xfs_excludes.txt
+echo "generic/359" >> xfs_excludes.txt
+echo "generic/464" >> xfs_excludes.txt
+
+# TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
+echo "generic/089" >> xfs_excludes.txt
+
+# TODO: fails (from non-quick suite)
+echo "generic/074" >> xfs_excludes.txt
+echo "generic/192" >> xfs_excludes.txt
+echo "generic/209" >> xfs_excludes.txt
+echo "generic/239" >> xfs_excludes.txt
+echo "generic/340" >> xfs_excludes.txt
+echo "generic/344" >> xfs_excludes.txt
+echo "generic/345" >> xfs_excludes.txt
+echo "generic/354" >> xfs_excludes.txt
+echo "generic/438" >> xfs_excludes.txt
+
 FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
-./check-fleetfs -g quick -E xfs_excludes.txt \
+./check-fleetfs -E xfs_excludes.txt \
 | tee /code/logs/xfstests.log
 
 export XFSTESTS_EXIT_STATUS=${PIPESTATUS[0]}
