@@ -1,7 +1,9 @@
 FROM ubuntu:18.04
 
 RUN apt update && apt install -y git build-essential autoconf curl cmake libfuse-dev pkg-config fuse bc libtool \
-  uuid-dev xfslibs-dev libattr1-dev libacl1-dev libaio-dev
+  uuid-dev xfslibs-dev libattr1-dev libacl1-dev libaio-dev attr acl quota
+
+RUN adduser --disabled-password --gecos '' fsgqa
 
 RUN echo 'user_allow_other' >> /etc/fuse.conf
 
@@ -14,7 +16,7 @@ RUN cd /code && git clone https://github.com/google/flatbuffers && cd flatbuffer
   && cmake -G "Unix Makefiles" && make flatc && cp flatc /bin/flatc
 
 RUN mkdir -p /code && cd /code && git clone https://github.com/fleetfs/fuse-xfstests && cd fuse-xfstests \
-  && git checkout 541c649711b4e09374e3e178fed6effb4aac8423 && make
+  && git checkout 5993a99a16e2547fd00b5fda733bb35aed10e336 && make
 
 ADD . /code/fleetfs/
 
