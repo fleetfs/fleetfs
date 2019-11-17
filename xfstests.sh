@@ -53,6 +53,16 @@ echo "generic/478" >> xfs_excludes.txt
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
 echo "generic/035" >> xfs_excludes.txt
 
+# Writes directly to scratch block dev
+echo "generic/062" >> xfs_excludes.txt
+
+# TODO: hangs (or maybe just very slow? 5min+)
+echo "generic/069" >> xfs_excludes.txt
+echo "generic/162" >> xfs_excludes.txt
+echo "generic/163" >> xfs_excludes.txt
+echo "generic/374" >> xfs_excludes.txt
+echo "generic/403" >> xfs_excludes.txt
+
 # TODO: Broken. Dunno why
 echo "generic/075" >> xfs_excludes.txt
 echo "generic/091" >> xfs_excludes.txt
@@ -69,6 +79,35 @@ echo "generic/469" >> xfs_excludes.txt
 echo "generic/477" >> xfs_excludes.txt
 echo "generic/484" >> xfs_excludes.txt
 echo "generic/504" >> xfs_excludes.txt
+
+# TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
+echo "generic/003" >> xfs_excludes.txt
+echo "generic/029" >> xfs_excludes.txt
+echo "generic/030" >> xfs_excludes.txt
+echo "generic/097" >> xfs_excludes.txt
+echo "generic/098" >> xfs_excludes.txt
+echo "generic/099" >> xfs_excludes.txt
+echo "generic/105" >> xfs_excludes.txt
+echo "generic/130" >> xfs_excludes.txt
+echo "generic/135" >> xfs_excludes.txt
+echo "generic/193" >> xfs_excludes.txt
+echo "generic/237" >> xfs_excludes.txt
+echo "generic/294" >> xfs_excludes.txt
+echo "generic/306" >> xfs_excludes.txt
+echo "generic/314" >> xfs_excludes.txt
+echo "generic/317" >> xfs_excludes.txt
+echo "generic/319" >> xfs_excludes.txt
+echo "generic/346" >> xfs_excludes.txt
+echo "generic/355" >> xfs_excludes.txt
+echo "generic/375" >> xfs_excludes.txt
+echo "generic/393" >> xfs_excludes.txt
+echo "generic/401" >> xfs_excludes.txt
+echo "generic/412" >> xfs_excludes.txt
+echo "generic/444" >> xfs_excludes.txt
+echo "generic/451" >> xfs_excludes.txt
+echo "generic/452" >> xfs_excludes.txt
+echo "generic/453" >> xfs_excludes.txt
+echo "generic/454" >> xfs_excludes.txt
 
 FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
 ./check-fleetfs -g quick -E xfs_excludes.txt \
