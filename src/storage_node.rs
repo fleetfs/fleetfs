@@ -2,10 +2,10 @@ use std::error::Error;
 use std::fs;
 
 use flatbuffers::FlatBufferBuilder;
-use futures::future::ready;
-use tokio::codec::length_delimited;
+use futures::future::{lazy, ready};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
+use tokio_util::codec::length_delimited;
 
 use log::{debug, error};
 
@@ -16,8 +16,10 @@ use crate::utils::node_id_from_address;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use std::time::Duration;
+
+use futures_util::future::FutureExt;
+use futures_util::stream::StreamExt;
 
 #[derive(Clone)]
 pub struct LocalContext {
@@ -96,7 +98,7 @@ impl Node {
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();
         let server = async move {
-            let listener = match TcpListener::bind(bind_address).await {
+            let mut listener = match TcpListener::bind(bind_address).await {
                 Ok(x) => x,
                 Err(e) => {
                     error!("Error binding listener: {}", e);
@@ -119,15 +121,20 @@ impl Node {
             }
         };
 
-        let background_raft =
-            Interval::new(Instant::now(), Duration::from_millis(100)).for_each(move |_| {
+        let background_raft = lazy(|_| {
+            tokio::time::interval(Duration::from_millis(100)).for_each(move |_| {
                 raft_manager_cloned.background_tick();
                 ready(())
-            });
+            })
+        })
+        .flatten();
 
         // TODO: currently we run single threaded to uncover deadlocks more easily
-        let runtime = tokio::runtime::Builder::new()
-            .core_threads(1)
+        let mut runtime = tokio::runtime::Builder::new()
+            .threaded_scheduler()
+            .enable_io()
+            .enable_time()
+            .num_threads(1)
             .build()
             .unwrap();
         runtime.spawn(server);

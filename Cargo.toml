@@ -10,7 +10,9 @@ exclude = ["*.sh"]
 
 [dependencies]
 futures = "0.3"
-tokio = "0.2.0-alpha.6"
+futures-util = "0.3"
+tokio-util = { version = "0.2", features = ['codec'] }
+tokio = { version = "0.2", features = ['io-driver', 'io-util', 'tcp', 'time', 'rt-threaded', 'stream'] }
 clap = "2.32"
 log = "0.4"
 env_logger = "0.7"
