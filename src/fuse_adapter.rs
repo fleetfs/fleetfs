@@ -14,7 +14,7 @@ use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::metadata_storage::MAX_NAME_LENGTH;
 use crate::utils::check_access;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use fuse::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
