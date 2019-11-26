@@ -2,7 +2,7 @@ use log::{error, info};
 use raft::eraftpb::Message;
 use raft::prelude::EntryType;
 use raft::storage::MemStorage;
-use raft::{Config, RawNode};
+use raft::{Config, Error, RawNode, StorageError};
 use std::sync::Mutex;
 
 use crate::generated::*;
@@ -279,6 +279,22 @@ impl RaftManager {
         }
 
         self.applied_index.store(applied_index, Ordering::SeqCst);
+        // TODO: should be checkpointing to disk
+        if applied_index % 100 == 0 {
+            if let Err(error) = raft_node.mut_store().wl().compact(applied_index) {
+                match error {
+                    Error::Store(store_error) => match store_error {
+                        StorageError::Compacted => {} // no-op
+                        e => {
+                            panic!("Error during compaction: {}", e);
+                        }
+                    },
+                    e => {
+                        panic!("Error during compaction: {}", e);
+                    }
+                }
+            }
+        }
 
         // TODO: once drain_filter is stable, it could be used to make this a lot nicer
         let mut sync_requests = self.sync_requests.lock().unwrap();
