@@ -63,13 +63,17 @@ echo "generic/163" >> xfs_excludes.txt
 echo "generic/374" >> xfs_excludes.txt
 echo "generic/403" >> xfs_excludes.txt
 
+# TODO: seems like ctime failure
+echo "generic/221" >> xfs_excludes.txt
+
+# TODO: needs fallocate
+echo "generic/263" >> xfs_excludes.txt
+
 # TODO: Broken. Dunno why
 echo "generic/075" >> xfs_excludes.txt
 echo "generic/091" >> xfs_excludes.txt
 echo "generic/112" >> xfs_excludes.txt
 echo "generic/184" >> xfs_excludes.txt
-echo "generic/221" >> xfs_excludes.txt
-echo "generic/263" >> xfs_excludes.txt
 echo "generic/360" >> xfs_excludes.txt
 echo "generic/394" >> xfs_excludes.txt
 echo "generic/423" >> xfs_excludes.txt
@@ -80,17 +84,28 @@ echo "generic/477" >> xfs_excludes.txt
 echo "generic/484" >> xfs_excludes.txt
 echo "generic/504" >> xfs_excludes.txt
 
+# TODO: requires support for system.posix_acl_access xattr sync'ing to file permissions
+# Some information about it linked from here: https://stackoverflow.com/questions/29569408/documentation-of-posix-acl-access-and-friends
+echo "generic/099" >> xfs_excludes.txt
+echo "generic/105" >> xfs_excludes.txt
+
+# TODO: requires proper suid-bit support
+echo "generic/193" >> xfs_excludes.txt
+echo "generic/355" >> xfs_excludes.txt
+echo "generic/375" >> xfs_excludes.txt
+echo "generic/444" >> xfs_excludes.txt
+
+# TODO: requires support for mounting read-only
+echo "generic/452" >> xfs_excludes.txt
+
 # TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
 echo "generic/003" >> xfs_excludes.txt
 echo "generic/029" >> xfs_excludes.txt
 echo "generic/030" >> xfs_excludes.txt
 echo "generic/097" >> xfs_excludes.txt
 echo "generic/098" >> xfs_excludes.txt
-echo "generic/099" >> xfs_excludes.txt
-echo "generic/105" >> xfs_excludes.txt
 echo "generic/130" >> xfs_excludes.txt
 echo "generic/135" >> xfs_excludes.txt
-echo "generic/193" >> xfs_excludes.txt
 echo "generic/237" >> xfs_excludes.txt
 echo "generic/294" >> xfs_excludes.txt
 echo "generic/306" >> xfs_excludes.txt
@@ -98,14 +113,9 @@ echo "generic/314" >> xfs_excludes.txt
 echo "generic/317" >> xfs_excludes.txt
 echo "generic/319" >> xfs_excludes.txt
 echo "generic/346" >> xfs_excludes.txt
-echo "generic/355" >> xfs_excludes.txt
-echo "generic/375" >> xfs_excludes.txt
 echo "generic/393" >> xfs_excludes.txt
 echo "generic/401" >> xfs_excludes.txt
 echo "generic/412" >> xfs_excludes.txt
-echo "generic/444" >> xfs_excludes.txt
-echo "generic/451" >> xfs_excludes.txt
-echo "generic/452" >> xfs_excludes.txt
 echo "generic/453" >> xfs_excludes.txt
 echo "generic/454" >> xfs_excludes.txt
 
