@@ -17,8 +17,9 @@ before_install:
   - mv flatc bin/
   - cd $TRAVIS_BUILD_DIR
 before_script:
-- rustup component add rustfmt
-- rustup component add clippy
+  - cargo install cargo-lichking
+  - rustup component add rustfmt
+  - rustup component add clippy
 script:
-- cargo build
-- make test
+  - cargo build
+  - make test
