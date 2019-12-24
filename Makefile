@@ -28,6 +28,7 @@ pjdfs_tests: build_integration_tests
 
 test: pre pjdfs_tests xfstests
 	./test.sh
+	cargo test
 
 publish:
 	docker build -t cberner/fleetfs:${VERSION} .
