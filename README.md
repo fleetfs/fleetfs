@@ -3,7 +3,6 @@
 [![Crates](https://img.shields.io/crates/v/fleetfs.svg)](https://crates.io/crates/fleetfs)
 [![Documentation](https://docs.rs/fleetfs/badge.svg)](https://docs.rs/fleetfs)
 [![dependency status](https://deps.rs/repo/github/fleetfs/fleetfs/status.svg)](https://deps.rs/repo/github/fleetfs/fleetfs)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Ffleetfs%2Ffleetfs.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Ffleetfs%2Ffleetfs?ref=badge_shield)
 
 FleetFS distributed filesystem
 
@@ -30,4 +29,13 @@ Very very alpha. Expect FleetFS to eat your data :)
   * Pros: client doesn't have to send exhaustive list of groups that user is part of to make permission checks
 
 ## License
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Ffleetfs%2Ffleetfs.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Ffleetfs%2Ffleetfs?ref=badge_large)
+
+Licensed under
+
+ * Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you shall be licensed as above, without any
+additional terms or conditions.
