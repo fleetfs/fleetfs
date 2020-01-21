@@ -27,6 +27,12 @@ Very very alpha. Expect FleetFS to eat your data :)
   * Context: FleetFS has no access to a central user store, so has to trust the user ids sent by the client
   * Cons: security relies on the client
   * Pros: client doesn't have to send exhaustive list of groups that user is part of to make permission checks
+* Sharding design:
+  * "Raft group" (or rgroup): a subset of storage nodes participating in a raft consensus group.
+  The cluster consists of multiple Raft groups, and a single node may be part of multiple groups.
+  * An inode is stored on a single Raft group, and inodes are sharded among groups, by id.
+  * (TODO) "Redundant block" (or rblock) is a block of data stored in a single Raft group.
+  A file's contents is composed of multiple rblocks, on one or more Raft groups.
 
 ## License
 
