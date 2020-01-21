@@ -5,7 +5,6 @@ use crate::generated::*;
 use crate::storage::data_storage::DataStorage;
 use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
-use crate::storage_node::LocalContext;
 use crate::utils::{
     empty_response, into_error_code, to_fast_read_response, to_fileattr_response,
     to_inode_response, to_read_response, to_write_response, to_xattrs_response,
@@ -13,6 +12,7 @@ use crate::utils::{
 };
 use futures::Future;
 use futures::FutureExt;
+use std::net::SocketAddr;
 
 pub struct FileStorage {
     data_storage: DataStorage,
@@ -20,10 +20,17 @@ pub struct FileStorage {
 }
 
 impl FileStorage {
-    pub fn new(node_id: u64, all_node_ids: &[u64], context: &LocalContext) -> FileStorage {
+    pub fn new(
+        node_id: u64,
+        all_node_ids: &[u64],
+        raft_group: u16,
+        num_raft_groups: u16,
+        data_dir: &str,
+        peers: &[SocketAddr],
+    ) -> FileStorage {
         FileStorage {
-            data_storage: DataStorage::new(node_id, all_node_ids, context),
-            metadata_storage: MetadataStorage::new(),
+            data_storage: DataStorage::new(node_id, all_node_ids, data_dir, peers),
+            metadata_storage: MetadataStorage::new(raft_group, num_raft_groups),
         }
     }
 

@@ -4,7 +4,6 @@ use futures::FutureExt;
 use crate::generated::ErrorCode;
 use crate::peer_client::PeerClient;
 use crate::storage::ROOT_INODE;
-use crate::storage_node::LocalContext;
 use crate::utils::{into_error_code, node_id_from_address, LengthPrefixedVec};
 use futures::future::{err, join_all, Either};
 use log::info;
@@ -12,6 +11,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
+use std::net::SocketAddr;
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
@@ -63,7 +63,12 @@ fn to_global_index(local_index: u64, local_rank: u64, total_nodes: u64) -> u64 {
 // Abstraction of file storage. Files are split into blocks of BLOCK_SIZE, and stored in RAID0 across
 // multiple nodes
 impl DataStorage {
-    pub fn new(local_node_id: u64, node_ids: &[u64], context: &LocalContext) -> DataStorage {
+    pub fn new(
+        local_node_id: u64,
+        node_ids: &[u64],
+        data_dir: &str,
+        peers: &[SocketAddr],
+    ) -> DataStorage {
         // TODO: support sharding strategies besides RAID0 with 2 nodes
         assert_eq!(node_ids.len(), 2);
         let mut sorted = node_ids.to_vec();
@@ -73,9 +78,8 @@ impl DataStorage {
             node_ids: sorted,
             local_node_id,
             local_rank,
-            local_data_dir: context.data_dir.clone(),
-            peers: context
-                .peers
+            local_data_dir: data_dir.to_string(),
+            peers: peers
                 .iter()
                 .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
                 .collect(),

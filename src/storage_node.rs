@@ -11,13 +11,13 @@ use log::{debug, error};
 
 use crate::generated::get_root_as_generic_request;
 use crate::handlers::request_router;
-use crate::storage::raft_manager::RaftManager;
 use crate::utils::node_id_from_address;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use futures_util::future::FutureExt;
 use futures_util::stream::StreamExt;
 
@@ -38,7 +38,11 @@ impl LocalContext {
     }
 }
 
-fn spawn_connection_handler(mut socket: TcpStream, raft: Arc<RaftManager>) {
+fn spawn_connection_handler(
+    mut socket: TcpStream,
+    raft: Arc<LocalRaftGroupManager>,
+    context: LocalContext,
+) {
     tokio::spawn(async move {
         let (reader, mut writer) = socket.split();
         let mut reader = length_delimited::Builder::new()
@@ -59,7 +63,7 @@ fn spawn_connection_handler(mut socket: TcpStream, raft: Arc<RaftManager>) {
             };
             builder.reset();
             let request = get_root_as_generic_request(&frame);
-            let response = request_router(request, raft.clone(), builder).await;
+            let response = request_router(request, raft.clone(), context.clone(), builder).await;
             if let Err(e) = writer.write_all(response.as_ref()).await {
                 debug!("Client connection closed: {}", e);
                 return;
@@ -71,19 +75,22 @@ fn spawn_connection_handler(mut socket: TcpStream, raft: Arc<RaftManager>) {
 
 pub struct Node {
     context: LocalContext,
-    raft_manager: RaftManager,
+    raft_manager: LocalRaftGroupManager,
     bind_address: SocketAddr,
 }
 
 impl Node {
     pub fn new(node_dir: &str, bind_address: SocketAddr, peers: Vec<SocketAddr>) -> Node {
         let data_dir = Path::new(node_dir).join("data");
+        fs::create_dir_all(&data_dir)
+            .expect(&format!("Failed to create data dir: {:?}", &data_dir));
         // Unique ID of node within the cluster. Never 0.
         let node_id = node_id_from_address(&bind_address);
         let context = LocalContext::new(data_dir.to_str().unwrap(), peers, node_id);
         Node {
             context: context.clone(),
-            raft_manager: RaftManager::new(context.clone()),
+            // TODO: Use multiple raft groups to make this actually distributed
+            raft_manager: LocalRaftGroupManager::new(1, context.clone()),
             bind_address,
         }
     }
@@ -94,6 +101,7 @@ impl Node {
         };
 
         let bind_address = self.bind_address;
+        let context = self.context;
 
         let raft_manager = Arc::new(self.raft_manager);
         let raft_manager_cloned = raft_manager.clone();
@@ -117,7 +125,7 @@ impl Node {
                         }
                     },
                 };
-                spawn_connection_handler(socket, raft_manager.clone());
+                spawn_connection_handler(socket, raft_manager.clone(), context.clone());
             }
         };
 

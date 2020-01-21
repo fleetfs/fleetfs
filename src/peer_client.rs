@@ -78,11 +78,12 @@ impl PeerClient {
         })
     }
 
-    pub fn send_raft_message(&self, message: Message) -> impl Future<Output = ()> {
+    pub fn send_raft_message(&self, raft_group: u16, message: Message) -> impl Future<Output = ()> {
         let serialized_message = message.write_to_bytes().unwrap();
         let mut builder = FlatBufferBuilder::new();
         let data_offset = builder.create_vector_direct(&serialized_message);
         let mut request_builder = RaftRequestBuilder::new(&mut builder);
+        request_builder.add_raft_group(raft_group);
         request_builder.add_message(data_offset);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RaftRequest, finish_offset);
@@ -93,9 +94,13 @@ impl PeerClient {
             })
     }
 
-    pub fn get_latest_commit(&self) -> impl Future<Output = Result<u64, std::io::Error>> {
+    pub fn get_latest_commit(
+        &self,
+        raft_group: u16,
+    ) -> impl Future<Output = Result<u64, std::io::Error>> {
         let mut builder = FlatBufferBuilder::new();
-        let request_builder = LatestCommitRequestBuilder::new(&mut builder);
+        let mut request_builder = LatestCommitRequestBuilder::new(&mut builder);
+        request_builder.add_raft_group(raft_group);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(
             &mut builder,
