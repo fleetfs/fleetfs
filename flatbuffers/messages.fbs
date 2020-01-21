@@ -3,7 +3,7 @@ namespace generated;
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
-                   LatestCommitRequest, GetLeaderRequest, RmdirRequest, ChownRequest, CreateRequest,
+                   LatestCommitRequest, FilesystemReadyRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest}
 
 enum FileKind: ubyte {
@@ -30,7 +30,7 @@ table RaftRequest {
 table LatestCommitRequest {
 }
 
-table GetLeaderRequest {
+table FilesystemReadyRequest {
 }
 
 table FilesystemChecksumRequest {
@@ -240,10 +240,6 @@ table LatestCommitResponse {
   index: ulong;
 }
 
-table NodeIdResponse {
-  node_id: ulong;
-}
-
 table InodeResponse {
   inode: ulong;
 }
@@ -253,7 +249,7 @@ table XattrsResponse {
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse, NodeIdResponse, XattrsResponse, InodeResponse }
+                     WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse }
 
 table GenericResponse {
   response: ResponseType;

@@ -208,7 +208,8 @@ fn main() -> Result<(), ErrorCode> {
         }
     } else if get_leader {
         let client = NodeClient::new(server_ip_port);
-        println!("Leader: {}", client.leader_id()?);
+        client.filesystem_ready()?;
+        println!("Filesystem ready");
     } else if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
         Node::new(&data_dir, bind_address, peers).run();

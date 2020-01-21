@@ -106,19 +106,23 @@ impl NodeClient {
         return response_or_error(buffer);
     }
 
-    pub fn leader_id(&self) -> Result<u64, ErrorCode> {
+    pub fn filesystem_ready(&self) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
-        let request_builder = GetLeaderRequestBuilder::new(&mut builder);
+        let request_builder = FilesystemReadyRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::GetLeaderRequest, finish_offset);
+        finalize_request(
+            &mut builder,
+            RequestType::FilesystemReadyRequest,
+            finish_offset,
+        );
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let node_id_response = response
-            .response_as_node_id_response()
+        response
+            .response_as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(node_id_response.node_id());
+        return Ok(());
     }
 
     pub fn fsck(&self) -> Result<(), ErrorCode> {

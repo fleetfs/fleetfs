@@ -154,14 +154,13 @@ async fn request_router_inner(
                 response_offset,
             )));
         }
-        RequestType::GetLeaderRequest => {
-            let leader_id = raft.get_leader().await?;
-            let mut response_builder = NodeIdResponseBuilder::new(&mut builder);
-            response_builder.add_node_id(leader_id);
+        RequestType::FilesystemReadyRequest => {
+            raft.get_leader().await?;
+            let response_builder = EmptyResponseBuilder::new(&mut builder);
             let response_offset = response_builder.finish().as_union_value();
             return Ok(Partial((
                 builder,
-                ResponseType::NodeIdResponse,
+                ResponseType::EmptyResponse,
                 response_offset,
             )));
         }
