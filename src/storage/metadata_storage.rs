@@ -46,11 +46,12 @@ pub struct MetadataStorage {
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
+    num_raft_groups: u64,
 }
 
 impl MetadataStorage {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> MetadataStorage {
+    pub fn new(raft_group: u16, num_raft_groups: u16) -> MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
@@ -75,11 +76,18 @@ impl MetadataStorage {
             },
         );
 
+        // Each raft group is responsible for inodes modulo num_raft_groups
+        let mut start_inode = ROOT_INODE + 1;
+        while start_inode % num_raft_groups as u64 != raft_group as u64 {
+            start_inode += 1;
+        }
+
         MetadataStorage {
             metadata: Mutex::new(metadata),
             directories: Mutex::new(directories),
             directory_parents: Mutex::new(parents),
-            next_inode: AtomicU64::new(ROOT_INODE + 1),
+            next_inode: AtomicU64::new(start_inode),
+            num_raft_groups: num_raft_groups as u64,
         }
     }
 
@@ -811,7 +819,8 @@ impl MetadataStorage {
     }
 
     fn allocate_inode(&self) -> u64 {
-        self.next_inode.fetch_add(1, Ordering::SeqCst)
+        self.next_inode
+            .fetch_add(self.num_raft_groups, Ordering::SeqCst)
     }
 }
 

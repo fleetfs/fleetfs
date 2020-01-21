@@ -19,6 +19,8 @@ use futures::{Future, TryFutureExt};
 use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type PendingResponse = (
@@ -26,20 +28,22 @@ type PendingResponse = (
     Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
 );
 
-pub struct RaftManager {
+pub struct RaftNode {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u128, PendingResponse>>,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     leader_requests: Mutex<Vec<Sender<u64>>>,
     applied_index: AtomicU64,
     peers: HashMap<u64, PeerClient>,
+    raft_group_id: u16,
     node_id: u64,
-    context: LocalContext,
     file_storage: FileStorage,
 }
 
-impl RaftManager {
-    pub fn new(context: LocalContext) -> RaftManager {
+impl RaftNode {
+    pub fn new(context: LocalContext, raft_group_id: u16, num_raft_groups: u16) -> RaftNode {
+        // TODO: currently all rgroups reuse the same set of node_ids. Debugging would be easier,
+        // if they had unique ids
         let node_id = context.node_id;
         let mut peer_ids: Vec<u64> = context
             .peers
@@ -64,7 +68,11 @@ impl RaftManager {
         let raft_storage = MemStorage::new();
         let raft_node = RawNode::new(&raft_config, raft_storage, vec![]).unwrap();
 
-        RaftManager {
+        let path = Path::new(&context.data_dir).join(format!("rgroup_{}", raft_group_id));
+        fs::create_dir_all(&path).expect(&format!("Failed to create data dir: {:?}", &path));
+        let data_dir = path.to_str().unwrap();
+
+        RaftNode {
             raft_node: Mutex::new(raft_node),
             pending_responses: Mutex::new(HashMap::new()),
             leader_requests: Mutex::new(vec![]),
@@ -76,14 +84,16 @@ impl RaftManager {
                 .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
                 .collect(),
             node_id,
-            context: context.clone(),
-            file_storage: FileStorage::new(node_id, &peer_ids, &context),
+            raft_group_id,
+            file_storage: FileStorage::new(
+                node_id,
+                &peer_ids,
+                raft_group_id,
+                num_raft_groups,
+                data_dir,
+                &context.peers,
+            ),
         }
-    }
-
-    // TODO: remove this method
-    pub fn local_context(&self) -> &LocalContext {
-        &self.context
     }
 
     // TODO: remove this method
@@ -112,7 +122,7 @@ impl RaftManager {
         for message in messages {
             let peer = &self.peers[&message.to];
             // TODO: errors
-            tokio::spawn(peer.send_raft_message(message));
+            tokio::spawn(peer.send_raft_message(self.raft_group_id, message));
         }
     }
 
@@ -138,7 +148,7 @@ impl RaftManager {
             let leader = &self.peers[&raft_node.raft.leader_id];
             Either::Right(
                 leader
-                    .get_latest_commit()
+                    .get_latest_commit(self.raft_group_id)
                     .map_err(|_| ErrorCode::Uncategorized),
             )
         }

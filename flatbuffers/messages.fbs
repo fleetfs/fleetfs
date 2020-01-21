@@ -24,10 +24,12 @@ table GenericRequest {
 
 // TODO: maybe support multiple messages in a single request
 table RaftRequest {
+  raft_group: ushort;
   message: [ubyte] (required);
 }
 
 table LatestCommitRequest {
+  raft_group: ushort;
 }
 
 table FilesystemReadyRequest {
