@@ -517,7 +517,7 @@ pub fn commit_write<'a, 'b>(
         RequestType::ListXattrsRequest => unreachable!(),
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
-        RequestType::GetLeaderRequest => unreachable!(),
+        RequestType::FilesystemReadyRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 
