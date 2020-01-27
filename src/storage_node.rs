@@ -82,6 +82,7 @@ pub struct Node {
 impl Node {
     pub fn new(node_dir: &str, bind_address: SocketAddr, peers: Vec<SocketAddr>) -> Node {
         let data_dir = Path::new(node_dir).join("data");
+        #[allow(clippy::expect_fun_call)]
         fs::create_dir_all(&data_dir)
             .expect(&format!("Failed to create data dir: {:?}", &data_dir));
         // Unique ID of node within the cluster. Never 0.
@@ -90,7 +91,7 @@ impl Node {
         Node {
             context: context.clone(),
             // TODO: Use multiple raft groups to make this actually distributed
-            raft_manager: LocalRaftGroupManager::new(1, context.clone()),
+            raft_manager: LocalRaftGroupManager::new(1, context),
             bind_address,
         }
     }
