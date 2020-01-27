@@ -62,13 +62,14 @@ impl RaftNode {
             applied: 0,
             max_size_per_msg: 1024 * 1024 * 1024,
             max_inflight_msgs: 256,
-            tag: format!("peer_{}", node_id).to_string(),
+            tag: format!("peer_{}", node_id),
             ..Default::default()
         };
         let raft_storage = MemStorage::new();
         let raft_node = RawNode::new(&raft_config, raft_storage, vec![]).unwrap();
 
         let path = Path::new(&context.data_dir).join(format!("rgroup_{}", raft_group_id));
+        #[allow(clippy::expect_fun_call)]
         fs::create_dir_all(&path).expect(&format!("Failed to create data dir: {:?}", &path));
         let data_dir = path.to_str().unwrap();
 

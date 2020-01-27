@@ -30,6 +30,7 @@ pub struct DataStorage {
 // Convert to local index, or the nearest greater index on this (local_rank) node, if this index lives on another node
 // If global_index is on the local_rank node, returns the local index of that byte
 // Otherwise, selects the nearest global index greater than global_index, that is stored on local_rank node, and returns that local index
+#[allow(clippy::comparison_chain)]
 fn to_local_index_ceiling(global_index: u64, local_rank: u64, total_nodes: u64) -> u64 {
     let global_block = global_index / BLOCK_SIZE;
     let remainder_bytes = global_index % BLOCK_SIZE;
