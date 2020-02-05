@@ -143,7 +143,7 @@ impl Node {
             .threaded_scheduler()
             .enable_io()
             .enable_time()
-            .num_threads(1)
+            .core_threads(1)
             .build()
             .unwrap();
         runtime.spawn(server);
