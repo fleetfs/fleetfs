@@ -7,7 +7,7 @@ release: pre
 	cargo build --release
 
 pre:
-	cargo lichking check
+	cargo deny check licenses
 	cargo fmt --all -- --check
 	cargo clippy --all
 
