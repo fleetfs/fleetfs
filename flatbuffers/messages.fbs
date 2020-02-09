@@ -4,7 +4,8 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, FilesystemReadyRequest, RmdirRequest, ChownRequest, CreateRequest,
-                   FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest}
+                   FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
+                   HardlinkIncrementRequest, HardlinkCreateRequest, HardlinkRollbackRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -149,6 +150,26 @@ table HardlinkRequest {
   context: UserContext (required);
 }
 
+// Used internally for stage0 of hardlink transactions
+table HardlinkIncrementRequest {
+  inode: ulong;
+}
+
+// Used internally for stage1 of hardlink transactions
+table HardlinkCreateRequest {
+  inode: ulong;
+  inode_kind: FileKind;
+  new_parent: ulong;
+  new_name: string (required);
+  context: UserContext (required);
+}
+
+// Used internally to rollback hardlink transactions
+table HardlinkRollbackRequest {
+  inode: ulong;
+  last_modified_time: Timestamp (required);
+}
+
 table RenameRequest {
   parent: ulong;
   name: string (required);
@@ -246,12 +267,18 @@ table InodeResponse {
   inode: ulong;
 }
 
+table HardlinkTransactionResponse {
+  last_modified_time: Timestamp (required);
+  kind: FileKind;
+  attr_response: FileMetadataResponse (required);
+}
+
 table XattrsResponse {
   xattrs: [string] (required);
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse }
+                     WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse }
 
 table GenericResponse {
   response: ResponseType;
