@@ -1,6 +1,7 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::handlers::router::FullOrPartialResponse::{Full, Partial};
+use crate::handlers::transaction_coordinator::hardlink_transaction;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::RaftNode;
 use crate::storage_node::LocalContext;
@@ -201,7 +202,21 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::HardlinkRequest | RequestType::RenameRequest => {
+        RequestType::HardlinkIncrementRequest
+        | RequestType::HardlinkCreateRequest
+        | RequestType::HardlinkRollbackRequest => {
+            unreachable!("These are internal requests that should always be submitted through raft")
+        }
+        RequestType::HardlinkRequest => {
+            if let Some(hardlink_request) = request.request_as_hardlink_request() {
+                return hardlink_transaction(hardlink_request, builder, raft.clone())
+                    .await
+                    .map(Full);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::RenameRequest => {
             // TODO: actually make this distributed. Right now assumes that everything is stored
             // on group 0
             return raft

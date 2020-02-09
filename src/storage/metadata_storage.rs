@@ -306,6 +306,74 @@ impl MetadataStorage {
         Ok(())
     }
 
+    pub fn hardlink_stage0_link_increment(
+        &self,
+        inode: Inode,
+    ) -> Result<(Timestamp, FileKind), ErrorCode> {
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
+        inode_attrs.hardlinks += 1;
+        let changed = inode_attrs.last_metadata_changed;
+        inode_attrs.last_metadata_changed = now();
+
+        Ok((changed, inode_attrs.kind))
+    }
+
+    pub fn hardlink_stage1_create_link(
+        &self,
+        inode: Inode,
+        new_parent: u64,
+        new_name: &str,
+        context: UserContext,
+        inode_kind: FileKind,
+    ) -> Result<(), ErrorCode> {
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let new_parent_attrs = metadata
+            .get_mut(&new_parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
+        if !check_access(
+            new_parent_attrs.uid,
+            new_parent_attrs.gid,
+            new_parent_attrs.mode,
+            context.uid(),
+            context.gid(),
+            libc::W_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
+        }
+        new_parent_attrs.last_modified = now();
+        new_parent_attrs.last_metadata_changed = now();
+
+        directories
+            .get_mut(&new_parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .insert(new_name.to_string(), (inode, inode_kind));
+
+        Ok(())
+    }
+
+    pub fn hardlink_commit(&self) {
+        // TODO
+    }
+
+    pub fn hardlink_rollback(
+        &self,
+        inode: Inode,
+        last_metadata_changed: Timestamp,
+    ) -> Result<(), ErrorCode> {
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
+        inode_attrs.hardlinks -= 1;
+        inode_attrs.last_metadata_changed = last_metadata_changed;
+
+        Ok(())
+    }
+
     pub fn hardlink(
         &self,
         inode: Inode,

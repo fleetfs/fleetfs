@@ -6,9 +6,9 @@ use crate::storage::data_storage::DataStorage;
 use crate::storage::metadata_storage::MetadataStorage;
 use crate::storage::ROOT_INODE;
 use crate::utils::{
-    empty_response, into_error_code, to_fast_read_response, to_fileattr_response,
-    to_inode_response, to_read_response, to_write_response, to_xattrs_response,
-    FlatBufferWithResponse, ResultResponse,
+    build_fileattr_response, empty_response, into_error_code, to_fast_read_response,
+    to_fileattr_response, to_inode_response, to_read_response, to_write_response,
+    to_xattrs_response, FlatBufferWithResponse, ResultResponse,
 };
 use futures::Future;
 use futures::FutureExt;
@@ -226,6 +226,56 @@ impl FileStorage {
         self.metadata_storage
             .hardlink(inode, new_parent, new_name, context)?;
         return self.getattr(inode, builder);
+    }
+
+    pub fn hardlink_stage0_link_increment<'a>(
+        &self,
+        inode: u64,
+        mut builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let rollback = self
+            .metadata_storage
+            .hardlink_stage0_link_increment(inode)?;
+        let attributes = self.metadata_storage.get_attributes(inode)?;
+        let attrs_offset = build_fileattr_response(&mut builder, attributes);
+
+        let mut response_builder = HardlinkTransactionResponseBuilder::new(&mut builder);
+        response_builder.add_last_modified_time(&rollback.0);
+        response_builder.add_kind(rollback.1);
+        response_builder.add_attr_response(attrs_offset);
+
+        let offset = response_builder.finish().as_union_value();
+        return Ok((builder, ResponseType::HardlinkTransactionResponse, offset));
+    }
+
+    pub fn hardlink_stage1_create_link<'a>(
+        &self,
+        inode: u64,
+        new_parent: u64,
+        new_name: &str,
+        context: UserContext,
+        inode_kind: FileKind,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        self.metadata_storage
+            .hardlink_stage1_create_link(inode, new_parent, new_name, context, inode_kind)?;
+        return empty_response(builder);
+    }
+
+    pub fn hardlink_commit<'a>(&self, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
+        self.metadata_storage.hardlink_commit();
+        return empty_response(builder);
+    }
+
+    pub fn hardlink_rollback<'a>(
+        &self,
+        inode: u64,
+        last_metadata_changed: Timestamp,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        self.metadata_storage
+            .hardlink_rollback(inode, last_metadata_changed)?;
+        return empty_response(builder);
     }
 
     pub fn get_xattr<'a>(

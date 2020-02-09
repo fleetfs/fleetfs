@@ -41,6 +41,30 @@ pub fn into_error_code(error: std::io::Error) -> ErrorCode {
     }
 }
 
+pub fn finalize_request_without_prefix(
+    builder: &mut FlatBufferBuilder,
+    request_type: RequestType,
+    finish_offset: WIPOffset<UnionWIPOffset>,
+) {
+    let mut generic_request_builder = GenericRequestBuilder::new(builder);
+    generic_request_builder.add_request_type(request_type);
+    generic_request_builder.add_request(finish_offset);
+    let finish_offset = generic_request_builder.finish();
+    builder.finish(finish_offset, None);
+}
+
+pub fn finalize_response_without_prefix(
+    builder: &mut FlatBufferBuilder,
+    response_type: ResponseType,
+    finish_offset: WIPOffset<UnionWIPOffset>,
+) {
+    let mut generic_response_builder = GenericResponseBuilder::new(builder);
+    generic_response_builder.add_response_type(response_type);
+    generic_response_builder.add_response(finish_offset);
+    let finish_offset = generic_response_builder.finish();
+    builder.finish(finish_offset, None);
+}
+
 pub fn finalize_request(
     builder: &mut FlatBufferBuilder,
     request_type: RequestType,
@@ -190,11 +214,11 @@ pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultR
     return Ok((builder, ResponseType::WrittenResponse, offset));
 }
 
-pub fn to_fileattr_response(
-    mut builder: FlatBufferBuilder,
+pub fn build_fileattr_response<'a>(
+    builder: &mut FlatBufferBuilder<'a>,
     attributes: InodeAttributes,
-) -> ResultResponse {
-    let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
+) -> WIPOffset<FileMetadataResponse<'a>> {
+    let mut response_builder = FileMetadataResponseBuilder::new(builder);
     response_builder.add_inode(attributes.inode);
     response_builder.add_size_bytes(attributes.size);
     response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);
@@ -208,7 +232,14 @@ pub fn to_fileattr_response(
     response_builder.add_group_id(attributes.gid);
     response_builder.add_device_id(0); // TODO
 
-    let offset = response_builder.finish().as_union_value();
+    return response_builder.finish();
+}
+
+pub fn to_fileattr_response(
+    mut builder: FlatBufferBuilder,
+    attributes: InodeAttributes,
+) -> ResultResponse {
+    let offset = build_fileattr_response(&mut builder, attributes).as_union_value();
     return Ok((builder, ResponseType::FileMetadataResponse, offset));
 }
 

@@ -359,17 +359,38 @@ pub fn commit_write<'a, 'b>(
     let response;
 
     match request.request_type() {
-        RequestType::HardlinkRequest => {
-            let hardlink_request = request
-                .request_as_hardlink_request()
+        RequestType::HardlinkIncrementRequest => {
+            let hardlink_increment_request = request
+                .request_as_hardlink_increment_request()
                 .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.hardlink(
-                hardlink_request.inode(),
-                hardlink_request.new_parent(),
-                hardlink_request.new_name(),
-                *hardlink_request.context(),
+            response = file_storage
+                .hardlink_stage0_link_increment(hardlink_increment_request.inode(), builder);
+        }
+        RequestType::HardlinkCreateRequest => {
+            let hardlink_create_request = request
+                .request_as_hardlink_create_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.hardlink_stage1_create_link(
+                hardlink_create_request.inode(),
+                hardlink_create_request.new_parent(),
+                hardlink_create_request.new_name(),
+                *hardlink_create_request.context(),
+                hardlink_create_request.inode_kind(),
                 builder,
             );
+        }
+        RequestType::HardlinkRollbackRequest => {
+            let hardlink_rollback_request = request
+                .request_as_hardlink_rollback_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.hardlink_rollback(
+                hardlink_rollback_request.inode(),
+                *hardlink_rollback_request.last_modified_time(),
+                builder,
+            );
+        }
+        RequestType::HardlinkRequest => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::RenameRequest => {
             let rename_request = request
