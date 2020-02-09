@@ -212,22 +212,6 @@ impl FileStorage {
             .map_err(into_error_code);
     }
 
-    pub fn hardlink<'a>(
-        &self,
-        inode: u64,
-        new_parent: u64,
-        new_name: &str,
-        context: UserContext,
-        builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
-        assert_ne!(inode, ROOT_INODE);
-        info!("Hardlinking file: {} to {} {}", inode, new_parent, new_name);
-
-        self.metadata_storage
-            .hardlink(inode, new_parent, new_name, context)?;
-        return self.getattr(inode, builder);
-    }
-
     pub fn hardlink_stage0_link_increment<'a>(
         &self,
         inode: u64,

@@ -374,45 +374,6 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn hardlink(
-        &self,
-        inode: Inode,
-        new_parent: u64,
-        new_name: &str,
-        context: UserContext,
-    ) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let new_parent_attrs = metadata
-            .get_mut(&new_parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?;
-        if !check_access(
-            new_parent_attrs.uid,
-            new_parent_attrs.gid,
-            new_parent_attrs.mode,
-            context.uid(),
-            context.gid(),
-            libc::W_OK as u32,
-        ) {
-            return Err(ErrorCode::AccessDenied);
-        }
-        new_parent_attrs.last_modified = now();
-        new_parent_attrs.last_metadata_changed = now();
-
-        let inode_attrs = metadata
-            .get_mut(&inode)
-            .ok_or(ErrorCode::InodeDoesNotExist)?;
-        inode_attrs.hardlinks += 1;
-        inode_attrs.last_metadata_changed = now();
-
-        directories
-            .get_mut(&new_parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .insert(new_name.to_string(), (inode, inode_attrs.kind));
-
-        Ok(())
-    }
-
     pub fn mkdir(
         &self,
         parent: u64,
