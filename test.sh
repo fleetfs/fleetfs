@@ -281,6 +281,22 @@ else
     exit
 fi
 
+echo 0 > ${DIR}/15.txt
+echo 1 > ${DIR}/15_other.txt
+if link ${DIR}/15.txt ${DIR}/15_other.txt; then
+    echo -e "$RED FAILED on 15. Overwriting an existing link should fail $NC"
+    export TEST_EXIT_STATUS=1
+    exit
+fi
+
+if [[ $(stat -c'%h' ${DIR}/15.txt) == "1" ]] && [[ $(stat -c'%h' ${DIR}/15_other.txt) == "1" ]]; then
+    echo -e "$GREEN OK 15 $NC"
+else
+    echo -e "$RED FAILED on 15 link count $NC"
+    export TEST_EXIT_STATUS=1
+    exit
+fi
+
 kill $FUSE_PID
 wait $FUSE_PID
 
