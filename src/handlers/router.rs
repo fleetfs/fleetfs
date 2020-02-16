@@ -1,7 +1,7 @@
 use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::handlers::router::FullOrPartialResponse::{Full, Partial};
-use crate::handlers::transaction_coordinator::hardlink_transaction;
+use crate::handlers::transaction_coordinator::{create_transaction, hardlink_transaction};
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::RaftNode;
 use crate::storage_node::LocalContext;
@@ -192,19 +192,19 @@ async fn request_router_inner(
             }
         }
         RequestType::CreateRequest => {
-            if request.request_as_create_request().is_some() {
-                return raft
-                    .least_loaded_group()
-                    .propose(request, builder)
+            if let Some(create_request) = request.request_as_create_request() {
+                return create_transaction(create_request, builder, raft.clone())
                     .await
-                    .map(Partial);
+                    .map(Full);
             } else {
                 return Err(ErrorCode::BadRequest);
             }
         }
         RequestType::HardlinkIncrementRequest
-        | RequestType::HardlinkCreateRequest
-        | RequestType::HardlinkRollbackRequest => {
+        | RequestType::HardlinkRollbackRequest
+        | RequestType::CreateInodeRequest
+        | RequestType::DecrementInodeRequest
+        | RequestType::CreateLinkRequest => {
             unreachable!("These are internal requests that should always be submitted through raft")
         }
         RequestType::HardlinkRequest => {

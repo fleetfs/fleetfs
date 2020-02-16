@@ -232,7 +232,7 @@ impl FileStorage {
         return Ok((builder, ResponseType::HardlinkTransactionResponse, offset));
     }
 
-    pub fn hardlink_stage1_create_link<'a>(
+    pub fn create_link<'a>(
         &self,
         inode: u64,
         new_parent: u64,
@@ -242,7 +242,7 @@ impl FileStorage {
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         self.metadata_storage
-            .hardlink_stage1_create_link(inode, new_parent, new_name, context, inode_kind)?;
+            .create_link(inode, new_parent, new_name, context, inode_kind)?;
         return empty_response(builder);
     }
 
@@ -344,11 +344,22 @@ impl FileStorage {
         return empty_response(builder);
     }
 
+    pub fn decrement_inode_link_count<'a>(
+        &self,
+        inode: u64,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        if let Some(deleted_inode) = self.metadata_storage.decrement_inode_link_count(inode)? {
+            self.data_storage.delete(deleted_inode).unwrap();
+        }
+
+        return empty_response(builder);
+    }
+
     #[allow(clippy::too_many_arguments)]
-    pub fn create<'a>(
+    pub fn create_inode<'a>(
         &self,
         parent: u64,
-        name: &str,
         uid: u32,
         gid: u32,
         mode: u16,
@@ -357,7 +368,7 @@ impl FileStorage {
     ) -> ResultResponse<'a> {
         let (_, attributes) = self
             .metadata_storage
-            .create(parent, name, uid, gid, mode, kind)?;
+            .create_inode(parent, uid, gid, mode, kind)?;
 
         self.data_storage.truncate(attributes.inode, 0).unwrap();
 

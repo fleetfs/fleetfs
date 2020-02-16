@@ -321,36 +321,40 @@ impl MetadataStorage {
         Ok((changed, inode_attrs.kind))
     }
 
-    pub fn hardlink_stage1_create_link(
+    pub fn create_link(
         &self,
         inode: Inode,
-        new_parent: u64,
-        new_name: &str,
+        parent: u64,
+        name: &str,
         context: UserContext,
         inode_kind: FileKind,
     ) -> Result<(), ErrorCode> {
+        if self.lookup(parent, name, context)?.is_some() {
+            return Err(ErrorCode::AlreadyExists);
+        }
+
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let new_parent_attrs = metadata
-            .get_mut(&new_parent)
+        let parent_attrs = metadata
+            .get_mut(&parent)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
-            new_parent_attrs.uid,
-            new_parent_attrs.gid,
-            new_parent_attrs.mode,
+            parent_attrs.uid,
+            parent_attrs.gid,
+            parent_attrs.mode,
             context.uid(),
             context.gid(),
             libc::W_OK as u32,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
-        new_parent_attrs.last_modified = now();
-        new_parent_attrs.last_metadata_changed = now();
+        parent_attrs.last_modified = now();
+        parent_attrs.last_metadata_changed = now();
 
         directories
-            .get_mut(&new_parent)
+            .get_mut(&parent)
             .ok_or(ErrorCode::InodeDoesNotExist)?
-            .insert(new_name.to_string(), (inode, inode_kind));
+            .insert(name.to_string(), (inode, inode_kind));
 
         Ok(())
     }
@@ -775,66 +779,71 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn create(
+    pub fn create_inode(
         &self,
         parent: Inode,
-        name: &str,
         uid: u32,
         gid: u32,
         mode: u16,
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
-        if self
-            .lookup(parent, name, UserContext::new(uid, gid))?
-            .is_none()
-        {
-            let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
-            let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-            let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
-            if !check_access(
-                parent_attrs.uid,
-                parent_attrs.gid,
-                parent_attrs.mode,
-                uid,
-                gid,
-                libc::W_OK as u32,
-            ) {
-                return Err(ErrorCode::AccessDenied);
-            }
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut parents = self
+            .directory_parents
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
 
-            let inode = self.allocate_inode();
-            directories
-                .get_mut(&parent)
-                .ok_or(ErrorCode::InodeDoesNotExist)?
-                .insert(name.to_string(), (inode, FileKind::File));
+        let inode = self.allocate_inode();
+        let inode_metadata = InodeAttributes {
+            inode,
+            size: 0,
+            last_accessed: now(),
+            last_modified: now(),
+            last_metadata_changed: now(),
+            kind,
+            // TODO: suid/sgid not supported
+            mode: mode & !(libc::S_ISUID | libc::S_ISGID) as u16,
+            hardlinks: 1,
+            uid,
+            gid,
+            xattrs: Default::default(),
+        };
+        metadata.insert(inode, inode_metadata.clone());
 
-            let inode_metadata = InodeAttributes {
-                inode,
-                size: 0,
-                last_accessed: now(),
-                last_modified: now(),
-                last_metadata_changed: now(),
-                kind,
-                // TODO: suid/sgid not supported
-                mode: mode & !(libc::S_ISUID | libc::S_ISGID) as u16,
-                hardlinks: 1,
-                uid,
-                gid,
-                xattrs: Default::default(),
-            };
-            metadata.insert(inode, inode_metadata.clone());
-            metadata
-                .get_mut(&parent)
-                .ok_or(ErrorCode::InodeDoesNotExist)?
-                .last_metadata_changed = now();
-            metadata
-                .get_mut(&parent)
-                .ok_or(ErrorCode::InodeDoesNotExist)?
-                .last_modified = now();
-            Ok((inode, inode_metadata))
-        } else {
-            Err(ErrorCode::AlreadyExists)
+        if kind == FileKind::Directory {
+            directories.insert(inode, HashMap::new());
+            parents.insert(inode, parent);
         }
+        Ok((inode, inode_metadata))
+    }
+
+    // Returns an inode, if that inode's data should be deleted
+    pub fn decrement_inode_link_count(&self, inode: Inode) -> Result<Option<Inode>, ErrorCode> {
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut parents = self
+            .directory_parents
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+
+        let inode_attrs = metadata
+            .get_mut(&inode)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
+        inode_attrs.hardlinks -= 1;
+        inode_attrs.last_metadata_changed = now();
+        if inode_attrs.hardlinks == 0 {
+            if inode_attrs.kind == FileKind::Directory {
+                parents.remove(&inode);
+                if let Some(entries) = directories.remove(&inode) {
+                    assert!(entries.is_empty(), "Deleted a non-empty directory inode");
+                }
+            }
+            metadata.remove(&inode);
+            return Ok(Some(inode));
+        }
+
+        Ok(None)
     }
 
     pub fn get_attributes(&self, inode: Inode) -> Result<InodeAttributes, ErrorCode> {

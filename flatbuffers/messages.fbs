@@ -5,7 +5,8 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, FilesystemReadyRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
-                   HardlinkIncrementRequest, HardlinkCreateRequest, HardlinkRollbackRequest}
+                   HardlinkIncrementRequest, HardlinkRollbackRequest,
+                   CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -155,15 +156,6 @@ table HardlinkIncrementRequest {
   inode: ulong;
 }
 
-// Used internally for stage1 of hardlink transactions
-table HardlinkCreateRequest {
-  inode: ulong;
-  inode_kind: FileKind;
-  new_parent: ulong;
-  new_name: string (required);
-  context: UserContext (required);
-}
-
 // Used internally to rollback hardlink transactions
 table HardlinkRollbackRequest {
   inode: ulong;
@@ -191,6 +183,29 @@ table CreateRequest {
   gid: uint;
   mode: ushort;
   kind: FileKind;
+}
+
+// Internal request to create an inode as part of a create() or mkdir() transaction
+table CreateInodeRequest {
+  parent: ulong;
+  uid: uint;
+  gid: uint;
+  mode: ushort;
+  kind: FileKind;
+}
+
+// Internal request to create directory link as part of a transaction. Does not increment the inode's link count.
+table CreateLinkRequest {
+  parent: ulong;
+  name: string (required);
+  inode: ulong;
+  kind: FileKind;
+  context: UserContext (required);
+}
+
+// Internal request to decrement inode link count. Will delete the inode if its count reaches zero.
+table DecrementInodeRequest {
+  inode: ulong;
 }
 
 root_type GenericRequest;

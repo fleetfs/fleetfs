@@ -366,19 +366,6 @@ pub fn commit_write<'a, 'b>(
             response = file_storage
                 .hardlink_stage0_link_increment(hardlink_increment_request.inode(), builder);
         }
-        RequestType::HardlinkCreateRequest => {
-            let hardlink_create_request = request
-                .request_as_hardlink_create_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.hardlink_stage1_create_link(
-                hardlink_create_request.inode(),
-                hardlink_create_request.new_parent(),
-                hardlink_create_request.new_name(),
-                *hardlink_create_request.context(),
-                hardlink_create_request.inode_kind(),
-                builder,
-            );
-        }
         RequestType::HardlinkRollbackRequest => {
             let hardlink_rollback_request = request
                 .request_as_hardlink_rollback_request()
@@ -388,6 +375,39 @@ pub fn commit_write<'a, 'b>(
                 *hardlink_rollback_request.last_modified_time(),
                 builder,
             );
+        }
+        RequestType::CreateInodeRequest => {
+            let create_inode_request = request
+                .request_as_create_inode_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.create_inode(
+                create_inode_request.parent(),
+                create_inode_request.uid(),
+                create_inode_request.gid(),
+                create_inode_request.mode(),
+                create_inode_request.kind(),
+                builder,
+            );
+        }
+        RequestType::CreateLinkRequest => {
+            let create_link_request = request
+                .request_as_create_link_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.create_link(
+                create_link_request.inode(),
+                create_link_request.parent(),
+                create_link_request.name(),
+                *create_link_request.context(),
+                create_link_request.kind(),
+                builder,
+            );
+        }
+        RequestType::DecrementInodeRequest => {
+            let decrement_inode_request = request
+                .request_as_decrement_inode_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response =
+                file_storage.decrement_inode_link_count(decrement_inode_request.inode(), builder);
         }
         RequestType::HardlinkRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
@@ -446,18 +466,7 @@ pub fn commit_write<'a, 'b>(
             response = file_storage.fsync(fsync_request.inode(), builder);
         }
         RequestType::CreateRequest => {
-            let create_request = request
-                .request_as_create_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.create(
-                create_request.parent(),
-                create_request.name(),
-                create_request.uid(),
-                create_request.gid(),
-                create_request.mode(),
-                create_request.kind(),
-                builder,
-            );
+            unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::SetXattrRequest => {
             let set_xattr_request = request
