@@ -63,24 +63,6 @@ impl FileStorage {
         return empty_response(builder);
     }
 
-    pub fn mkdir<'a>(
-        &self,
-        parent: u64,
-        name: &str,
-        uid: u32,
-        gid: u32,
-        mode: u16,
-        builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
-        self.metadata_storage.mkdir(parent, name, uid, gid, mode)?;
-        let inode = self
-            .metadata_storage
-            .lookup(parent, name, UserContext::new(uid, gid))?
-            .unwrap();
-
-        return self.getattr(inode, builder);
-    }
-
     pub fn readdir<'a>(
         &self,
         inode: u64,
@@ -347,9 +329,13 @@ impl FileStorage {
     pub fn decrement_inode_link_count<'a>(
         &self,
         inode: u64,
+        count: u32,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        if let Some(deleted_inode) = self.metadata_storage.decrement_inode_link_count(inode)? {
+        if let Some(deleted_inode) = self
+            .metadata_storage
+            .decrement_inode_link_count(inode, count)?
+        {
             self.data_storage.delete(deleted_inode).unwrap();
         }
 
@@ -370,7 +356,9 @@ impl FileStorage {
             .metadata_storage
             .create_inode(parent, uid, gid, mode, kind)?;
 
-        self.data_storage.truncate(attributes.inode, 0).unwrap();
+        if kind != FileKind::Directory {
+            self.data_storage.truncate(attributes.inode, 0).unwrap();
+        }
 
         return to_fileattr_response(builder, attributes);
     }

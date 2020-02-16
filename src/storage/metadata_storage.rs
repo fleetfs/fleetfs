@@ -378,68 +378,6 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn mkdir(
-        &self,
-        parent: u64,
-        name: &str,
-        uid: u32,
-        gid: u32,
-        mode: u16,
-    ) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let mut parents = self
-            .directory_parents
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
-        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
-        if !check_access(
-            parent_attrs.uid,
-            parent_attrs.gid,
-            parent_attrs.mode,
-            uid,
-            gid,
-            libc::W_OK as u32,
-        ) {
-            return Err(ErrorCode::AccessDenied);
-        }
-
-        let inode = self.allocate_inode();
-        directories
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .insert(name.to_string(), (inode, FileKind::Directory));
-        directories.insert(inode, HashMap::new());
-
-        parents.insert(inode, parent);
-
-        let inode_metadata = InodeAttributes {
-            inode,
-            size: BLOCK_SIZE,
-            last_accessed: now(),
-            last_modified: now(),
-            last_metadata_changed: now(),
-            kind: FileKind::Directory,
-            // TODO: suid/sgid not supported
-            mode: mode & !(libc::S_ISUID | libc::S_ISGID) as u16,
-            hardlinks: 2,
-            uid,
-            gid,
-            xattrs: Default::default(),
-        };
-        metadata.insert(inode, inode_metadata);
-        metadata
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_metadata_changed = now();
-        metadata
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_modified = now();
-
-        Ok(())
-    }
-
     pub fn rename(
         &self,
         parent: u64,
@@ -795,16 +733,23 @@ impl MetadataStorage {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         let inode = self.allocate_inode();
+        let size = if kind == FileKind::Directory {
+            BLOCK_SIZE
+        } else {
+            0
+        };
+        // Directories start with a link count of 2, since they have a self link
+        let hardlinks = if kind == FileKind::Directory { 2 } else { 1 };
         let inode_metadata = InodeAttributes {
             inode,
-            size: 0,
+            size,
             last_accessed: now(),
             last_modified: now(),
             last_metadata_changed: now(),
             kind,
             // TODO: suid/sgid not supported
             mode: mode & !(libc::S_ISUID | libc::S_ISGID) as u16,
-            hardlinks: 1,
+            hardlinks,
             uid,
             gid,
             xattrs: Default::default(),
@@ -819,7 +764,11 @@ impl MetadataStorage {
     }
 
     // Returns an inode, if that inode's data should be deleted
-    pub fn decrement_inode_link_count(&self, inode: Inode) -> Result<Option<Inode>, ErrorCode> {
+    pub fn decrement_inode_link_count(
+        &self,
+        inode: Inode,
+        count: u32,
+    ) -> Result<Option<Inode>, ErrorCode> {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut parents = self
             .directory_parents
@@ -830,17 +779,20 @@ impl MetadataStorage {
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
-        inode_attrs.hardlinks -= 1;
+        inode_attrs.hardlinks -= count;
         inode_attrs.last_metadata_changed = now();
         if inode_attrs.hardlinks == 0 {
-            if inode_attrs.kind == FileKind::Directory {
+            let is_directory = inode_attrs.kind == FileKind::Directory;
+            metadata.remove(&inode);
+            if is_directory {
                 parents.remove(&inode);
                 if let Some(entries) = directories.remove(&inode) {
                     assert!(entries.is_empty(), "Deleted a non-empty directory inode");
                 }
+            } else {
+                // Only delete file contents if this is not a directory (directories don't have data contents)
+                return Ok(Some(inode));
             }
-            metadata.remove(&inode);
-            return Ok(Some(inode));
         }
 
         Ok(None)

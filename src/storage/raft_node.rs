@@ -406,8 +406,11 @@ pub fn commit_write<'a, 'b>(
             let decrement_inode_request = request
                 .request_as_decrement_inode_request()
                 .ok_or(ErrorCode::BadRequest)?;
-            response =
-                file_storage.decrement_inode_link_count(decrement_inode_request.inode(), builder);
+            response = file_storage.decrement_inode_link_count(
+                decrement_inode_request.inode(),
+                decrement_inode_request.decrement_count(),
+                builder,
+            );
         }
         RequestType::HardlinkRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
@@ -535,17 +538,7 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::MkdirRequest => {
-            let mkdir_request = request
-                .request_as_mkdir_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.mkdir(
-                mkdir_request.parent(),
-                mkdir_request.name(),
-                mkdir_request.uid(),
-                mkdir_request.gid(),
-                mkdir_request.mode(),
-                builder,
-            );
+            unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),
