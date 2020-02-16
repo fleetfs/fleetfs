@@ -206,6 +206,8 @@ table CreateLinkRequest {
 // Internal request to decrement inode link count. Will delete the inode if its count reaches zero.
 table DecrementInodeRequest {
   inode: ulong;
+  // The number of times to decrement the link count
+  decrement_count: uint;
 }
 
 root_type GenericRequest;

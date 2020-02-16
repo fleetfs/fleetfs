@@ -182,20 +182,36 @@ async fn request_router_inner(
         }
         RequestType::MkdirRequest => {
             if let Some(mkdir_request) = request.request_as_mkdir_request() {
-                return raft
-                    .lookup_by_inode(mkdir_request.parent())
-                    .propose(request, builder)
-                    .await
-                    .map(Partial);
+                return create_transaction(
+                    mkdir_request.parent(),
+                    mkdir_request.name().to_string(),
+                    mkdir_request.uid(),
+                    mkdir_request.gid(),
+                    mkdir_request.mode(),
+                    FileKind::Directory,
+                    builder,
+                    raft.clone(),
+                )
+                .await
+                .map(Full);
             } else {
                 return Err(ErrorCode::BadRequest);
             }
         }
         RequestType::CreateRequest => {
             if let Some(create_request) = request.request_as_create_request() {
-                return create_transaction(create_request, builder, raft.clone())
-                    .await
-                    .map(Full);
+                return create_transaction(
+                    create_request.parent(),
+                    create_request.name().to_string(),
+                    create_request.uid(),
+                    create_request.gid(),
+                    create_request.mode(),
+                    create_request.kind(),
+                    builder,
+                    raft.clone(),
+                )
+                .await
+                .map(Full);
             } else {
                 return Err(ErrorCode::BadRequest);
             }
