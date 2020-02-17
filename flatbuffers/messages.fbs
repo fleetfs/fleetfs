@@ -203,6 +203,7 @@ table CreateLinkRequest {
   context: UserContext (required);
 }
 
+// TODO: raft messages have to be idempotent. This one is not.
 // Internal request to decrement inode link count. Will delete the inode if its count reaches zero.
 table DecrementInodeRequest {
   inode: ulong;
