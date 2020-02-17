@@ -85,6 +85,8 @@ echo "generic/467" >> xfs_excludes.txt
 echo "generic/469" >> xfs_excludes.txt
 echo "generic/477" >> xfs_excludes.txt
 echo "generic/484" >> xfs_excludes.txt
+
+# TODO: requires lock support
 echo "generic/504" >> xfs_excludes.txt
 
 # TODO: requires support for system.posix_acl_access xattr sync'ing to file permissions
