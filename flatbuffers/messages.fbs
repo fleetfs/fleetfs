@@ -6,7 +6,8 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    LatestCommitRequest, FilesystemReadyRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
-                   CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest}
+                   CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
+                   LockRequest, UnlockRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -185,6 +186,17 @@ table CreateRequest {
   kind: FileKind;
 }
 
+// Internal request to lock an inode
+table LockRequest {
+  inode: ulong;
+}
+
+// Internal request to lock an inode
+table UnlockRequest {
+  inode: ulong;
+  lock_id: ulong;
+}
+
 // Internal request to create an inode as part of a create() or mkdir() transaction
 table CreateInodeRequest {
   parent: ulong;
@@ -285,6 +297,10 @@ table InodeResponse {
   inode: ulong;
 }
 
+table LockResponse {
+  lock_id: ulong;
+}
+
 table HardlinkTransactionResponse {
   last_modified_time: Timestamp (required);
   kind: FileKind;
@@ -296,7 +312,8 @@ table XattrsResponse {
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse }
+                     WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse,
+                     LockResponse }
 
 table GenericResponse {
   response: ResponseType;

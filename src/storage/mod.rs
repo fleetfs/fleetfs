@@ -1,5 +1,6 @@
 pub mod data_storage;
 pub mod file_storage;
+pub mod lock_table;
 pub mod metadata_storage;
 pub mod raft_group_manager;
 pub mod raft_node;

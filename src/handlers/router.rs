@@ -216,6 +216,28 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
+        RequestType::LockRequest => {
+            if let Some(lock_request) = request.request_as_lock_request() {
+                return raft
+                    .lookup_by_inode(lock_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::UnlockRequest => {
+            if let Some(unlock_request) = request.request_as_unlock_request() {
+                return raft
+                    .lookup_by_inode(unlock_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
         RequestType::HardlinkIncrementRequest
         | RequestType::HardlinkRollbackRequest
         | RequestType::CreateInodeRequest

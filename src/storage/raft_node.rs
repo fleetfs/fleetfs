@@ -8,8 +8,9 @@ use std::sync::Mutex;
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage::file_storage::FileStorage;
+use crate::storage::lock_table::{access_type, accessed_inode, LockTable};
 use crate::storage_node::LocalContext;
-use crate::utils::{node_id_from_address, FlatBufferResponse};
+use crate::utils::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
 use flatbuffers::FlatBufferBuilder;
 use futures::channel::oneshot;
 use futures::channel::oneshot::Sender;
@@ -22,6 +23,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+fn lock_response(mut buffer: FlatBufferBuilder, lock_id: u64) -> ResultResponse {
+    let mut response_builder = LockResponseBuilder::new(&mut buffer);
+    response_builder.add_lock_id(lock_id);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((buffer, ResponseType::LockResponse, offset));
+}
 
 type PendingResponse = (
     FlatBufferBuilder<'static>,
@@ -38,6 +46,7 @@ pub struct RaftNode {
     raft_group_id: u16,
     node_id: u64,
     file_storage: FileStorage,
+    lock_table: Mutex<LockTable>,
 }
 
 impl RaftNode {
@@ -94,6 +103,7 @@ impl RaftNode {
                 data_dir,
                 &context.peers,
             ),
+            lock_table: Mutex::new(LockTable::new()),
         }
     }
 
@@ -205,6 +215,58 @@ impl RaftNode {
         self.send_outgoing_raft_messages(messages);
     }
 
+    fn _process_lock_table(
+        &self,
+        request_data: Vec<u8>,
+        pending_response: Option<PendingResponse>,
+    ) -> Vec<(Vec<u8>, Option<PendingResponse>)> {
+        let request = get_root_as_generic_request(&request_data);
+        let mut lock_table = self.lock_table.lock().unwrap();
+
+        let mut to_process = vec![];
+        if let Some(inode) = accessed_inode(&request) {
+            // TODO: pass held locks
+            let access_type = access_type(request.request_type());
+            if lock_table.is_locked(inode, access_type, None) {
+                lock_table.wait_for_lock(inode, (request_data, pending_response));
+            } else {
+                match request.request_type() {
+                    RequestType::LockRequest => {
+                        let lock_id = lock_table.lock(inode);
+                        if let Some((builder, sender)) = pending_response {
+                            sender.send(lock_response(builder, lock_id)).ok().unwrap();
+                        }
+                    }
+                    RequestType::UnlockRequest => {
+                        let held_lock_id = request.request_as_unlock_request().unwrap().lock_id();
+                        let (mut requests, new_lock_id) = lock_table.unlock(inode, held_lock_id);
+                        if let Some((builder, sender)) = pending_response {
+                            sender.send(empty_response(builder)).ok().unwrap();
+                        }
+                        if let Some(id) = new_lock_id {
+                            let (lock_request_data, pending) = requests.pop().unwrap();
+                            let lock_request = get_root_as_generic_request(&lock_request_data);
+                            assert_eq!(lock_request.request_type(), RequestType::LockRequest);
+                            if let Some((builder, sender)) = pending {
+                                sender.send(lock_response(builder, id)).ok().unwrap();
+                            }
+                        }
+                        to_process.extend(requests);
+                    }
+                    _ => {
+                        // Default to processing the request
+                        to_process.push((request_data, pending_response));
+                    }
+                }
+            }
+        } else {
+            // If it doesn't access an inode, then just process the request
+            to_process.push((request_data, pending_response));
+        }
+
+        return to_process;
+    }
+
     // Returns the last applied index
     fn _process_raft_queue(&self) -> raft::Result<Vec<Message>> {
         let mut raft_node = self.raft_node.lock().unwrap();
@@ -245,47 +307,52 @@ impl RaftNode {
 
                 let mut pending_responses = self.pending_responses.lock().unwrap();
 
-                let request = get_root_as_generic_request(&entry.data);
                 let mut uuid = [0; 16];
                 uuid.copy_from_slice(&entry.context[0..16]);
-                if let Some((builder, sender)) =
-                    pending_responses.remove(&u128::from_le_bytes(uuid))
-                {
-                    match commit_write(request, &self.file_storage, builder) {
-                        Ok(response) => sender.send(Ok(response)).ok().unwrap(),
-                        // TODO: handle this somehow. If not all nodes failed, then the filesystem
-                        // is probably corrupted, since some will have applied the write, but not all
-                        // There should only be a few types of messages that can fail here. truncate is one,
-                        // since you can call it with LONG_MAX or some other value that balloons
-                        // the message into a huge write. Probably most other messages can't fail
-                        Err(error_code) => {
-                            error!(
-                                "Commit failed {:?} {:?}",
-                                error_code,
-                                request.request_type()
-                            );
-                            sender.send(Err(error_code)).ok().unwrap()
+                let pending_response = pending_responses.remove(&u128::from_le_bytes(uuid));
+                let to_process = self._process_lock_table(entry.data, pending_response);
+
+                for (data, pending_response) in to_process {
+                    let request = get_root_as_generic_request(&data);
+                    if let Some((builder, sender)) = pending_response {
+                        match commit_write(request, &self.file_storage, builder) {
+                            Ok(response) => sender.send(Ok(response)).ok().unwrap(),
+                            // TODO: handle this somehow. If not all nodes failed, then the filesystem
+                            // is probably corrupted, since some will have applied the write, but not all
+                            // There should only be a few types of messages that can fail here. truncate is one,
+                            // since you can call it with LONG_MAX or some other value that balloons
+                            // the message into a huge write. Probably most other messages can't fail
+                            Err(error_code) => {
+                                error!(
+                                    "Commit failed {:?} {:?}",
+                                    error_code,
+                                    request.request_type()
+                                );
+                                sender.send(Err(error_code)).ok().unwrap()
+                            }
+                        }
+                    } else {
+                        // Replicas won't have a pending response to reply to, since the node
+                        // that submitted the proposal will reply to the client.
+                        let builder = FlatBufferBuilder::new();
+                        // TODO: pass None for builder to avoid this useless allocation
+                        if let Err(err) = commit_write(request, &self.file_storage, builder) {
+                            // TODO: handle this somehow. If not all nodes failed, then the filesystem
+                            // is probably corrupted, since some will have applied the write, but not all.
+                            // There should only be a few types of messages that can fail here. truncate is one,
+                            // since you can call it with LONG_MAX or some other value that balloons
+                            // the message into a huge write. Probably most other messages can't fail
+                            error!("Commit failed {:?} {:?}", err, request.request_type());
                         }
                     }
-                } else {
-                    let builder = FlatBufferBuilder::new();
-                    // TODO: pass None for builder to avoid this useless allocation
-                    if let Err(err) = commit_write(request, &self.file_storage, builder) {
-                        // TODO: handle this somehow. If not all nodes failed, then the filesystem
-                        // is probably corrupted, since some will have applied the write, but not all.
-                        // There should only be a few types of messages that can fail here. truncate is one,
-                        // since you can call it with LONG_MAX or some other value that balloons
-                        // the message into a huge write. Probably most other messages can't fail
-                        error!("Commit failed {:?} {:?}", err, request.request_type());
-                    }
-                }
 
-                info!(
-                    "Committed write index {} (leader={}): {:?}",
-                    entry.index,
-                    raft_node.raft.leader_id,
-                    request.request_type()
-                );
+                    info!(
+                        "Committed write index {} (leader={}): {:?}",
+                        entry.index,
+                        raft_node.raft.leader_id,
+                        request.request_type()
+                    );
+                }
             }
         }
 
@@ -411,6 +478,12 @@ pub fn commit_write<'a, 'b>(
                 decrement_inode_request.decrement_count(),
                 builder,
             );
+        }
+        RequestType::LockRequest => {
+            unreachable!("This should have been handled by the LockTable");
+        }
+        RequestType::UnlockRequest => {
+            unreachable!("This should have been handled by the LockTable");
         }
         RequestType::HardlinkRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
