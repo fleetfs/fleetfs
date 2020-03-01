@@ -587,15 +587,7 @@ pub fn commit_write<'a, 'b>(
             unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::RmdirRequest => {
-            let rmdir_request = request
-                .request_as_rmdir_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.rmdir(
-                rmdir_request.parent(),
-                rmdir_request.name(),
-                *rmdir_request.context(),
-                builder,
-            );
+            unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::WriteRequest => {
             let write_request = request

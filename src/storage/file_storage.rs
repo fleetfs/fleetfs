@@ -310,19 +310,6 @@ impl FileStorage {
         return empty_response(builder);
     }
 
-    pub fn rmdir<'a>(
-        &self,
-        parent: u64,
-        name: &str,
-        context: UserContext,
-        builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
-        info!("Deleting file");
-        self.metadata_storage.rmdir(parent, name, context)?;
-
-        return empty_response(builder);
-    }
-
     pub fn remove_link<'a>(
         &self,
         parent: u64,
