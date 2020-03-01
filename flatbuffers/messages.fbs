@@ -300,6 +300,8 @@ table FileMetadataResponse {
   user_id: uint;
   group_id: uint;
   device_id: uint;
+  // The number of directory entries in the directory. Only meaningful if kind == Directory
+  directory_entries: uint;
 }
 
 table LatestCommitResponse {

@@ -603,6 +603,14 @@ impl MetadataStorage {
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         let (inode, _) = parent_directory.get(name).ok_or(ErrorCode::DoesNotExist)?;
 
+        if let Some((retrieved_inode, _)) = link_inode_and_uid {
+            if retrieved_inode != *inode {
+                // The inode that the client looked up is out of date (i.e. this link has been
+                // deleted and recreated since then). Tell the client to look it up again.
+                return Ok((*inode, false));
+            }
+        }
+
         let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             parent_attrs.uid,
@@ -618,12 +626,7 @@ impl MetadataStorage {
         let uid = context.uid();
         // "Sticky bit" handling
         if parent_attrs.mode & libc::S_ISVTX as u16 != 0 && uid != parent_attrs.uid && uid != 0 {
-            if let Some((retrieved_inode, inode_uid)) = link_inode_and_uid {
-                if retrieved_inode != *inode {
-                    // The inode that the client looked up is out of date (i.e. this link has been
-                    // deleted and recreated since then). Tell the client to look it up again.
-                    return Ok((*inode, false));
-                }
+            if let Some((_, inode_uid)) = link_inode_and_uid {
                 if uid != inode_uid {
                     return Err(ErrorCode::AccessDenied);
                 }
@@ -805,14 +808,20 @@ impl MetadataStorage {
         Ok(None)
     }
 
-    pub fn get_attributes(&self, inode: Inode) -> Result<InodeAttributes, ErrorCode> {
+    pub fn get_attributes(&self, inode: Inode) -> Result<(InodeAttributes, u32), ErrorCode> {
         // TODO: find a way to avoid this clone()
-        self.metadata
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?
+        let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let attributes = metadata
             .get(&inode)
             .cloned()
-            .ok_or(ErrorCode::DoesNotExist)
+            .ok_or(ErrorCode::DoesNotExist)?;
+        let directory_size = directories
+            .get(&inode)
+            .map(|entries| entries.len() as u32)
+            .unwrap_or(0);
+
+        Ok((attributes, directory_size))
     }
 
     fn allocate_inode(&self) -> u64 {
