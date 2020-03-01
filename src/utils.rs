@@ -217,6 +217,7 @@ pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultR
 pub fn build_fileattr_response<'a>(
     builder: &mut FlatBufferBuilder<'a>,
     attributes: InodeAttributes,
+    directory_entries: u32,
 ) -> WIPOffset<FileMetadataResponse<'a>> {
     let mut response_builder = FileMetadataResponseBuilder::new(builder);
     response_builder.add_inode(attributes.inode);
@@ -231,6 +232,7 @@ pub fn build_fileattr_response<'a>(
     response_builder.add_user_id(attributes.uid);
     response_builder.add_group_id(attributes.gid);
     response_builder.add_device_id(0); // TODO
+    response_builder.add_directory_entries(directory_entries);
 
     return response_builder.finish();
 }
@@ -256,8 +258,10 @@ pub fn fileattr_response_to_inode_attributes(
 pub fn to_fileattr_response(
     mut builder: FlatBufferBuilder,
     attributes: InodeAttributes,
+    directory_entries: u32,
 ) -> ResultResponse {
-    let offset = build_fileattr_response(&mut builder, attributes).as_union_value();
+    let offset =
+        build_fileattr_response(&mut builder, attributes, directory_entries).as_union_value();
     return Ok((builder, ResponseType::FileMetadataResponse, offset));
 }
 

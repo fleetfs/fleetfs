@@ -142,6 +142,7 @@ async fn remove_link(
     Ok((inode, complete))
 }
 
+// TODO: should return some kind of guard object to prevent dropping the lock_id without unlocking it
 async fn lock_inode(inode: u64, raft: &LocalRaftGroupManager) -> Result<u64, ErrorCode> {
     let mut builder = FlatBufferBuilder::new();
     let mut request_builder = LockRequestBuilder::new(&mut builder);
@@ -191,7 +192,10 @@ async fn unlock_inode(
     Ok(())
 }
 
-async fn getattrs(inode: u64, raft: &LocalRaftGroupManager) -> Result<InodeAttributes, ErrorCode> {
+async fn getattrs(
+    inode: u64,
+    raft: &LocalRaftGroupManager,
+) -> Result<(InodeAttributes, u32), ErrorCode> {
     // TODO: need to send this request via peer client, so that it goes to the right rgroup
     let rgroup = raft.lookup_by_inode(inode);
     let latest_commit = rgroup.get_latest_commit_from_leader().await?;
@@ -208,7 +212,92 @@ async fn getattrs(inode: u64, raft: &LocalRaftGroupManager) -> Result<InodeAttri
         .response_as_file_metadata_response()
         .ok_or(ErrorCode::BadResponse)?;
 
-    return Ok(fileattr_response_to_inode_attributes(&metadata));
+    return Ok((
+        fileattr_response_to_inode_attributes(&metadata),
+        metadata.directory_entries(),
+    ));
+}
+
+async fn lookup(
+    parent: u64,
+    name: String,
+    context: UserContext,
+    raft: &LocalRaftGroupManager,
+) -> Result<u64, ErrorCode> {
+    // TODO: need to send this request via peer client, so that it goes to the right rgroup
+    let rgroup = raft.lookup_by_inode(parent);
+    let latest_commit = rgroup.get_latest_commit_from_leader().await?;
+    rgroup.sync(latest_commit).await?;
+
+    let (mut builder, response_type, response_offset) = raft
+        .lookup_by_inode(parent)
+        .file_storage()
+        .lookup(parent, &name, context, FlatBufferBuilder::new())?;
+    finalize_response(&mut builder, response_type, response_offset);
+    // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+    let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+    let inode = response
+        .response_as_inode_response()
+        .ok_or(ErrorCode::BadResponse)?
+        .inode();
+
+    return Ok(inode);
+}
+
+// TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
+// in the middle
+pub async fn rmdir_transaction<'a>(
+    parent: u64,
+    name: String,
+    context: UserContext,
+    builder: FlatBufferBuilder<'static>,
+    raft: Arc<LocalRaftGroupManager>,
+) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
+    let mut inode = lookup(parent, name.clone(), context, &raft).await?;
+    let mut complete = false;
+    while !complete {
+        // If the link removal didn't complete successful or with an error, then we need to
+        // lock the target inode and lookup its uid to allow processing of "sticky bit"
+        let lock_id = lock_inode(inode, &raft).await?;
+        match getattrs(inode, &raft).await {
+            Ok((attrs, directory_entries)) => {
+                if directory_entries > 0 {
+                    unlock_inode(inode, lock_id, &raft).await?;
+                    return Err(ErrorCode::NotEmpty);
+                }
+                match remove_link(parent, &name, Some((inode, attrs.uid)), context, &raft).await {
+                    Ok((lookup_inode, is_complete)) => {
+                        unlock_inode(inode, lock_id, &raft).await?;
+                        inode = lookup_inode;
+                        complete = is_complete;
+                    }
+                    Err(error_code) => {
+                        unlock_inode(inode, lock_id, &raft).await?;
+                        return Err(error_code);
+                    }
+                }
+            }
+            Err(error_code) => {
+                unlock_inode(inode, lock_id, &raft).await?;
+                return Err(error_code);
+            }
+        }
+    }
+
+    // TODO: can remove this roundtrip. It's just for debuggability
+    let hardlinks = getattrs(inode, &raft).await?.0.hardlinks;
+    assert_eq!(hardlinks, 2);
+
+    let mut decrement_request_builder = FlatBufferBuilder::new();
+    let decrement_link_count = decrement_inode_request(inode, 2, &mut decrement_request_builder);
+    // TODO: if this fails the inode will leak ;(
+    raft.lookup_by_inode(inode)
+        .propose(decrement_link_count, FlatBufferBuilder::new())
+        .await?;
+
+    let (mut builder, response_type, offset) = empty_response(builder)?;
+    finalize_response(&mut builder, response_type, offset);
+    return Ok(FlatBufferWithResponse::new(builder));
 }
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
@@ -240,7 +329,7 @@ pub async fn unlink_transaction<'a>(
             // lock the target inode and lookup its uid to allow processing of "sticky bit"
             let lock_id = lock_inode(inode, &raft).await?;
             match getattrs(inode, &raft).await {
-                Ok(attrs) => {
+                Ok((attrs, _)) => {
                     match remove_link(parent, &name, Some((inode, attrs.uid)), context, &raft).await
                     {
                         Ok((lookup_inode, is_complete)) => {

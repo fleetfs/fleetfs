@@ -106,8 +106,8 @@ impl FileStorage {
     }
 
     pub fn getattr<'a>(&self, inode: u64, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
-        let attributes = self.metadata_storage.get_attributes(inode)?;
-        return to_fileattr_response(builder, attributes);
+        let (attributes, directory_entries) = self.metadata_storage.get_attributes(inode)?;
+        return to_fileattr_response(builder, attributes, directory_entries);
     }
 
     pub fn utimens<'a>(
@@ -214,8 +214,8 @@ impl FileStorage {
         let rollback = self
             .metadata_storage
             .hardlink_stage0_link_increment(inode)?;
-        let attributes = self.metadata_storage.get_attributes(inode)?;
-        let attrs_offset = build_fileattr_response(&mut builder, attributes);
+        let (attributes, directory_size) = self.metadata_storage.get_attributes(inode)?;
+        let attrs_offset = build_fileattr_response(&mut builder, attributes, directory_size);
 
         let mut response_builder = HardlinkTransactionResponseBuilder::new(&mut builder);
         response_builder.add_last_modified_time(&rollback.0);
@@ -373,6 +373,6 @@ impl FileStorage {
             self.data_storage.truncate(attributes.inode, 0).unwrap();
         }
 
-        return to_fileattr_response(builder, attributes);
+        return to_fileattr_response(builder, attributes, 0);
     }
 }

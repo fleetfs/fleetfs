@@ -2,7 +2,7 @@ use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::handlers::router::FullOrPartialResponse::{Full, Partial};
 use crate::handlers::transaction_coordinator::{
-    create_transaction, hardlink_transaction, unlink_transaction,
+    create_transaction, hardlink_transaction, rmdir_transaction, unlink_transaction,
 };
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::RaftNode;
@@ -111,11 +111,15 @@ async fn request_router_inner(
         }
         RequestType::RmdirRequest => {
             if let Some(rmdir_request) = request.request_as_rmdir_request() {
-                return raft
-                    .lookup_by_inode(rmdir_request.parent())
-                    .propose(request, builder)
-                    .await
-                    .map(Partial);
+                return rmdir_transaction(
+                    rmdir_request.parent(),
+                    rmdir_request.name().to_string(),
+                    *rmdir_request.context(),
+                    builder,
+                    raft.clone(),
+                )
+                .await
+                .map(Full);
             } else {
                 return Err(ErrorCode::BadRequest);
             }
