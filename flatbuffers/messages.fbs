@@ -7,7 +7,8 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
-                   LockRequest, UnlockRequest}
+                   LockRequest, UnlockRequest,
+                   RemoveLinkRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -125,6 +126,10 @@ struct OptionalUInt {
   value: uint;
 }
 
+struct OptionalULong {
+  value: ulong;
+}
+
 table ChownRequest {
   inode: ulong;
   uid: OptionalUInt;
@@ -149,6 +154,15 @@ table HardlinkRequest {
   inode: ulong;
   new_parent: ulong;
   new_name: string (required);
+  context: UserContext (required);
+}
+
+// Used internally to remove a link entry from a directory. Does *not* decrement the hard link count of the target inode
+table RemoveLinkRequest {
+  parent: ulong;
+  name: string (required);
+  link_inode: OptionalULong;
+  link_uid: OptionalUInt;
   context: UserContext (required);
 }
 
@@ -297,6 +311,11 @@ table InodeResponse {
   inode: ulong;
 }
 
+table RemoveLinkResponse {
+  inode: ulong;
+  processing_complete: bool;
+}
+
 table LockResponse {
   lock_id: ulong;
 }
@@ -313,7 +332,7 @@ table XattrsResponse {
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
                      WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse,
-                     LockResponse }
+                     LockResponse, RemoveLinkResponse }
 
 table GenericResponse {
   response: ResponseType;

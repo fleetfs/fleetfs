@@ -583,13 +583,19 @@ impl MetadataStorage {
         Ok(())
     }
 
-    // Returns an inode, if that inode's data should be deleted
-    pub fn unlink(
+    // Remove a directory entry.
+    // Returns the link inode, and a boolean indicating if processing is complete. If it is false
+    // then it could not be determined if the link can be removed due to "stick bit".
+    // In this case the inode's uid should be retrieved and this method retried, passing the
+    // link_inode_and_uid argument.
+    pub fn remove_link(
         &self,
         parent: u64,
         name: &str,
+        // If provided, will preform "sticky bit" checks for the inode.
+        link_inode_and_uid: Option<(u64, u32)>,
         context: UserContext,
-    ) -> Result<Option<Inode>, ErrorCode> {
+    ) -> Result<(Inode, bool), ErrorCode> {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_directory = directories
@@ -611,10 +617,20 @@ impl MetadataStorage {
 
         let uid = context.uid();
         // "Sticky bit" handling
-        if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-            let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
-            if uid != 0 && uid != parent_attrs.uid && uid != inode_attrs.uid {
-                return Err(ErrorCode::AccessDenied);
+        if parent_attrs.mode & libc::S_ISVTX as u16 != 0 && uid != parent_attrs.uid && uid != 0 {
+            if let Some((retrieved_inode, inode_uid)) = link_inode_and_uid {
+                if retrieved_inode != *inode {
+                    // The inode that the client looked up is out of date (i.e. this link has been
+                    // deleted and recreated since then). Tell the client to look it up again.
+                    return Ok((*inode, false));
+                }
+                if uid != inode_uid {
+                    return Err(ErrorCode::AccessDenied);
+                }
+            } else {
+                // Sticky bit is on, and we need to check the inode's uid. Tell the client to lock
+                // it and look up the uid.
+                return Ok((*inode, false));
             }
         }
 
@@ -626,17 +642,8 @@ impl MetadataStorage {
         let (inode, _) = parent_directory
             .remove(name)
             .ok_or(ErrorCode::DoesNotExist)?;
-        let inode_attrs = metadata
-            .get_mut(&inode)
-            .ok_or(ErrorCode::InodeDoesNotExist)?;
-        inode_attrs.hardlinks -= 1;
-        inode_attrs.last_metadata_changed = now();
-        if inode_attrs.hardlinks == 0 {
-            metadata.remove(&inode);
-            return Ok(Some(inode));
-        }
 
-        Ok(None)
+        Ok((inode, true))
     }
 
     pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {

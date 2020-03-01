@@ -14,6 +14,18 @@ use futures::Future;
 use futures::FutureExt;
 use std::net::SocketAddr;
 
+pub fn remove_link_response(
+    mut buffer: FlatBufferBuilder,
+    inode: u64,
+    processed: bool,
+) -> ResultResponse {
+    let mut response_builder = RemoveLinkResponseBuilder::new(&mut buffer);
+    response_builder.add_inode(inode);
+    response_builder.add_processing_complete(processed);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((buffer, ResponseType::RemoveLinkResponse, offset));
+}
+
 pub struct FileStorage {
     data_storage: DataStorage,
     metadata_storage: MetadataStorage,
@@ -311,19 +323,20 @@ impl FileStorage {
         return empty_response(builder);
     }
 
-    pub fn unlink<'a>(
+    pub fn remove_link<'a>(
         &self,
         parent: u64,
         name: &str,
+        link_inode_and_uid: Option<(u64, u32)>,
         context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         info!("Deleting file");
-        if let Some(deleted_inode) = self.metadata_storage.unlink(parent, name, context)? {
-            self.data_storage.delete(deleted_inode).unwrap();
-        }
+        let (deleted_inode, processed) =
+            self.metadata_storage
+                .remove_link(parent, name, link_inode_and_uid, context)?;
 
-        return empty_response(builder);
+        return remove_link_response(builder, deleted_inode, processed);
     }
 
     pub fn decrement_inode_link_count<'a>(
