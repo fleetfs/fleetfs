@@ -244,9 +244,9 @@ pub async fn unlink_transaction<'a>(
                     match remove_link(parent, &name, Some((inode, attrs.uid)), context, &raft).await
                     {
                         Ok((lookup_inode, is_complete)) => {
+                            unlock_inode(inode, lock_id, &raft).await?;
                             inode = lookup_inode;
                             complete = is_complete;
-                            unlock_inode(inode, lock_id, &raft).await?;
                         }
                         Err(error_code) => {
                             unlock_inode(inode, lock_id, &raft).await?;
