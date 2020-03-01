@@ -70,6 +70,9 @@ pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
                 .unwrap()
                 .inode(),
         ),
+        RequestType::RemoveLinkRequest => {
+            Some(request.request_as_remove_link_request().unwrap().parent())
+        }
         RequestType::CreateLinkRequest => {
             Some(request.request_as_create_link_request().unwrap().parent())
         }
@@ -103,6 +106,7 @@ pub fn access_type(request_type: RequestType) -> AccessType {
         RequestType::CreateInodeRequest => AccessType::WriteMetadata,
         RequestType::CreateLinkRequest => AccessType::WriteMetadata,
         RequestType::DecrementInodeRequest => AccessType::WriteMetadata,
+        RequestType::RemoveLinkRequest => AccessType::WriteMetadata,
         RequestType::LockRequest => AccessType::LockMetadata,
         RequestType::UnlockRequest => AccessType::NoAccess,
         RequestType::HardlinkRequest => {

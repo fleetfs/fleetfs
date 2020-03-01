@@ -479,6 +479,24 @@ pub fn commit_write<'a, 'b>(
                 builder,
             );
         }
+        RequestType::RemoveLinkRequest => {
+            let remove_link_request = request
+                .request_as_remove_link_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            let link_inode_and_uid = if let Some(inode) = remove_link_request.link_inode() {
+                let uid = remove_link_request.link_uid().unwrap();
+                Some((inode.value(), uid.value()))
+            } else {
+                None
+            };
+            response = file_storage.remove_link(
+                remove_link_request.parent(),
+                remove_link_request.name(),
+                link_inode_and_uid,
+                *remove_link_request.context(),
+                builder,
+            );
+        }
         RequestType::LockRequest => {
             unreachable!("This should have been handled by the LockTable");
         }
@@ -566,15 +584,7 @@ pub fn commit_write<'a, 'b>(
             );
         }
         RequestType::UnlinkRequest => {
-            let unlink_request = request
-                .request_as_unlink_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.unlink(
-                unlink_request.parent(),
-                unlink_request.name(),
-                *unlink_request.context(),
-                builder,
-            );
+            unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::RmdirRequest => {
             let rmdir_request = request

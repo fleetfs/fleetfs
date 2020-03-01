@@ -235,6 +235,24 @@ pub fn build_fileattr_response<'a>(
     return response_builder.finish();
 }
 
+pub fn fileattr_response_to_inode_attributes(
+    response: &FileMetadataResponse<'_>,
+) -> InodeAttributes {
+    InodeAttributes {
+        inode: response.inode(),
+        size: response.size_bytes(),
+        last_accessed: *response.last_access_time(),
+        last_modified: *response.last_modified_time(),
+        last_metadata_changed: *response.last_metadata_modified_time(),
+        kind: response.kind(),
+        mode: response.mode(),
+        hardlinks: response.hard_links(),
+        uid: response.user_id(),
+        gid: response.group_id(),
+        xattrs: Default::default(),
+    }
+}
+
 pub fn to_fileattr_response(
     mut builder: FlatBufferBuilder,
     attributes: InodeAttributes,
