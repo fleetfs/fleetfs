@@ -240,6 +240,40 @@ impl FileStorage {
         return empty_response(builder);
     }
 
+    pub fn replace_link<'a>(
+        &self,
+        parent: u64,
+        name: &str,
+        new_inode: u64,
+        kind: FileKind,
+        context: UserContext,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        let old_inode = self
+            .metadata_storage
+            .replace_link(parent, name, new_inode, kind, context)?;
+        return to_inode_response(builder, old_inode);
+    }
+
+    pub fn update_parent<'a>(
+        &self,
+        inode: u64,
+        new_parent: u64,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        self.metadata_storage.update_parent(inode, new_parent)?;
+        return empty_response(builder);
+    }
+
+    pub fn update_metadata_changed_time<'a>(
+        &self,
+        inode: u64,
+        builder: FlatBufferBuilder<'a>,
+    ) -> ResultResponse<'a> {
+        self.metadata_storage.update_metadata_changed_time(inode)?;
+        return empty_response(builder);
+    }
+
     pub fn hardlink_commit<'a>(&self, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
         self.metadata_storage.hardlink_commit();
         return empty_response(builder);
@@ -293,20 +327,6 @@ impl FileStorage {
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
         self.metadata_storage.remove_xattr(inode, key)?;
-        return empty_response(builder);
-    }
-
-    pub fn rename<'a>(
-        &self,
-        parent: u64,
-        name: &str,
-        new_parent: u64,
-        new_name: &str,
-        context: UserContext,
-        builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
-        self.metadata_storage
-            .rename(parent, name, new_parent, new_name, context)?;
         return empty_response(builder);
     }
 

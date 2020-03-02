@@ -25,6 +25,78 @@ type PendingResponse = (
 
 type PendingRequest = (Vec<u8>, Option<PendingResponse>);
 
+// Locks held by the request
+pub fn request_locks(request: &GenericRequest<'_>) -> Option<u64> {
+    match request.request_type() {
+        RequestType::RemoveLinkRequest => request
+            .request_as_remove_link_request()
+            .unwrap()
+            .lock_id()
+            .map(|x| x.value()),
+        RequestType::CreateLinkRequest => request
+            .request_as_create_link_request()
+            .unwrap()
+            .lock_id()
+            .map(|x| x.value()),
+        RequestType::ReplaceLinkRequest => request
+            .request_as_replace_link_request()
+            .unwrap()
+            .lock_id()
+            .map(|x| x.value()),
+        RequestType::UpdateParentRequest => request
+            .request_as_update_parent_request()
+            .unwrap()
+            .lock_id()
+            .map(|x| x.value()),
+        RequestType::UpdateMetadataChangedTimeRequest => request
+            .request_as_update_metadata_changed_time_request()
+            .unwrap()
+            .lock_id()
+            .map(|x| x.value()),
+        RequestType::DecrementInodeRequest => request
+            .request_as_decrement_inode_request()
+            .unwrap()
+            .lock_id()
+            .map(|x| x.value()),
+        RequestType::FilesystemCheckRequest
+        | RequestType::FilesystemChecksumRequest
+        | RequestType::ReadRequest
+        | RequestType::ReadRawRequest
+        | RequestType::SetXattrRequest
+        | RequestType::RemoveXattrRequest
+        | RequestType::UnlinkRequest
+        | RequestType::RmdirRequest
+        | RequestType::WriteRequest
+        | RequestType::UtimensRequest
+        | RequestType::ChmodRequest
+        | RequestType::ChownRequest
+        | RequestType::TruncateRequest
+        | RequestType::FsyncRequest
+        | RequestType::MkdirRequest
+        | RequestType::CreateRequest
+        | RequestType::LockRequest
+        | RequestType::UnlockRequest
+        | RequestType::HardlinkIncrementRequest
+        | RequestType::HardlinkRollbackRequest
+        | RequestType::CreateInodeRequest
+        | RequestType::LookupRequest
+        | RequestType::GetXattrRequest
+        | RequestType::ListXattrsRequest
+        | RequestType::ReaddirRequest
+        | RequestType::GetattrRequest => None,
+        RequestType::HardlinkRequest => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        RequestType::RenameRequest => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        RequestType::RaftRequest => unreachable!(),
+        RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::FilesystemReadyRequest => unreachable!(),
+        RequestType::NONE => unreachable!(),
+    }
+}
+
 pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
     match request.request_type() {
         RequestType::FilesystemCheckRequest => None,
@@ -76,6 +148,18 @@ pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
         RequestType::CreateLinkRequest => {
             Some(request.request_as_create_link_request().unwrap().parent())
         }
+        RequestType::ReplaceLinkRequest => {
+            Some(request.request_as_replace_link_request().unwrap().parent())
+        }
+        RequestType::UpdateParentRequest => {
+            Some(request.request_as_update_parent_request().unwrap().inode())
+        }
+        RequestType::UpdateMetadataChangedTimeRequest => Some(
+            request
+                .request_as_update_metadata_changed_time_request()
+                .unwrap()
+                .inode(),
+        ),
         RequestType::HardlinkRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
         }
@@ -105,6 +189,9 @@ pub fn access_type(request_type: RequestType) -> AccessType {
         RequestType::HardlinkRollbackRequest => AccessType::WriteMetadata,
         RequestType::CreateInodeRequest => AccessType::WriteMetadata,
         RequestType::CreateLinkRequest => AccessType::WriteMetadata,
+        RequestType::ReplaceLinkRequest => AccessType::WriteMetadata,
+        RequestType::UpdateParentRequest => AccessType::WriteMetadata,
+        RequestType::UpdateMetadataChangedTimeRequest => AccessType::WriteMetadata,
         RequestType::DecrementInodeRequest => AccessType::WriteMetadata,
         RequestType::RemoveLinkRequest => AccessType::WriteMetadata,
         RequestType::LockRequest => AccessType::LockMetadata,

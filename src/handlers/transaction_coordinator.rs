@@ -2,11 +2,13 @@ use crate::generated::*;
 use crate::storage::metadata_storage::InodeAttributes;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::utils::{
-    empty_response, fileattr_response_to_inode_attributes, finalize_request_without_prefix,
-    finalize_response, finalize_response_without_prefix, response_or_error, FlatBufferWithResponse,
+    check_access, empty_response, fileattr_response_to_inode_attributes,
+    finalize_request_without_prefix, finalize_response, finalize_response_without_prefix,
+    response_or_error, FlatBufferWithResponse,
 };
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 fn hardlink_increment_request<'a>(
     inode: u64,
@@ -66,6 +68,7 @@ fn create_link_request<'a>(
     name: &'_ str,
     inode: u64,
     kind: FileKind,
+    lock_id: Option<u64>,
     context: UserContext,
     builder: &'a mut FlatBufferBuilder,
 ) -> GenericRequest<'a> {
@@ -75,6 +78,11 @@ fn create_link_request<'a>(
     request_builder.add_name(builder_name);
     request_builder.add_inode(inode);
     request_builder.add_kind(kind);
+    let builder_lock_id;
+    if let Some(id) = lock_id {
+        builder_lock_id = OptionalULong::new(id);
+        request_builder.add_lock_id(&builder_lock_id);
+    }
     request_builder.add_context(&context);
     let finish_offset = request_builder.finish().as_union_value();
     // Don't need length prefix, since we're not serializing over network
@@ -86,11 +94,17 @@ fn create_link_request<'a>(
 fn decrement_inode_request<'a>(
     inode: u64,
     decrement_count: u32,
+    lock_id: Option<u64>,
     builder: &'a mut FlatBufferBuilder,
 ) -> GenericRequest<'a> {
     let mut request_builder = DecrementInodeRequestBuilder::new(builder);
     request_builder.add_inode(inode);
     request_builder.add_decrement_count(decrement_count);
+    let builder_lock_id;
+    if let Some(id) = lock_id {
+        builder_lock_id = OptionalULong::new(id);
+        request_builder.add_lock_id(&builder_lock_id);
+    }
     let finish_offset = request_builder.finish().as_union_value();
     // Don't need length prefix, since we're not serializing over network
     finalize_request_without_prefix(builder, RequestType::DecrementInodeRequest, finish_offset);
@@ -98,10 +112,49 @@ fn decrement_inode_request<'a>(
     get_root_as_generic_request(builder.finished_data())
 }
 
+async fn replace_link(
+    parent: u64,
+    name: &str,
+    new_inode: u64,
+    kind: FileKind,
+    lock_id: u64,
+    context: UserContext,
+    raft: &LocalRaftGroupManager,
+) -> Result<u64, ErrorCode> {
+    let mut builder = FlatBufferBuilder::new();
+    let builder_name = builder.create_string(name);
+    let mut request_builder = ReplaceLinkRequestBuilder::new(&mut builder);
+    request_builder.add_parent(parent);
+    request_builder.add_name(builder_name);
+    request_builder.add_new_inode(new_inode);
+    request_builder.add_kind(kind);
+    let builder_lock_id = OptionalULong::new(lock_id);
+    request_builder.add_lock_id(&builder_lock_id);
+    request_builder.add_context(&context);
+    let finish_offset = request_builder.finish().as_union_value();
+    // Don't need length prefix, since we're not serializing over network
+    finalize_request_without_prefix(&mut builder, RequestType::ReplaceLinkRequest, finish_offset);
+    let request = get_root_as_generic_request(builder.finished_data());
+
+    let (mut builder, response_type, response_offset) = raft
+        .lookup_by_inode(parent)
+        .propose(request, FlatBufferBuilder::new())
+        .await?;
+    finalize_response(&mut builder, response_type, response_offset);
+    // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+    let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+    assert_eq!(response.response_type(), ResponseType::InodeResponse);
+
+    let inode = response.response_as_inode_response().unwrap().inode();
+
+    Ok(inode)
+}
+
 async fn remove_link(
     parent: u64,
     name: &str,
     link_inode_and_uid: Option<(u64, u32)>,
+    lock_id: Option<u64>,
     context: UserContext,
     raft: &LocalRaftGroupManager,
 ) -> Result<(u64, bool), ErrorCode> {
@@ -117,6 +170,11 @@ async fn remove_link(
         builder_uid = OptionalUInt::new(link_uid);
         request_builder.add_link_inode(&builder_inode);
         request_builder.add_link_uid(&builder_uid);
+    }
+    let builder_lock_id;
+    if let Some(id) = lock_id {
+        builder_lock_id = OptionalULong::new(id);
+        request_builder.add_lock_id(&builder_lock_id);
     }
     request_builder.add_context(&context);
     let finish_offset = request_builder.finish().as_union_value();
@@ -164,6 +222,76 @@ async fn lock_inode(inode: u64, raft: &LocalRaftGroupManager) -> Result<u64, Err
     let lock_id = response.response_as_lock_response().unwrap().lock_id();
 
     Ok(lock_id)
+}
+
+async fn update_parent(
+    inode: u64,
+    new_parent: u64,
+    lock_id: Option<u64>,
+    raft: &LocalRaftGroupManager,
+) -> Result<(), ErrorCode> {
+    let mut builder = FlatBufferBuilder::new();
+    let mut request_builder = UpdateParentRequestBuilder::new(&mut builder);
+    request_builder.add_inode(inode);
+    request_builder.add_new_parent(new_parent);
+    let builder_lock_id;
+    if let Some(id) = lock_id {
+        builder_lock_id = OptionalULong::new(id);
+        request_builder.add_lock_id(&builder_lock_id);
+    }
+    let finish_offset = request_builder.finish().as_union_value();
+    // Don't need length prefix, since we're not serializing over network
+    finalize_request_without_prefix(
+        &mut builder,
+        RequestType::UpdateParentRequest,
+        finish_offset,
+    );
+    let request = get_root_as_generic_request(builder.finished_data());
+
+    let (mut builder, response_type, response_offset) = raft
+        .lookup_by_inode(inode)
+        .propose(request, FlatBufferBuilder::new())
+        .await?;
+    finalize_response(&mut builder, response_type, response_offset);
+    // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+    let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+    assert_eq!(response.response_type(), ResponseType::EmptyResponse);
+
+    Ok(())
+}
+
+async fn update_metadata_changed_time(
+    inode: u64,
+    lock_id: Option<u64>,
+    raft: &LocalRaftGroupManager,
+) -> Result<(), ErrorCode> {
+    let mut builder = FlatBufferBuilder::new();
+    let mut request_builder = UpdateMetadataChangedTimeRequestBuilder::new(&mut builder);
+    request_builder.add_inode(inode);
+    let builder_lock_id;
+    if let Some(id) = lock_id {
+        builder_lock_id = OptionalULong::new(id);
+        request_builder.add_lock_id(&builder_lock_id);
+    }
+    let finish_offset = request_builder.finish().as_union_value();
+    // Don't need length prefix, since we're not serializing over network
+    finalize_request_without_prefix(
+        &mut builder,
+        RequestType::UpdateMetadataChangedTimeRequest,
+        finish_offset,
+    );
+    let request = get_root_as_generic_request(builder.finished_data());
+
+    let (mut builder, response_type, response_offset) = raft
+        .lookup_by_inode(inode)
+        .propose(request, FlatBufferBuilder::new())
+        .await?;
+    finalize_response(&mut builder, response_type, response_offset);
+    // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+    let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+    assert_eq!(response.response_type(), ResponseType::EmptyResponse);
+
+    Ok(())
 }
 
 async fn unlock_inode(
@@ -244,6 +372,252 @@ async fn lookup(
     return Ok(inode);
 }
 
+async fn decrement_inode(
+    inode: u64,
+    count: u32,
+    lock_id: Option<u64>,
+    raft: &LocalRaftGroupManager,
+) {
+    let mut decrement_request_builder = FlatBufferBuilder::new();
+    let decrement_link_count =
+        decrement_inode_request(inode, count, lock_id, &mut decrement_request_builder);
+    // TODO: if this fails the inode will leak ;(
+    raft.lookup_by_inode(inode)
+        .propose(decrement_link_count, FlatBufferBuilder::new())
+        .await
+        .expect("Leaked inode");
+}
+
+fn rename_check_access(
+    parent_attrs: &InodeAttributes,
+    new_parent_attrs: &InodeAttributes,
+    inode_attrs: &InodeAttributes,
+    // Attributes and directory entry count if it's a directory
+    existing_dest_inode_attrs: &Option<(InodeAttributes, u32)>,
+    context: UserContext,
+) -> Result<(), ErrorCode> {
+    if !check_access(
+        parent_attrs.uid,
+        parent_attrs.gid,
+        parent_attrs.mode,
+        context.uid(),
+        context.gid(),
+        libc::W_OK as u32,
+    ) {
+        return Err(ErrorCode::AccessDenied);
+    }
+
+    // "Sticky bit" handling
+    if parent_attrs.mode & libc::S_ISVTX as u16 != 0
+        && context.uid() != 0
+        && context.uid() != parent_attrs.uid
+        && context.uid() != inode_attrs.uid
+    {
+        return Err(ErrorCode::AccessDenied);
+    }
+
+    if !check_access(
+        new_parent_attrs.uid,
+        new_parent_attrs.gid,
+        new_parent_attrs.mode,
+        context.uid(),
+        context.gid(),
+        libc::W_OK as u32,
+    ) {
+        return Err(ErrorCode::AccessDenied);
+    }
+
+    // "Sticky bit" handling in new_parent
+    if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
+        if let Some((attrs, _)) = existing_dest_inode_attrs {
+            if context.uid() != 0
+                && context.uid() != new_parent_attrs.uid
+                && context.uid() != attrs.uid
+            {
+                return Err(ErrorCode::AccessDenied);
+            }
+        }
+    }
+
+    // Only overwrite an existing directory if it's empty
+    if let Some((attrs, entry_count)) = existing_dest_inode_attrs {
+        if attrs.kind == FileKind::Directory && *entry_count > 0 {
+            return Err(ErrorCode::NotEmpty);
+        }
+    }
+
+    // Only move an existing directory to a new parent, if we have write access to it,
+    // because that will change the ".." link in it
+    if inode_attrs.kind == FileKind::Directory
+        && parent_attrs.inode != new_parent_attrs.inode
+        && !check_access(
+            inode_attrs.uid,
+            inode_attrs.gid,
+            inode_attrs.mode,
+            context.uid(),
+            context.gid(),
+            libc::W_OK as u32,
+        )
+    {
+        return Err(ErrorCode::AccessDenied);
+    }
+
+    Ok(())
+}
+
+// TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
+// in the middle
+pub async fn rename_transaction<'a>(
+    parent: u64,
+    name: String,
+    new_parent: u64,
+    new_name: String,
+    context: UserContext,
+    builder: FlatBufferBuilder<'static>,
+    raft: Arc<LocalRaftGroupManager>,
+) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
+    let locks: Arc<Mutex<HashSet<(u64, u64)>>> = Arc::new(Mutex::new(HashSet::new()));
+    let result = rename_transaction_lock_context(
+        parent,
+        name,
+        new_parent,
+        new_name,
+        context,
+        locks.clone(),
+        builder,
+        raft.clone(),
+    )
+    .await;
+    let to_unlock: Vec<(u64, u64)> = locks.lock().unwrap().drain().collect();
+    for (inode, lock_id) in to_unlock {
+        unlock_inode(inode, lock_id, &raft)
+            .await
+            .expect("Unlock failed");
+    }
+    return result;
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::cognitive_complexity)]
+async fn rename_transaction_lock_context<'a>(
+    parent: u64,
+    name: String,
+    new_parent: u64,
+    new_name: String,
+    context: UserContext,
+    // Pairs of (inode, lock_id)
+    lock_guard: Arc<Mutex<HashSet<(u64, u64)>>>,
+    builder: FlatBufferBuilder<'static>,
+    raft: Arc<LocalRaftGroupManager>,
+) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
+    // TODO: since we acquire multiple locks in this function it could cause a deadlock.
+    // We should acquire them in ascending order of inode
+    let parent_lock_id = lock_inode(parent, &raft).await?;
+    lock_guard.lock().unwrap().insert((parent, parent_lock_id));
+
+    let new_parent_lock_id = if parent != new_parent {
+        let lock_id = lock_inode(new_parent, &raft).await?;
+        lock_guard.lock().unwrap().insert((new_parent, lock_id));
+        lock_id
+    } else {
+        parent_lock_id
+    };
+
+    let inode = lookup(parent, name.clone(), context, &raft).await?;
+    let inode_lock_id = lock_inode(inode, &raft).await?;
+    lock_guard.lock().unwrap().insert((inode, inode_lock_id));
+
+    let existing_dest_inode = match lookup(new_parent, new_name.clone(), context, &raft).await {
+        Ok(inode) => Some(inode),
+        Err(error_code) => {
+            if error_code == ErrorCode::DoesNotExist {
+                None
+            } else {
+                return Err(error_code);
+            }
+        }
+    };
+    let existing_inode_lock_id = if let Some(inode) = existing_dest_inode {
+        let lock_id = lock_inode(inode, &raft).await?;
+        lock_guard.lock().unwrap().insert((inode, lock_id));
+        Some(lock_id)
+    } else {
+        None
+    };
+
+    // Perform access checks
+    let (parent_attrs, _) = getattrs(parent, &raft).await?;
+    let (new_parent_attrs, _) = getattrs(new_parent, &raft).await?;
+    let (inode_attrs, _) = getattrs(inode, &raft).await?;
+    let existing_inode_attrs = if let Some(ref inode) = existing_dest_inode {
+        Some(getattrs(*inode, &raft).await?)
+    } else {
+        None
+    };
+    rename_check_access(
+        &parent_attrs,
+        &new_parent_attrs,
+        &inode_attrs,
+        &existing_inode_attrs,
+        context,
+    )?;
+
+    if let Some(existing_inode) = existing_dest_inode {
+        let old_inode = replace_link(
+            new_parent,
+            &new_name,
+            inode,
+            inode_attrs.kind,
+            new_parent_lock_id,
+            context,
+            &raft,
+        )
+        .await?;
+        assert_eq!(old_inode, existing_inode);
+        if existing_inode_attrs.as_ref().unwrap().0.kind == FileKind::Directory {
+            assert_eq!(existing_inode_attrs.as_ref().unwrap().0.hardlinks, 2);
+            decrement_inode(old_inode, 2, existing_inode_lock_id, &raft).await;
+        } else {
+            decrement_inode(old_inode, 1, existing_inode_lock_id, &raft).await;
+        }
+    } else {
+        let mut builder = FlatBufferBuilder::new();
+        let create_link = create_link_request(
+            new_parent,
+            &new_name,
+            inode,
+            inode_attrs.kind,
+            Some(new_parent_lock_id),
+            context,
+            &mut builder,
+        );
+
+        raft.lookup_by_inode(new_parent)
+            .propose(create_link, FlatBufferBuilder::new())
+            .await?;
+    }
+
+    // TODO: this shouldn't be able to fail since we already performed access checks
+    remove_link(
+        parent,
+        &name,
+        Some((inode, inode_attrs.uid)),
+        Some(parent_lock_id),
+        context,
+        &raft,
+    )
+    .await?;
+
+    if inode_attrs.kind == FileKind::Directory {
+        update_parent(inode, new_parent, Some(inode_lock_id), &raft).await?;
+    }
+    update_metadata_changed_time(inode, Some(inode_lock_id), &raft).await?;
+
+    let (mut builder, response_type, offset) = empty_response(builder)?;
+    finalize_response(&mut builder, response_type, offset);
+    return Ok(FlatBufferWithResponse::new(builder));
+}
+
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
 pub async fn rmdir_transaction<'a>(
@@ -265,7 +639,16 @@ pub async fn rmdir_transaction<'a>(
                     unlock_inode(inode, lock_id, &raft).await?;
                     return Err(ErrorCode::NotEmpty);
                 }
-                match remove_link(parent, &name, Some((inode, attrs.uid)), context, &raft).await {
+                match remove_link(
+                    parent,
+                    &name,
+                    Some((inode, attrs.uid)),
+                    None,
+                    context,
+                    &raft,
+                )
+                .await
+                {
                     Ok((lookup_inode, is_complete)) => {
                         unlock_inode(inode, lock_id, &raft).await?;
                         inode = lookup_inode;
@@ -289,7 +672,8 @@ pub async fn rmdir_transaction<'a>(
     assert_eq!(hardlinks, 2);
 
     let mut decrement_request_builder = FlatBufferBuilder::new();
-    let decrement_link_count = decrement_inode_request(inode, 2, &mut decrement_request_builder);
+    let decrement_link_count =
+        decrement_inode_request(inode, 2, None, &mut decrement_request_builder);
     // TODO: if this fails the inode will leak ;(
     raft.lookup_by_inode(inode)
         .propose(decrement_link_count, FlatBufferBuilder::new())
@@ -311,12 +695,12 @@ pub async fn unlink_transaction<'a>(
 ) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
     // Try to remove the link. The result of this might be indeterminate, since "sticky bit"
     // can require that we know the uid of the inode
-    let (link_inode, complete) = remove_link(parent, &name, None, context, &raft).await?;
+    let (link_inode, complete) = remove_link(parent, &name, None, None, context, &raft).await?;
 
     if complete {
         let mut decrement_request_builder = FlatBufferBuilder::new();
         let decrement_link_count =
-            decrement_inode_request(link_inode, 1, &mut decrement_request_builder);
+            decrement_inode_request(link_inode, 1, None, &mut decrement_request_builder);
         // TODO: if this fails the inode will leak ;(
         raft.lookup_by_inode(link_inode)
             .propose(decrement_link_count, FlatBufferBuilder::new())
@@ -330,7 +714,15 @@ pub async fn unlink_transaction<'a>(
             let lock_id = lock_inode(inode, &raft).await?;
             match getattrs(inode, &raft).await {
                 Ok((attrs, _)) => {
-                    match remove_link(parent, &name, Some((inode, attrs.uid)), context, &raft).await
+                    match remove_link(
+                        parent,
+                        &name,
+                        Some((inode, attrs.uid)),
+                        None,
+                        context,
+                        &raft,
+                    )
+                    .await
                     {
                         Ok((lookup_inode, is_complete)) => {
                             unlock_inode(inode, lock_id, &raft).await?;
@@ -351,7 +743,7 @@ pub async fn unlink_transaction<'a>(
         }
         let mut decrement_request_builder = FlatBufferBuilder::new();
         let decrement_link_count =
-            decrement_inode_request(inode, 1, &mut decrement_request_builder);
+            decrement_inode_request(inode, 1, None, &mut decrement_request_builder);
         // TODO: if this fails the inode will leak ;(
         raft.lookup_by_inode(inode)
             .propose(decrement_link_count, FlatBufferBuilder::new())
@@ -416,6 +808,7 @@ pub async fn create_transaction<'a>(
         &name,
         inode,
         kind,
+        None,
         UserContext::new(uid, gid),
         &mut link_request_builder,
     );
@@ -431,7 +824,7 @@ pub async fn create_transaction<'a>(
                 // Rollback the transaction
                 let mut internal_request_builder = FlatBufferBuilder::new();
                 let rollback =
-                    decrement_inode_request(inode, link_count, &mut internal_request_builder);
+                    decrement_inode_request(inode, link_count, None, &mut internal_request_builder);
                 // TODO: if this fails the inode will leak ;(
                 raft.lookup_by_inode(inode)
                     .propose(rollback, FlatBufferBuilder::new())
@@ -445,7 +838,7 @@ pub async fn create_transaction<'a>(
             // Rollback the transaction
             let mut internal_request_builder = FlatBufferBuilder::new();
             let rollback =
-                decrement_inode_request(inode, link_count, &mut internal_request_builder);
+                decrement_inode_request(inode, link_count, None, &mut internal_request_builder);
             // TODO: if this fails the inode will leak ;(
             raft.lookup_by_inode(inode)
                 .propose(rollback, FlatBufferBuilder::new())
@@ -492,6 +885,7 @@ pub async fn hardlink_transaction<'a, 'b>(
         hardlink_request.new_name(),
         hardlink_request.inode(),
         inode_kind,
+        None,
         *hardlink_request.context(),
         &mut internal_request_builder,
     );

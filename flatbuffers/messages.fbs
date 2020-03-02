@@ -8,7 +8,7 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    LockRequest, UnlockRequest,
-                   RemoveLinkRequest}
+                   RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -163,6 +163,7 @@ table RemoveLinkRequest {
   name: string (required);
   link_inode: OptionalULong;
   link_uid: OptionalUInt;
+  lock_id: OptionalULong;
   context: UserContext (required);
 }
 
@@ -211,6 +212,19 @@ table UnlockRequest {
   lock_id: ulong;
 }
 
+// Internal request to update the parent link of a directory inode
+table UpdateParentRequest {
+  inode: ulong;
+  new_parent: ulong;
+  lock_id: OptionalULong;
+}
+
+// Internal request to update the metadata changed time an inode
+table UpdateMetadataChangedTimeRequest {
+  inode: ulong;
+  lock_id: OptionalULong;
+}
+
 // Internal request to create an inode as part of a create() or mkdir() transaction
 table CreateInodeRequest {
   parent: ulong;
@@ -226,6 +240,19 @@ table CreateLinkRequest {
   name: string (required);
   inode: ulong;
   kind: FileKind;
+  lock_id: OptionalULong;
+  context: UserContext (required);
+}
+
+// Internal request to atomically replace a directory link, so that it points to a different inode,
+// as part of a transaction. Does not change either inode's link count. It is the callers responsibility to ensure
+// that replacing the existing link is safe (i.e. it doesn't point to a non-empty directory)
+table ReplaceLinkRequest {
+  parent: ulong;
+  name: string (required);
+  new_inode: ulong;
+  kind: FileKind;
+  lock_id: OptionalULong;
   context: UserContext (required);
 }
 
@@ -235,6 +262,7 @@ table DecrementInodeRequest {
   inode: ulong;
   // The number of times to decrement the link count
   decrement_count: uint;
+  lock_id: OptionalULong;
 }
 
 root_type GenericRequest;

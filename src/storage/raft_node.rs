@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::storage::file_storage::FileStorage;
-use crate::storage::lock_table::{access_type, accessed_inode, LockTable};
+use crate::storage::lock_table::{access_type, accessed_inode, request_locks, LockTable};
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
 use flatbuffers::FlatBufferBuilder;
@@ -225,9 +225,9 @@ impl RaftNode {
 
         let mut to_process = vec![];
         if let Some(inode) = accessed_inode(&request) {
-            // TODO: pass held locks
+            let held_lock = request_locks(&request);
             let access_type = access_type(request.request_type());
-            if lock_table.is_locked(inode, access_type, None) {
+            if lock_table.is_locked(inode, access_type, held_lock) {
                 lock_table.wait_for_lock(inode, (request_data, pending_response));
             } else {
                 match request.request_type() {
@@ -469,6 +469,35 @@ pub fn commit_write<'a, 'b>(
                 builder,
             );
         }
+        RequestType::ReplaceLinkRequest => {
+            let replace_link_request = request
+                .request_as_replace_link_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.replace_link(
+                replace_link_request.parent(),
+                replace_link_request.name(),
+                replace_link_request.new_inode(),
+                replace_link_request.kind(),
+                *replace_link_request.context(),
+                builder,
+            );
+        }
+        RequestType::UpdateParentRequest => {
+            let update_parent_request = request
+                .request_as_update_parent_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.update_parent(
+                update_parent_request.inode(),
+                update_parent_request.new_parent(),
+                builder,
+            );
+        }
+        RequestType::UpdateMetadataChangedTimeRequest => {
+            let update_request = request
+                .request_as_update_metadata_changed_time_request()
+                .ok_or(ErrorCode::BadRequest)?;
+            response = file_storage.update_metadata_changed_time(update_request.inode(), builder);
+        }
         RequestType::DecrementInodeRequest => {
             let decrement_inode_request = request
                 .request_as_decrement_inode_request()
@@ -507,17 +536,7 @@ pub fn commit_write<'a, 'b>(
             unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::RenameRequest => {
-            let rename_request = request
-                .request_as_rename_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            response = file_storage.rename(
-                rename_request.parent(),
-                rename_request.name(),
-                rename_request.new_parent(),
-                rename_request.new_name(),
-                *rename_request.context(),
-                builder,
-            );
+            unreachable!("Transaction coordinator should break these up into internal requests");
         }
         RequestType::ChmodRequest => {
             let chmod_request = request
