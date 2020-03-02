@@ -2,7 +2,8 @@ use crate::generated::*;
 use crate::handlers::fsck_handler::{checksum_request, fsck};
 use crate::handlers::router::FullOrPartialResponse::{Full, Partial};
 use crate::handlers::transaction_coordinator::{
-    create_transaction, hardlink_transaction, rmdir_transaction, unlink_transaction,
+    create_transaction, hardlink_transaction, rename_transaction, rmdir_transaction,
+    unlink_transaction,
 };
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::RaftNode;
@@ -253,6 +254,9 @@ async fn request_router_inner(
         | RequestType::CreateInodeRequest
         | RequestType::DecrementInodeRequest
         | RequestType::RemoveLinkRequest
+        | RequestType::ReplaceLinkRequest
+        | RequestType::UpdateParentRequest
+        | RequestType::UpdateMetadataChangedTimeRequest
         | RequestType::CreateLinkRequest => {
             unreachable!("These are internal requests that should always be submitted through raft")
         }
@@ -266,13 +270,21 @@ async fn request_router_inner(
             }
         }
         RequestType::RenameRequest => {
-            // TODO: actually make this distributed. Right now assumes that everything is stored
-            // on group 0
-            return raft
-                .lookup_by_raft_group(0)
-                .propose(request, builder)
+            if let Some(rename_request) = request.request_as_rename_request() {
+                return rename_transaction(
+                    rename_request.parent(),
+                    rename_request.name().to_string(),
+                    rename_request.new_parent(),
+                    rename_request.new_name().to_string(),
+                    *rename_request.context(),
+                    builder,
+                    raft.clone(),
+                )
                 .await
-                .map(Partial);
+                .map(Full);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
         }
         RequestType::LookupRequest => {
             if let Some(lookup_request) = request.request_as_lookup_request() {

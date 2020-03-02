@@ -359,6 +359,41 @@ impl MetadataStorage {
         Ok(())
     }
 
+    pub fn replace_link(
+        &self,
+        parent: u64,
+        name: &str,
+        new_inode: Inode,
+        inode_kind: FileKind,
+        context: UserContext,
+    ) -> Result<u64, ErrorCode> {
+        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let parent_attrs = metadata
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
+        if !check_access(
+            parent_attrs.uid,
+            parent_attrs.gid,
+            parent_attrs.mode,
+            context.uid(),
+            context.gid(),
+            libc::W_OK as u32,
+        ) {
+            return Err(ErrorCode::AccessDenied);
+        }
+        parent_attrs.last_modified = now();
+        parent_attrs.last_metadata_changed = now();
+
+        let (old_inode, _) = directories
+            .get_mut(&parent)
+            .ok_or(ErrorCode::InodeDoesNotExist)?
+            .insert(name.to_string(), (new_inode, inode_kind))
+            .unwrap();
+
+        Ok(old_inode)
+    }
+
     pub fn hardlink_commit(&self) {
         // TODO
     }
@@ -378,175 +413,24 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn rename(
-        &self,
-        parent: u64,
-        name: &str,
-        new_parent: u64,
-        new_name: &str,
-        context: UserContext,
-    ) -> Result<(), ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+    pub fn update_parent(&self, inode: u64, new_parent: u64) -> Result<(), ErrorCode> {
         let mut parents = self
             .directory_parents
             .lock()
             .map_err(|_| ErrorCode::Corrupted)?;
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
+        parents.insert(inode, new_parent);
+
+        Ok(())
+    }
+
+    pub fn update_metadata_changed_time(&self, inode: u64) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        if let Some((inode, _)) = directories
-            .get(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .get(name)
-        {
-            let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
-            if !check_access(
-                parent_attrs.uid,
-                parent_attrs.gid,
-                parent_attrs.mode,
-                context.uid(),
-                context.gid(),
-                libc::W_OK as u32,
-            ) {
-                return Err(ErrorCode::AccessDenied);
-            }
-
-            // "Sticky bit" handling
-            if parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-                let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
-                if context.uid() != 0
-                    && context.uid() != parent_attrs.uid
-                    && context.uid() != inode_attrs.uid
-                {
-                    return Err(ErrorCode::AccessDenied);
-                }
-            }
-
-            let new_parent_attrs = metadata
-                .get(&new_parent)
-                .ok_or(ErrorCode::InodeDoesNotExist)?;
-            if !check_access(
-                new_parent_attrs.uid,
-                new_parent_attrs.gid,
-                new_parent_attrs.mode,
-                context.uid(),
-                context.gid(),
-                libc::W_OK as u32,
-            ) {
-                return Err(ErrorCode::AccessDenied);
-            }
-
-            // "Sticky bit" handling in new_parent
-            if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-                if let Some((new_inode, _)) = directories
-                    .get(&new_parent)
-                    .ok_or(ErrorCode::InodeDoesNotExist)?
-                    .get(new_name)
-                {
-                    let new_inode_attrs = metadata
-                        .get(new_inode)
-                        .ok_or(ErrorCode::InodeDoesNotExist)?;
-                    if context.uid() != 0
-                        && context.uid() != new_parent_attrs.uid
-                        && context.uid() != new_inode_attrs.uid
-                    {
-                        return Err(ErrorCode::AccessDenied);
-                    }
-                }
-            }
-
-            // Only overwrite an existing directory if it's empty
-            if let Some((new_inode, _)) = directories
-                .get(&new_parent)
-                .ok_or(ErrorCode::InodeDoesNotExist)?
-                .get(new_name)
-            {
-                let new_inode_attrs = metadata
-                    .get(new_inode)
-                    .ok_or(ErrorCode::InodeDoesNotExist)?;
-                if new_inode_attrs.kind == FileKind::Directory
-                    && !directories
-                        .get(&new_inode)
-                        .ok_or(ErrorCode::InodeDoesNotExist)?
-                        .is_empty()
-                {
-                    return Err(ErrorCode::NotEmpty);
-                }
-            }
-
-            // Only move an existing directory to a new parent, if we have write access to it,
-            // because that will change the ".." link in it
-            let inode_attrs = metadata.get(inode).ok_or(ErrorCode::InodeDoesNotExist)?;
-            if inode_attrs.kind == FileKind::Directory
-                && parent != new_parent
-                && !check_access(
-                    inode_attrs.uid,
-                    inode_attrs.gid,
-                    inode_attrs.mode,
-                    context.uid(),
-                    context.gid(),
-                    libc::W_OK as u32,
-                )
-            {
-                return Err(ErrorCode::AccessDenied);
-            }
-        }
-
-        let entry = directories
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .remove(name)
-            .ok_or(ErrorCode::DoesNotExist)?;
-        // If target already exists decrement its hardlink count
-        if let Some((existing_inode, _)) = directories
-            .get_mut(&new_parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .remove(new_name)
-        {
-            let existing_inode_attrs = metadata
-                .get_mut(&existing_inode)
-                .ok_or(ErrorCode::InodeDoesNotExist)?;
-            existing_inode_attrs.hardlinks -= 1;
-            existing_inode_attrs.last_metadata_changed = now();
-            // Directories cannot be hardlinked, so remove them immediately, if overwritten
-            if existing_inode_attrs.hardlinks == 0
-                || existing_inode_attrs.kind == FileKind::Directory
-            {
-                if existing_inode_attrs.kind == FileKind::Directory {
-                    directories.remove(&existing_inode);
-                    parents.remove(&existing_inode);
-                }
-                metadata.remove(&existing_inode);
-            }
-        }
-        directories
-            .get_mut(&new_parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .insert(new_name.to_string(), entry);
-
-        let (inode, kind) = entry;
-        if kind == FileKind::Directory {
-            parents.insert(inode, new_parent);
-        }
-
-        metadata
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_metadata_changed = now();
-        metadata
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_modified = now();
-        metadata
-            .get_mut(&new_parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_metadata_changed = now();
-        metadata
-            .get_mut(&new_parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_modified = now();
-        metadata
+        let inode_attrs = metadata
             .get_mut(&inode)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .last_metadata_changed = now();
+            .ok_or(ErrorCode::InodeDoesNotExist)?;
+        inode_attrs.last_metadata_changed = now();
 
         Ok(())
     }
