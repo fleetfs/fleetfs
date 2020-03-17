@@ -11,7 +11,7 @@ ADD . /code/fleetfs/
 
 ENV PATH=/root/.cargo/bin:$PATH
 RUN apt update && apt install -y curl libfuse-dev pkg-config git &&\
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.40.0 &&\
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.42.0 &&\
   cd /code/fleetfs &&\
   cargo build --release && cp target/release/fleetfs /bin/fleetfs &&\
   cargo clean && rm -rf ~/.cargo/registry && rm -rf ~/.cargo/git &&\
