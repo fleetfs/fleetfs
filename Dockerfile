@@ -3,7 +3,7 @@ FROM ubuntu:18.04
 RUN apt update && apt install -y fuse fio &&\
   echo 'user_allow_other' >> /etc/fuse.conf &&\
   apt install -y git build-essential autoconf cmake && mkdir /code && \
-  cd /code && git clone https://github.com/google/flatbuffers && cd flatbuffers && git checkout v1.11.0 && \
+  cd /code && git clone https://github.com/google/flatbuffers && cd flatbuffers && git checkout v1.12.0 && \
   cmake -G "Unix Makefiles" && make flatc && cp flatc /bin/flatc && \
   rm -rf /code/flatbuffers && apt remove -y git build-essential autoconf cmake && apt autoremove -y
 

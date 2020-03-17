@@ -12,7 +12,7 @@ RUN mkdir -p /code/pjdfstest && cd /code && git clone https://github.com/fleetfs
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.42.0
 
-RUN cd /code && git clone https://github.com/google/flatbuffers && cd flatbuffers && git checkout v1.11.0 \
+RUN cd /code && git clone https://github.com/google/flatbuffers && cd flatbuffers && git checkout v1.12.0 \
   && cmake -G "Unix Makefiles" && make flatc && cp flatc /bin/flatc
 
 RUN mkdir -p /code && cd /code && git clone https://github.com/fleetfs/fuse-xfstests && cd fuse-xfstests \
