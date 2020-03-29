@@ -75,6 +75,14 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("redundancy-level")
+                .long("redundancy-level")
+                .value_name("REDUNDANCY-LEVEL")
+                .requires("peers")
+                .help("Number of failures that can be tolerated, in a replication group, before data is lost")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("server-ip-port")
                 .long("server-ip-port")
                 .value_name("IP_PORT")
@@ -194,6 +202,14 @@ fn main() -> Result<(), ErrorCode> {
             .collect()
     };
 
+    let replicas_per_raft_group: usize =
+        if let Some(redundancy) = matches.value_of("redundancy-level") {
+            let redundancy: usize = redundancy.parse().unwrap();
+            2 * redundancy + 1
+        } else {
+            peers.len() + 1
+        };
+
     if fsck {
         let client = NodeClient::new(server_ip_port);
         match client.fsck() {
@@ -212,7 +228,7 @@ fn main() -> Result<(), ErrorCode> {
         println!("Filesystem ready");
     } else if mount_point.is_empty() {
         println!("Starting with peers: {:?}", &peers);
-        Node::new(&data_dir, bind_address, peers).run();
+        Node::new(&data_dir, bind_address, peers, replicas_per_raft_group).run();
     } else {
         println!(
             "Connecting to server {} and mounting FUSE at {}",

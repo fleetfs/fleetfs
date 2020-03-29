@@ -25,15 +25,50 @@ pub struct LocalContext {
     pub data_dir: String,
     pub peers: Vec<SocketAddr>,
     pub node_id: u64,
+    pub replicas_per_raft_group: usize,
 }
 
 impl LocalContext {
-    pub fn new(data_dir: &str, peers: Vec<SocketAddr>, node_id: u64) -> LocalContext {
+    pub fn new(
+        data_dir: &str,
+        peers: Vec<SocketAddr>,
+        node_id: u64,
+        replicas_per_raft_group: usize,
+    ) -> LocalContext {
         LocalContext {
             data_dir: data_dir.to_string(),
             peers,
             node_id,
+            replicas_per_raft_group,
         }
+    }
+
+    // Index of this node in the cluster. Indices are zero-based and consecutive
+    pub fn node_index(&self) -> usize {
+        let mut ids = vec![self.node_id];
+        for peer in self.peers.iter() {
+            ids.push(node_id_from_address(peer));
+        }
+        ids.sort();
+
+        ids.iter().position(|x| *x == self.node_id).unwrap()
+    }
+
+    pub fn peers_with_node_indices(&self) -> Vec<(SocketAddr, usize)> {
+        let mut ids = vec![self.node_id];
+        for peer in self.peers.iter() {
+            ids.push(node_id_from_address(peer));
+        }
+        ids.sort();
+
+        self.peers
+            .iter()
+            .map(|peer| {
+                let peer_id = node_id_from_address(peer);
+                let index = ids.iter().position(|x| *x == peer_id).unwrap();
+                (*peer, index)
+            })
+            .collect()
     }
 }
 
@@ -79,14 +114,24 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(node_dir: &str, bind_address: SocketAddr, peers: Vec<SocketAddr>) -> Node {
+    pub fn new(
+        node_dir: &str,
+        bind_address: SocketAddr,
+        peers: Vec<SocketAddr>,
+        replicas_per_raft_group: usize,
+    ) -> Node {
         let data_dir = Path::new(node_dir).join("data");
         #[allow(clippy::expect_fun_call)]
         fs::create_dir_all(&data_dir)
             .expect(&format!("Failed to create data dir: {:?}", &data_dir));
         // Unique ID of node within the cluster. Never 0.
         let node_id = node_id_from_address(&bind_address);
-        let context = LocalContext::new(data_dir.to_str().unwrap(), peers, node_id);
+        let context = LocalContext::new(
+            data_dir.to_str().unwrap(),
+            peers,
+            node_id,
+            replicas_per_raft_group,
+        );
         Node {
             context: context.clone(),
             // TODO: Use multiple raft groups to make this actually distributed

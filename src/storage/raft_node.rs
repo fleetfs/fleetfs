@@ -36,6 +36,23 @@ type PendingResponse = (
     Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
 );
 
+pub fn node_contains_raft_group(
+    node_index: usize,
+    total_nodes: usize,
+    raft_group_id: u16,
+    replicas_per_raft_group: usize,
+) -> bool {
+    assert_eq!(total_nodes % replicas_per_raft_group, 0);
+
+    // Divide all nodes up into groups that can support a raft group
+    let node_group = node_index / replicas_per_raft_group;
+    let node_groups = total_nodes / replicas_per_raft_group;
+    // Round-robin assignment of raft groups to nodes
+    let assigned_node_group = raft_group_id % node_groups as u16;
+
+    node_group == assigned_node_group as usize
+}
+
 pub struct RaftNode {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u128, PendingResponse>>,
@@ -54,12 +71,32 @@ impl RaftNode {
         // TODO: currently all rgroups reuse the same set of node_ids. Debugging would be easier,
         // if they had unique ids
         let node_id = context.node_id;
+        let total_nodes = context.peers.len() + 1;
         let mut peer_ids: Vec<u64> = context
-            .peers
+            .peers_with_node_indices()
             .iter()
-            .map(|peer| node_id_from_address(peer))
+            .map(|(peer, peer_index)| (node_id_from_address(peer), *peer_index))
+            .filter(|(_, peer_index)| {
+                node_contains_raft_group(
+                    *peer_index,
+                    total_nodes,
+                    raft_group_id,
+                    context.replicas_per_raft_group,
+                )
+            })
+            .map(|(peer_id, _)| peer_id)
             .collect();
-        peer_ids.push(node_id);
+        if node_contains_raft_group(
+            context.node_index(),
+            total_nodes,
+            raft_group_id,
+            context.replicas_per_raft_group,
+        ) {
+            peer_ids.push(node_id);
+        }
+
+        // TODO: support raft groups that span a subset of nodes
+        assert_eq!(peer_ids.len(), total_nodes);
 
         let raft_config = Config {
             id: node_id,
