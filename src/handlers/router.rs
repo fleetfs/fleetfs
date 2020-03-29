@@ -249,16 +249,114 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::HardlinkIncrementRequest
-        | RequestType::HardlinkRollbackRequest
-        | RequestType::CreateInodeRequest
-        | RequestType::DecrementInodeRequest
-        | RequestType::RemoveLinkRequest
-        | RequestType::ReplaceLinkRequest
-        | RequestType::UpdateParentRequest
-        | RequestType::UpdateMetadataChangedTimeRequest
-        | RequestType::CreateLinkRequest => {
-            unreachable!("These are internal requests that should always be submitted through raft")
+        RequestType::HardlinkIncrementRequest => {
+            // Internal request used during transaction processing
+            if let Some(increment_request) = request.request_as_hardlink_increment_request() {
+                return raft
+                    .lookup_by_inode(increment_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::HardlinkRollbackRequest => {
+            // Internal request used during transaction processing
+            if let Some(rollback_request) = request.request_as_hardlink_rollback_request() {
+                return raft
+                    .lookup_by_inode(rollback_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::CreateInodeRequest => {
+            // Internal request used during transaction processing
+            if request.request_as_create_inode_request().is_some() {
+                return raft
+                    .least_loaded_group()
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::DecrementInodeRequest => {
+            // Internal request used during transaction processing
+            if let Some(decrement_request) = request.request_as_decrement_inode_request() {
+                return raft
+                    .lookup_by_inode(decrement_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::RemoveLinkRequest => {
+            // Internal request used during transaction processing
+            if let Some(remove_request) = request.request_as_remove_link_request() {
+                return raft
+                    .lookup_by_inode(remove_request.parent())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::ReplaceLinkRequest => {
+            // Internal request used during transaction processing
+            if let Some(replace_request) = request.request_as_replace_link_request() {
+                return raft
+                    .lookup_by_inode(replace_request.parent())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::UpdateParentRequest => {
+            // Internal request used during transaction processing
+            if let Some(update_request) = request.request_as_update_parent_request() {
+                return raft
+                    .lookup_by_inode(update_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::UpdateMetadataChangedTimeRequest => {
+            // Internal request used during transaction processing
+            if let Some(update_request) = request.request_as_update_metadata_changed_time_request()
+            {
+                return raft
+                    .lookup_by_inode(update_request.inode())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
+        RequestType::CreateLinkRequest => {
+            // Internal request used during transaction processing
+            if let Some(create_link_request) = request.request_as_create_link_request() {
+                return raft
+                    .lookup_by_inode(create_link_request.parent())
+                    .propose(request, builder)
+                    .await
+                    .map(Partial);
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
         }
         RequestType::HardlinkRequest => {
             if let Some(hardlink_request) = request.request_as_hardlink_request() {
