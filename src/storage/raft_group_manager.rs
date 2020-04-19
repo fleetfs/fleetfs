@@ -113,6 +113,32 @@ impl RemoteRaftGroups {
         }
     }
 
+    pub fn propose(
+        &self,
+        inode: u64,
+        request: &GenericRequest<'_>,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        let raft_group_id = inode % self.total_raft_groups as u64;
+        self.groups
+            .get(&(raft_group_id as u16))
+            .unwrap()
+            // TODO: is accessing _tab.buf safe?
+            .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+    }
+
+    pub fn propose_to_least_loaded(
+        &self,
+        request: &GenericRequest<'_>,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        // TODO: actually load balance
+        self.groups
+            .values()
+            .choose(&mut rand::thread_rng())
+            .unwrap()
+            // TODO: is accessing _tab.buf safe?
+            .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+    }
+
     pub fn forward_request(
         &self,
         request: &GenericRequest<'_>,
