@@ -33,7 +33,8 @@ fn main() {
 
     write!(
         f,
-        "#[allow(clippy::all)]\n#[path = \"{}\"]\npub mod messages_generated;\npub use messages_generated::generated;",
+        "#[allow(clippy::all, warnings)]\n#[path = \"{}\"]\npub mod messages_generated;\npub use messages_generated::generated;",
+
         mod_path.to_string_lossy()
     )
     .expect("flatc mod failed");
