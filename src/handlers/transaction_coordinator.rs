@@ -326,7 +326,6 @@ async fn getattrs(
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<(InodeAttributes, u32), ErrorCode> {
     if raft.inode_stored_locally(inode) {
-        // TODO: need to send this request via peer client, so that it goes to the right rgroup
         let rgroup = raft.lookup_by_inode(inode);
         let latest_commit = rgroup.get_latest_commit_from_leader().await?;
         rgroup.sync(latest_commit).await?;
@@ -375,25 +374,49 @@ async fn lookup(
     name: String,
     context: UserContext,
     raft: &LocalRaftGroupManager,
+    remote_rafts: &RemoteRaftGroups,
 ) -> Result<u64, ErrorCode> {
-    // TODO: need to send this request via peer client, so that it goes to the right rgroup
-    let rgroup = raft.lookup_by_inode(parent);
-    let latest_commit = rgroup.get_latest_commit_from_leader().await?;
-    rgroup.sync(latest_commit).await?;
+    if raft.inode_stored_locally(parent) {
+        let rgroup = raft.lookup_by_inode(parent);
+        let latest_commit = rgroup.get_latest_commit_from_leader().await?;
+        rgroup.sync(latest_commit).await?;
 
-    let (mut builder, response_type, response_offset) = raft
-        .lookup_by_inode(parent)
-        .file_storage()
-        .lookup(parent, &name, context, FlatBufferBuilder::new())?;
-    finalize_response(&mut builder, response_type, response_offset);
-    // Skip the first SIZE_UOFFSET bytes because that's the size prefix
-    let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-    let inode = response
-        .response_as_inode_response()
-        .ok_or(ErrorCode::BadResponse)?
-        .inode();
+        let (mut builder, response_type, response_offset) = raft
+            .lookup_by_inode(parent)
+            .file_storage()
+            .lookup(parent, &name, context, FlatBufferBuilder::new())?;
+        finalize_response(&mut builder, response_type, response_offset);
+        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+        let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+        let inode = response
+            .response_as_inode_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .inode();
 
-    return Ok(inode);
+        return Ok(inode);
+    } else {
+        let mut builder = FlatBufferBuilder::new();
+        let builder_name = builder.create_string(&name);
+        let mut request_builder = LookupRequestBuilder::new(&mut builder);
+        request_builder.add_parent(parent);
+        request_builder.add_name(builder_name);
+        request_builder.add_context(&context);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::LookupRequest, finish_offset);
+        let request = get_root_as_generic_request(builder.finished_data());
+        let response_data = remote_rafts
+            .forward_request(&request)
+            .await
+            .map_err(|_| ErrorCode::Uncategorized)?;
+
+        let response = response_or_error(response_data.bytes())?;
+        let inode = response
+            .response_as_inode_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .inode();
+
+        return Ok(inode);
+    }
 }
 
 async fn decrement_inode(
@@ -491,6 +514,7 @@ fn rename_check_access(
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
+#[allow(clippy::too_many_arguments)]
 pub async fn rename_transaction<'a>(
     parent: u64,
     name: String,
@@ -550,20 +574,21 @@ async fn rename_transaction_lock_context<'a>(
         parent_lock_id
     };
 
-    let inode = lookup(parent, name.clone(), context, &raft).await?;
+    let inode = lookup(parent, name.clone(), context, &raft, &remote_rafts).await?;
     let inode_lock_id = lock_inode(inode, &raft).await?;
     lock_guard.lock().unwrap().insert((inode, inode_lock_id));
 
-    let existing_dest_inode = match lookup(new_parent, new_name.clone(), context, &raft).await {
-        Ok(inode) => Some(inode),
-        Err(error_code) => {
-            if error_code == ErrorCode::DoesNotExist {
-                None
-            } else {
-                return Err(error_code);
+    let existing_dest_inode =
+        match lookup(new_parent, new_name.clone(), context, &raft, &remote_rafts).await {
+            Ok(inode) => Some(inode),
+            Err(error_code) => {
+                if error_code == ErrorCode::DoesNotExist {
+                    None
+                } else {
+                    return Err(error_code);
+                }
             }
-        }
-    };
+        };
     let existing_inode_lock_id = if let Some(inode) = existing_dest_inode {
         let lock_id = lock_inode(inode, &raft).await?;
         lock_guard.lock().unwrap().insert((inode, lock_id));
@@ -655,7 +680,7 @@ pub async fn rmdir_transaction<'a>(
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
 ) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
-    let mut inode = lookup(parent, name.clone(), context, &raft).await?;
+    let mut inode = lookup(parent, name.clone(), context, &raft, &remote_rafts).await?;
     let mut complete = false;
     while !complete {
         // If the link removal didn't complete successful or with an error, then we need to
