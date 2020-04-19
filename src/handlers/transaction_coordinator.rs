@@ -1,8 +1,8 @@
 use crate::generated::*;
 use crate::storage::metadata_storage::InodeAttributes;
-use crate::storage::raft_group_manager::LocalRaftGroupManager;
+use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use crate::utils::{
-    check_access, empty_response, fileattr_response_to_inode_attributes,
+    check_access, empty_response, fileattr_response_to_inode_attributes, finalize_request,
     finalize_request_without_prefix, finalize_response, finalize_response_without_prefix,
     response_or_error, FlatBufferWithResponse,
 };
@@ -323,27 +323,51 @@ async fn unlock_inode(
 async fn getattrs(
     inode: u64,
     raft: &LocalRaftGroupManager,
+    remote_rafts: &RemoteRaftGroups,
 ) -> Result<(InodeAttributes, u32), ErrorCode> {
-    // TODO: need to send this request via peer client, so that it goes to the right rgroup
-    let rgroup = raft.lookup_by_inode(inode);
-    let latest_commit = rgroup.get_latest_commit_from_leader().await?;
-    rgroup.sync(latest_commit).await?;
+    if raft.inode_stored_locally(inode) {
+        // TODO: need to send this request via peer client, so that it goes to the right rgroup
+        let rgroup = raft.lookup_by_inode(inode);
+        let latest_commit = rgroup.get_latest_commit_from_leader().await?;
+        rgroup.sync(latest_commit).await?;
 
-    let (mut builder, response_type, response_offset) = raft
-        .lookup_by_inode(inode)
-        .file_storage()
-        .getattr(inode, FlatBufferBuilder::new())?;
-    finalize_response(&mut builder, response_type, response_offset);
-    // Skip the first SIZE_UOFFSET bytes because that's the size prefix
-    let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-    let metadata = response
-        .response_as_file_metadata_response()
-        .ok_or(ErrorCode::BadResponse)?;
+        let (mut builder, response_type, response_offset) = raft
+            .lookup_by_inode(inode)
+            .file_storage()
+            .getattr(inode, FlatBufferBuilder::new())?;
+        finalize_response(&mut builder, response_type, response_offset);
+        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+        let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+        let metadata = response
+            .response_as_file_metadata_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
-    return Ok((
-        fileattr_response_to_inode_attributes(&metadata),
-        metadata.directory_entries(),
-    ));
+        return Ok((
+            fileattr_response_to_inode_attributes(&metadata),
+            metadata.directory_entries(),
+        ));
+    } else {
+        let mut builder = FlatBufferBuilder::new();
+        let mut request_builder = GetattrRequestBuilder::new(&mut builder);
+        request_builder.add_inode(inode);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
+        let request = get_root_as_generic_request(builder.finished_data());
+        let response_data = remote_rafts
+            .forward_request(&request)
+            .await
+            .map_err(|_| ErrorCode::Uncategorized)?;
+
+        let response = response_or_error(response_data.bytes())?;
+        let metadata = response
+            .response_as_file_metadata_response()
+            .ok_or(ErrorCode::BadResponse)?;
+
+        return Ok((
+            fileattr_response_to_inode_attributes(&metadata),
+            metadata.directory_entries(),
+        ));
+    }
 }
 
 async fn lookup(
@@ -475,6 +499,7 @@ pub async fn rename_transaction<'a>(
     context: UserContext,
     builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
 ) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
     let locks: Arc<Mutex<HashSet<(u64, u64)>>> = Arc::new(Mutex::new(HashSet::new()));
     let result = rename_transaction_lock_context(
@@ -486,6 +511,7 @@ pub async fn rename_transaction<'a>(
         locks.clone(),
         builder,
         raft.clone(),
+        remote_rafts,
     )
     .await;
     let to_unlock: Vec<(u64, u64)> = locks.lock().unwrap().drain().collect();
@@ -509,6 +535,7 @@ async fn rename_transaction_lock_context<'a>(
     lock_guard: Arc<Mutex<HashSet<(u64, u64)>>>,
     builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
 ) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
     // TODO: since we acquire multiple locks in this function it could cause a deadlock.
     // We should acquire them in ascending order of inode
@@ -546,11 +573,11 @@ async fn rename_transaction_lock_context<'a>(
     };
 
     // Perform access checks
-    let (parent_attrs, _) = getattrs(parent, &raft).await?;
-    let (new_parent_attrs, _) = getattrs(new_parent, &raft).await?;
-    let (inode_attrs, _) = getattrs(inode, &raft).await?;
+    let (parent_attrs, _) = getattrs(parent, &raft, &remote_rafts).await?;
+    let (new_parent_attrs, _) = getattrs(new_parent, &raft, &remote_rafts).await?;
+    let (inode_attrs, _) = getattrs(inode, &raft, &remote_rafts).await?;
     let existing_inode_attrs = if let Some(ref inode) = existing_dest_inode {
-        Some(getattrs(*inode, &raft).await?)
+        Some(getattrs(*inode, &raft, &remote_rafts).await?)
     } else {
         None
     };
@@ -626,6 +653,7 @@ pub async fn rmdir_transaction<'a>(
     context: UserContext,
     builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
 ) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
     let mut inode = lookup(parent, name.clone(), context, &raft).await?;
     let mut complete = false;
@@ -633,7 +661,7 @@ pub async fn rmdir_transaction<'a>(
         // If the link removal didn't complete successful or with an error, then we need to
         // lock the target inode and lookup its uid to allow processing of "sticky bit"
         let lock_id = lock_inode(inode, &raft).await?;
-        match getattrs(inode, &raft).await {
+        match getattrs(inode, &raft, &remote_rafts).await {
             Ok((attrs, directory_entries)) => {
                 if directory_entries > 0 {
                     unlock_inode(inode, lock_id, &raft).await?;
@@ -668,7 +696,7 @@ pub async fn rmdir_transaction<'a>(
     }
 
     // TODO: can remove this roundtrip. It's just for debuggability
-    let hardlinks = getattrs(inode, &raft).await?.0.hardlinks;
+    let hardlinks = getattrs(inode, &raft, &remote_rafts).await?.0.hardlinks;
     assert_eq!(hardlinks, 2);
 
     let mut decrement_request_builder = FlatBufferBuilder::new();
@@ -692,6 +720,7 @@ pub async fn unlink_transaction<'a>(
     context: UserContext,
     builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
 ) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
     // Try to remove the link. The result of this might be indeterminate, since "sticky bit"
     // can require that we know the uid of the inode
@@ -712,7 +741,7 @@ pub async fn unlink_transaction<'a>(
             // If the link removal didn't complete successful or with an error, then we need to
             // lock the target inode and lookup its uid to allow processing of "sticky bit"
             let lock_id = lock_inode(inode, &raft).await?;
-            match getattrs(inode, &raft).await {
+            match getattrs(inode, &raft, &remote_rafts).await {
                 Ok((attrs, _)) => {
                     match remove_link(
                         parent,
