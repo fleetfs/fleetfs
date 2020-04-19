@@ -29,6 +29,7 @@ enum FullOrPartialResponse {
 async fn request_router_inner(
     request: GenericRequest<'_>,
     raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
     mut builder: FlatBufferBuilder<'static>,
 ) -> Result<FullOrPartialResponse, ErrorCode> {
@@ -104,6 +105,7 @@ async fn request_router_inner(
                     *unlink_request.context(),
                     builder,
                     raft.clone(),
+                    remote_rafts.clone(),
                 )
                 .await
                 .map(Full);
@@ -119,6 +121,7 @@ async fn request_router_inner(
                     *rmdir_request.context(),
                     builder,
                     raft.clone(),
+                    remote_rafts.clone(),
                 )
                 .await
                 .map(Full);
@@ -378,6 +381,7 @@ async fn request_router_inner(
                     *rename_request.context(),
                     builder,
                     raft.clone(),
+                    remote_rafts.clone(),
                 )
                 .await
                 .map(Full);
@@ -551,10 +555,10 @@ pub async fn request_router<'a>(
     builder: FlatBufferBuilder<'static>,
 ) -> FlatBufferWithResponse<'static> {
     if !can_handle_locally(&request, &raft) {
-        return forward_request(&request, builder, remote_rafts).await;
+        return forward_request(&request, builder, remote_rafts.clone()).await;
     }
 
-    match request_router_inner(request, raft, context, builder).await {
+    match request_router_inner(request, raft, remote_rafts, context, builder).await {
         Ok(response) => match response {
             Full(full_response) => return full_response,
             Partial((mut builder, response_type, response_offset)) => {
