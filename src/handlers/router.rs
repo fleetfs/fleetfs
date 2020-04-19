@@ -206,6 +206,7 @@ async fn request_router_inner(
                     FileKind::Directory,
                     builder,
                     raft.clone(),
+                    remote_rafts.clone(),
                 )
                 .await
                 .map(Full);
@@ -224,6 +225,7 @@ async fn request_router_inner(
                     create_request.kind(),
                     builder,
                     raft.clone(),
+                    remote_rafts.clone(),
                 )
                 .await
                 .map(Full);
@@ -364,9 +366,14 @@ async fn request_router_inner(
         }
         RequestType::HardlinkRequest => {
             if let Some(hardlink_request) = request.request_as_hardlink_request() {
-                return hardlink_transaction(hardlink_request, builder, raft.clone())
-                    .await
-                    .map(Full);
+                return hardlink_transaction(
+                    hardlink_request,
+                    builder,
+                    raft.clone(),
+                    remote_rafts.clone(),
+                )
+                .await
+                .map(Full);
             } else {
                 return Err(ErrorCode::BadRequest);
             }
