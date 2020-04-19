@@ -71,7 +71,6 @@ impl RaftNode {
         // TODO: currently all rgroups reuse the same set of node_ids. Debugging would be easier,
         // if they had unique ids
         let node_id = context.node_id;
-        let total_nodes = context.peers.len() + 1;
         let mut peer_ids: Vec<u64> = context
             .peers_with_node_indices()
             .iter()
@@ -79,7 +78,7 @@ impl RaftNode {
             .filter(|(_, peer_index)| {
                 node_contains_raft_group(
                     *peer_index,
-                    total_nodes,
+                    context.total_nodes(),
                     raft_group_id,
                     context.replicas_per_raft_group,
                 )
@@ -88,7 +87,7 @@ impl RaftNode {
             .collect();
         if node_contains_raft_group(
             context.node_index(),
-            total_nodes,
+            context.total_nodes(),
             raft_group_id,
             context.replicas_per_raft_group,
         ) {
@@ -96,7 +95,7 @@ impl RaftNode {
         }
 
         // TODO: support raft groups that span a subset of nodes
-        assert_eq!(peer_ids.len(), total_nodes);
+        assert_eq!(peer_ids.len(), context.total_nodes());
 
         let raft_config = Config {
             id: node_id,
@@ -447,6 +446,7 @@ impl RaftNode {
             let mut pending_responses = self.pending_responses.lock().unwrap();
             pending_responses.insert(uuid, (builder, sender));
         }
+        // TODO: is accessing _tab.buf safe?
         self._propose(uuid, request._tab.buf.to_vec());
 
         self.process_raft_queue();
