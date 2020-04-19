@@ -3,7 +3,9 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 
 use crate::generated::*;
-use crate::utils::{finalize_request, response_or_error, FlatBufferWithResponse};
+use crate::utils::{
+    finalize_request, response_or_error, FlatBufferWithResponse, LengthPrefixedVec,
+};
 use byteorder::{ByteOrder, LittleEndian};
 use futures::future::{ok, ready, Either};
 use futures::Future;
@@ -22,7 +24,7 @@ pub struct PeerClient {
     pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
-async fn async_send_receive<T: AsRef<[u8]>>(
+async fn async_send_receive_length_prefixed<T: AsRef<[u8]>>(
     mut stream: TcpStream,
     data: T,
     pool: Arc<Mutex<Vec<TcpStream>>>,
@@ -35,6 +37,28 @@ async fn async_send_receive<T: AsRef<[u8]>>(
     let size = LittleEndian::read_u32(&response_size);
     let mut buffer = vec![0; size as usize];
     stream.read_exact(&mut buffer).await?;
+
+    PeerClient::return_connection(pool, stream);
+
+    Ok(buffer)
+}
+
+async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]>>(
+    mut stream: TcpStream,
+    data: T,
+    pool: Arc<Mutex<Vec<TcpStream>>>,
+) -> Result<LengthPrefixedVec, std::io::Error> {
+    let mut request_size = vec![0; 4];
+    LittleEndian::write_u32(&mut request_size, data.as_ref().len() as u32);
+    stream.write_all(&request_size).await?;
+    stream.write_all(data.as_ref()).await?;
+
+    let mut response_size = vec![0; 4];
+    stream.read_exact(&mut response_size).await?;
+
+    let size = LittleEndian::read_u32(&response_size);
+    let mut buffer = LengthPrefixedVec::zeros(size as usize);
+    stream.read_exact(buffer.bytes_mut()).await?;
 
     PeerClient::return_connection(pool, stream);
 
@@ -73,7 +97,21 @@ impl PeerClient {
         let pool = self.pool.clone();
 
         self.connect().then(move |tcp_stream| match tcp_stream {
-            Ok(stream) => Either::Left(async_send_receive(stream, data, pool)),
+            Ok(stream) => Either::Left(async_send_receive_length_prefixed(stream, data, pool)),
+            Err(e) => Either::Right(ready(Err(e))),
+        })
+    }
+
+    pub fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]>>(
+        &self,
+        data: T,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        let pool = self.pool.clone();
+
+        self.connect().then(move |tcp_stream| match tcp_stream {
+            Ok(stream) => Either::Left(async_send_unprefixed_receive_length_prefixed(
+                stream, data, pool,
+            )),
             Err(e) => Either::Right(ready(Err(e))),
         })
     }

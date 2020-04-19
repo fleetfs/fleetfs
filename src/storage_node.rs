@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::storage::raft_group_manager::LocalRaftGroupManager;
+use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use futures_util::future::FutureExt;
 use futures_util::stream::StreamExt;
 
@@ -41,6 +41,10 @@ impl LocalContext {
             node_id,
             replicas_per_raft_group,
         }
+    }
+
+    pub fn total_nodes(&self) -> usize {
+        self.peers.len() + 1
     }
 
     // Index of this node in the cluster. Indices are zero-based and consecutive
@@ -75,6 +79,7 @@ impl LocalContext {
 fn spawn_connection_handler(
     mut socket: TcpStream,
     raft: Arc<LocalRaftGroupManager>,
+    remote_raft: Arc<RemoteRaftGroups>,
     context: LocalContext,
 ) {
     tokio::spawn(async move {
@@ -97,7 +102,14 @@ fn spawn_connection_handler(
             };
             builder.reset();
             let request = get_root_as_generic_request(&frame);
-            let response = request_router(request, raft.clone(), context.clone(), builder).await;
+            let response = request_router(
+                request,
+                raft.clone(),
+                remote_raft.clone(),
+                context.clone(),
+                builder,
+            )
+            .await;
             if let Err(e) = writer.write_all(response.as_ref()).await {
                 debug!("Client connection closed: {}", e);
                 return;
@@ -110,6 +122,7 @@ fn spawn_connection_handler(
 pub struct Node {
     context: LocalContext,
     raft_manager: LocalRaftGroupManager,
+    remote_rafts: RemoteRaftGroups,
     bind_address: SocketAddr,
 }
 
@@ -132,10 +145,12 @@ impl Node {
             node_id,
             replicas_per_raft_group,
         );
+        // TODO: Use multiple raft groups to make this actually distributed
+        let rgroups = 1;
         Node {
             context: context.clone(),
-            // TODO: Use multiple raft groups to make this actually distributed
-            raft_manager: LocalRaftGroupManager::new(1, context),
+            raft_manager: LocalRaftGroupManager::new(rgroups, context.clone()),
+            remote_rafts: RemoteRaftGroups::new(rgroups, context),
             bind_address,
         }
     }
@@ -149,6 +164,7 @@ impl Node {
         let context = self.context;
 
         let raft_manager = Arc::new(self.raft_manager);
+        let remote_rafts = Arc::new(self.remote_rafts);
         let raft_manager_cloned = raft_manager.clone();
         let server = async move {
             let mut listener = match TcpListener::bind(bind_address).await {
@@ -170,7 +186,12 @@ impl Node {
                         }
                     },
                 };
-                spawn_connection_handler(socket, raft_manager.clone(), context.clone());
+                spawn_connection_handler(
+                    socket,
+                    raft_manager.clone(),
+                    remote_rafts.clone(),
+                    context.clone(),
+                );
             }
         };
 

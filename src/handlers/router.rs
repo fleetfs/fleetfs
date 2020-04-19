@@ -5,7 +5,8 @@ use crate::handlers::transaction_coordinator::{
     create_transaction, hardlink_transaction, rename_transaction, rmdir_transaction,
     unlink_transaction,
 };
-use crate::storage::raft_group_manager::LocalRaftGroupManager;
+use crate::storage::lock_table::accessed_inode;
+use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use crate::storage::raft_node::RaftNode;
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
@@ -499,12 +500,60 @@ async fn request_router_inner(
     }
 }
 
+// Determines whether the request can be handled by the local node, or whether it needs to be
+// forwarded to a different raft group
+fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroupManager) -> bool {
+    let inode = match request.request_type() {
+        // These requests will be broken up by the transaction coordinator. Any node can be the
+        // coordinator
+        RequestType::HardlinkRequest => None,
+        RequestType::RenameRequest => None,
+        // These requests don't access a specific inode
+        RequestType::RaftRequest => None,
+        RequestType::LatestCommitRequest => None,
+        RequestType::FilesystemReadyRequest => None,
+        RequestType::NONE => unreachable!(),
+        _ => accessed_inode(request),
+    };
+
+    if let Some(inode) = inode {
+        return local_rafts.inode_stored_locally(inode);
+    } else {
+        // Requests that don't access a specific inode can be handled anywhere.
+        return true;
+    }
+}
+
+async fn forward_request(
+    request: &GenericRequest<'_>,
+    builder: FlatBufferBuilder<'static>,
+    rafts: Arc<RemoteRaftGroups>,
+) -> FlatBufferWithResponse<'static> {
+    if let Ok(response) = rafts.forward_request(request).await {
+        FlatBufferWithResponse::with_separate_response(builder, response)
+    } else {
+        let mut builder = FlatBufferBuilder::new();
+        let args = ErrorResponseArgs {
+            error_code: ErrorCode::Uncategorized,
+        };
+        let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
+        finalize_response(&mut builder, ResponseType::ErrorResponse, response_offset);
+
+        FlatBufferWithResponse::new(builder)
+    }
+}
+
 pub async fn request_router<'a>(
     request: GenericRequest<'a>,
     raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
     builder: FlatBufferBuilder<'static>,
 ) -> FlatBufferWithResponse<'static> {
+    if !can_handle_locally(&request, &raft) {
+        return forward_request(&request, builder, remote_rafts).await;
+    }
+
     match request_router_inner(request, raft, context, builder).await {
         Ok(response) => match response {
             Full(full_response) => return full_response,
