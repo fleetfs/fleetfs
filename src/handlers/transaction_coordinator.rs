@@ -320,6 +320,7 @@ async fn unlock_inode(
     Ok(())
 }
 
+// TODO: even these read-only RPCs add a significant performance cost. Maybe they can be optimized?
 async fn getattrs(
     inode: u64,
     raft: &LocalRaftGroupManager,
@@ -369,6 +370,7 @@ async fn getattrs(
     }
 }
 
+// TODO: even these read-only RPCs add a significant performance cost. Maybe they can be optimized?
 async fn lookup(
     parent: u64,
     name: String,
