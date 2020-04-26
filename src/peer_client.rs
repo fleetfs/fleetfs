@@ -48,10 +48,16 @@ async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]>>(
     data: T,
     pool: Arc<Mutex<Vec<TcpStream>>>,
 ) -> Result<LengthPrefixedVec, std::io::Error> {
-    let mut request_size = vec![0; 4];
-    LittleEndian::write_u32(&mut request_size, data.as_ref().len() as u32);
-    stream.write_all(&request_size).await?;
-    stream.write_all(data.as_ref()).await?;
+    let mut request = vec![0; 4 + data.as_ref().len()];
+    LittleEndian::write_u32(&mut request[..4], data.as_ref().len() as u32);
+    // TODO: remove this copy and use vectored write of the header and data separately,
+    // once that's supported in tokio: https://github.com/tokio-rs/tokio/issues/1271
+    // We merge them into a single buffer to be sure it's sent a single packet.
+    // Otherwise delayed TCP ACKs can add ~40ms of latency: https://eklitzke.org/the-caveats-of-tcp-nodelay
+    for i in 0..data.as_ref().len() {
+        request[i + 4] = data.as_ref()[i];
+    }
+    stream.write_all(&request).await?;
 
     let mut response_size = vec![0; 4];
     stream.read_exact(&mut response_size).await?;
