@@ -42,7 +42,13 @@ pub fn node_contains_raft_group(
     raft_group_id: u16,
     replicas_per_raft_group: usize,
 ) -> bool {
-    assert_eq!(total_nodes % replicas_per_raft_group, 0);
+    assert_eq!(
+        total_nodes % replicas_per_raft_group,
+        0,
+        "{} % {} != 0",
+        total_nodes,
+        replicas_per_raft_group
+    );
 
     // Divide all nodes up into groups that can support a raft group
     let node_group = node_index / replicas_per_raft_group;
