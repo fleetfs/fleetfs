@@ -145,8 +145,9 @@ impl Node {
             node_id,
             replicas_per_raft_group,
         );
-        // TODO: Use multiple raft groups to make this actually distributed
-        let rgroups = 1;
+        // TODO: Make auto adjust based on load. Using same number as nodes is just a heuristic, so that
+        // it scales with the cluster
+        let rgroups = context.total_nodes() as u16;
         Node {
             context: context.clone(),
             raft_manager: LocalRaftGroupManager::new(rgroups, context.clone()),
