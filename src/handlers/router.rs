@@ -41,6 +41,9 @@ async fn request_router_inner(
             return fsck(context.clone(), builder).await.map(Partial);
         }
         RequestType::FilesystemChecksumRequest => {
+            for rgroup in raft.all_groups() {
+                sync_with_leader(rgroup).await?;
+            }
             return checksum_request(&context, builder).map(Partial);
         }
         RequestType::ReadRequest => {
