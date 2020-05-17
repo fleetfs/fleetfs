@@ -6,6 +6,7 @@ use crate::utils::{
     finalize_request_without_prefix, finalize_response, response_or_error, FlatBufferWithResponse,
 };
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
+use rand::Rng;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -47,9 +48,12 @@ fn create_inode_request<'a>(
     gid: u32,
     mode: u16,
     kind: FileKind,
+    total_raft_groups: u16,
     builder: &'a mut FlatBufferBuilder,
 ) -> GenericRequest<'a> {
     let mut request_builder = CreateInodeRequestBuilder::new(builder);
+    // TODO: actually load balance
+    request_builder.add_raft_group(rand::thread_rng().gen_range(0, total_raft_groups));
     request_builder.add_uid(uid);
     request_builder.add_gid(gid);
     request_builder.add_mode(mode);
@@ -840,12 +844,19 @@ pub async fn create_transaction<'a>(
         gid,
         mode,
         kind,
+        remote_rafts.get_total_raft_groups(),
         &mut create_request_builder,
     );
 
     // This will be the response back to the client
     let create_response_data = remote_rafts
-        .propose_to_least_loaded(&create_inode)
+        .propose_to_specific_group(
+            create_inode
+                .request_as_create_inode_request()
+                .unwrap()
+                .raft_group(),
+            &create_inode,
+        )
         .await
         .map_err(|_| ErrorCode::Uncategorized)?;
     let created_inode_response = response_or_error(create_response_data.bytes())?;

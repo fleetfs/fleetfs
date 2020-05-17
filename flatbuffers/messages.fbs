@@ -227,6 +227,7 @@ table UpdateMetadataChangedTimeRequest {
 
 // Internal request to create an inode as part of a create() or mkdir() transaction
 table CreateInodeRequest {
+  raft_group: ushort;
   parent: ulong;
   uid: uint;
   gid: uint;

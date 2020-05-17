@@ -118,7 +118,7 @@ pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
         RequestType::TruncateRequest => {
             Some(request.request_as_truncate_request().unwrap().inode())
         }
-        RequestType::FsyncRequest => None,
+        RequestType::FsyncRequest => Some(request.request_as_fsync_request().unwrap().inode()),
         RequestType::MkdirRequest => Some(request.request_as_mkdir_request().unwrap().parent()),
         RequestType::CreateRequest => Some(request.request_as_create_request().unwrap().parent()),
         RequestType::LockRequest => Some(request.request_as_lock_request().unwrap().inode()),
