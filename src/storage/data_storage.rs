@@ -70,8 +70,6 @@ impl DataStorage {
         data_dir: &str,
         peers: &[SocketAddr],
     ) -> DataStorage {
-        // TODO: support sharding strategies besides RAID0 with 2 nodes
-        assert_eq!(node_ids.len(), 2);
         let mut sorted = node_ids.to_vec();
         sorted.sort();
         let local_rank = sorted.iter().position(|x| *x == local_node_id).unwrap() as u64;
