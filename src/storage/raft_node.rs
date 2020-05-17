@@ -91,17 +91,13 @@ impl RaftNode {
             })
             .map(|(peer_id, _)| peer_id)
             .collect();
-        if node_contains_raft_group(
+        assert!(node_contains_raft_group(
             context.node_index(),
             context.total_nodes(),
             raft_group_id,
             context.replicas_per_raft_group,
-        ) {
-            peer_ids.push(node_id);
-        }
-
-        // TODO: support raft groups that span a subset of nodes
-        assert_eq!(peer_ids.len(), context.total_nodes());
+        ));
+        peer_ids.push(node_id);
 
         let raft_config = Config {
             id: node_id,

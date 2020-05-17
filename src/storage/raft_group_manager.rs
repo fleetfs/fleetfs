@@ -4,7 +4,6 @@ use crate::storage::lock_table::accessed_inode;
 use crate::storage::raft_node::{node_contains_raft_group, RaftNode};
 use crate::storage_node::LocalContext;
 use crate::utils::LengthPrefixedVec;
-use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::future::Future;
 
@@ -46,17 +45,12 @@ impl LocalRaftGroupManager {
         self.groups.values()
     }
 
-    pub fn lookup_by_raft_group(&self, raft_group: u16) -> &RaftNode {
-        &self.groups[&raft_group]
+    pub fn has_raft_group(&self, raft_group: u16) -> bool {
+        self.groups.contains_key(&raft_group)
     }
 
-    pub fn least_loaded_group(&self) -> &RaftNode {
-        // TODO: actually load balance
-        &self
-            .groups
-            .values()
-            .choose(&mut rand::thread_rng())
-            .unwrap()
+    pub fn lookup_by_raft_group(&self, raft_group: u16) -> &RaftNode {
+        &self.groups[&raft_group]
     }
 
     pub fn lookup_by_inode(&self, inode: u64) -> &RaftNode {
@@ -113,6 +107,10 @@ impl RemoteRaftGroups {
         }
     }
 
+    pub fn get_total_raft_groups(&self) -> u16 {
+        self.total_raft_groups
+    }
+
     pub fn propose(
         &self,
         inode: u64,
@@ -126,14 +124,13 @@ impl RemoteRaftGroups {
             .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
     }
 
-    pub fn propose_to_least_loaded(
+    pub fn propose_to_specific_group(
         &self,
+        raft_group: u16,
         request: &GenericRequest<'_>,
     ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
-        // TODO: actually load balance
         self.groups
-            .values()
-            .choose(&mut rand::thread_rng())
+            .get(&raft_group)
             .unwrap()
             // TODO: is accessing _tab.buf safe?
             .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())

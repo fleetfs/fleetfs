@@ -281,9 +281,9 @@ async fn request_router_inner(
         }
         RequestType::CreateInodeRequest => {
             // Internal request used during transaction processing
-            if request.request_as_create_inode_request().is_some() {
+            if let Some(create_inode_request) = request.request_as_create_inode_request() {
                 return raft
-                    .least_loaded_group()
+                    .lookup_by_raft_group(create_inode_request.raft_group())
                     .propose(request, builder)
                     .await
                     .map(Partial);
@@ -517,12 +517,17 @@ fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroup
     let inode = match request.request_type() {
         // These requests will be broken up by the transaction coordinator. Any node can be the
         // coordinator
-        RequestType::HardlinkRequest => None,
-        RequestType::RenameRequest => None,
+        RequestType::HardlinkRequest | RequestType::RenameRequest => {
+            return true;
+        }
         // These requests don't access a specific inode
         RequestType::RaftRequest => None,
         RequestType::LatestCommitRequest => None,
-        RequestType::FilesystemReadyRequest => None,
+        RequestType::FilesystemReadyRequest
+        | RequestType::FilesystemCheckRequest
+        | RequestType::FilesystemChecksumRequest => {
+            return true;
+        }
         RequestType::NONE => unreachable!(),
         _ => accessed_inode(request),
     };
@@ -530,8 +535,21 @@ fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroup
     if let Some(inode) = inode {
         return local_rafts.inode_stored_locally(inode);
     } else {
-        // Requests that don't access a specific inode can be handled anywhere.
-        return true;
+        let raft_group = match request.request_type() {
+            // These requests must go to a specific raft group
+            RequestType::RaftRequest => request.request_as_raft_request().unwrap().raft_group(),
+            RequestType::LatestCommitRequest => request
+                .request_as_latest_commit_request()
+                .unwrap()
+                .raft_group(),
+            RequestType::CreateInodeRequest => request
+                .request_as_create_inode_request()
+                .unwrap()
+                .raft_group(),
+            _ => unreachable!(),
+        };
+
+        return local_rafts.has_raft_group(raft_group);
     }
 }
 
