@@ -2,6 +2,8 @@
 
 set -x
 
+REDUNDANCY_LEVEL=${1:-1}
+
 NC="\e[39m"
 GREEN="\e[32m"
 RED="\e[31m"
@@ -20,9 +22,9 @@ DATA_DIR3=$(mktemp --directory)
 DIR=$(mktemp --directory)
 DIR2=$(mktemp --directory)
 cargo build
-cargo run -- --port 3300 --data-dir $DATA_DIR --peers 127.0.0.1:3301,127.0.0.1:3302 &
-cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers 127.0.0.1:3300,127.0.0.1:3302 &
-cargo run -- --port 3302 --data-dir $DATA_DIR3 --peers 127.0.0.1:3300,127.0.0.1:3301 &
+cargo run -- --port 3300 --data-dir $DATA_DIR --peers 127.0.0.1:3301,127.0.0.1:3302 --redundancy-level "${REDUNDANCY_LEVEL}" &
+cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers 127.0.0.1:3300,127.0.0.1:3302 --redundancy-level "${REDUNDANCY_LEVEL}" &
+cargo run -- --port 3302 --data-dir $DATA_DIR3 --peers 127.0.0.1:3300,127.0.0.1:3301 --redundancy-level "${REDUNDANCY_LEVEL}" &
 
 # Wait for leader to be elected
 until cargo run -- --server-ip-port 127.0.0.1:3300 --get-leader; do
