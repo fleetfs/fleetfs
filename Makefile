@@ -33,8 +33,8 @@ test: pre pjdfs_tests xfstests
 	cargo test
 
 publish:
-	docker build -t cberner/fleetfs:${VERSION} .
-	docker push cberner/fleetfs:${VERSION}
+	docker build -t fleetfs/fleetfs:${VERSION} .
+	docker push fleetfs/fleetfs:${VERSION}
 
 audit:
 	cargo audit
