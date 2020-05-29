@@ -35,16 +35,12 @@ async fn request_router_inner(
 ) -> Result<FullOrPartialResponse, ErrorCode> {
     match request.request_type() {
         RequestType::FilesystemCheckRequest => {
-            for rgroup in raft.all_groups() {
-                sync_with_leader(rgroup).await?;
-            }
-            return fsck(context.clone(), builder).await.map(Partial);
+            return fsck(context.clone(), raft.clone(), builder)
+                .await
+                .map(Partial);
         }
         RequestType::FilesystemChecksumRequest => {
-            for rgroup in raft.all_groups() {
-                sync_with_leader(rgroup).await?;
-            }
-            return checksum_request(&context, builder).map(Partial);
+            return checksum_request(raft.clone(), builder).await.map(Partial);
         }
         RequestType::ReadRequest => {
             if let Some(read_request) = request.request_as_read_request() {

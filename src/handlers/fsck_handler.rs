@@ -1,38 +1,32 @@
 use crate::generated::*;
 use crate::peer_client::PeerClient;
+use crate::storage::raft_group_manager::LocalRaftGroupManager;
+use crate::storage::raft_node::RaftNode;
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, into_error_code, FlatBufferResponse, ResultResponse};
-use flatbuffers::FlatBufferBuilder;
+use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use futures::FutureExt;
-use sha2::{Digest, Sha256};
-use std::io;
-use std::io::Write;
-use walkdir::WalkDir;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-fn checksum(data_dir: &str) -> io::Result<Vec<u8>> {
-    let mut hasher = Sha256::new();
-    for entry in WalkDir::new(data_dir).sort_by(|a, b| a.file_name().cmp(b.file_name())) {
-        let entry = entry?;
-        if entry.file_type().is_file() {
-            // TODO hash the data and file attributes too
-            let path_bytes = entry
-                .path()
-                .to_str()
-                .unwrap()
-                .trim_start_matches(data_dir)
-                .as_bytes();
-            hasher.write_all(path_bytes).unwrap();
-        }
-        // TODO handle other file types
-    }
-    return Ok(hasher.result().to_vec());
+// Sync to ensure replicas serve latest data
+async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
+    let latest_commit = raft.get_latest_commit_from_leader().await?;
+    raft.sync(latest_commit).await
 }
 
 pub async fn fsck(
     context: LocalContext,
+    raft: Arc<LocalRaftGroupManager>,
     mut builder: FlatBufferBuilder<'_>,
 ) -> Result<FlatBufferResponse<'_>, ErrorCode> {
-    let checksum = checksum(&context.data_dir).map_err(into_error_code)?;
+    let mut local_checksums = HashMap::new();
+    for rgroup in raft.all_groups() {
+        sync_with_leader(rgroup).await?;
+        let checksum = rgroup.local_data_checksum()?;
+        local_checksums.insert(rgroup.get_raft_group_id(), checksum);
+    }
+
     let mut peer_futures = vec![];
     for peer in context.peers.iter() {
         let client = PeerClient::new(*peer);
@@ -45,14 +39,21 @@ pub async fn fsck(
 
     futures::future::join_all(peer_futures)
         .map(move |peer_checksums| {
-            for peer_checksum in peer_checksums {
-                if checksum != peer_checksum? {
-                    let args = ErrorResponseArgs {
-                        error_code: ErrorCode::Corrupted,
-                    };
-                    let response_offset =
-                        ErrorResponse::create(&mut builder, &args).as_union_value();
-                    return Ok((builder, ResponseType::ErrorResponse, response_offset));
+            let mut all_checksums = local_checksums;
+            for peer_rgroup_checksums in peer_checksums {
+                for (rgroup_id, checksum) in peer_rgroup_checksums? {
+                    if *all_checksums
+                        .entry(rgroup_id)
+                        .or_insert_with(|| checksum.clone())
+                        != checksum
+                    {
+                        let args = ErrorResponseArgs {
+                            error_code: ErrorCode::Corrupted,
+                        };
+                        let response_offset =
+                            ErrorResponse::create(&mut builder, &args).as_union_value();
+                        return Ok((builder, ResponseType::ErrorResponse, response_offset));
+                    }
                 }
             }
 
@@ -61,15 +62,33 @@ pub async fn fsck(
         .await
 }
 
-pub fn checksum_request<'a>(
-    local_context: &LocalContext,
+pub async fn checksum_request<'a>(
+    raft: Arc<LocalRaftGroupManager>,
     mut builder: FlatBufferBuilder<'a>,
 ) -> ResultResponse<'a> {
-    let checksum = checksum(&local_context.data_dir).map_err(|_| ErrorCode::Uncategorized)?;
-    let data_offset = builder.create_vector_direct(&checksum);
-    let mut response_builder = ReadResponseBuilder::new(&mut builder);
-    response_builder.add_data(data_offset);
+    let mut checksums = vec![];
+    for rgroup in raft.all_groups() {
+        sync_with_leader(rgroup).await?;
+
+        let checksum = rgroup.local_data_checksum()?;
+        let checksum_offset = builder.create_vector_direct(&checksum);
+        let group_checksum = GroupChecksum::create(
+            &mut builder,
+            &GroupChecksumArgs {
+                raft_group: rgroup.get_raft_group_id(),
+                checksum: Some(checksum_offset),
+            },
+        );
+        checksums.push(group_checksum);
+    }
+    builder.start_vector::<WIPOffset<GroupChecksum>>(checksums.len());
+    for &checksum in checksums.iter() {
+        builder.push(checksum);
+    }
+    let checksums_offset = builder.end_vector(checksums.len());
+    let mut response_builder = ChecksumResponseBuilder::new(&mut builder);
+    response_builder.add_checksums(checksums_offset);
     let response_offset = response_builder.finish().as_union_value();
 
-    return Ok((builder, ResponseType::ReadResponse, response_offset));
+    return Ok((builder, ResponseType::ChecksumResponse, response_offset));
 }

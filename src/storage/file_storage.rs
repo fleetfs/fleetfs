@@ -46,6 +46,12 @@ impl FileStorage {
         }
     }
 
+    pub fn local_data_checksum(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.data_storage
+            .local_data_checksum()
+            .map_err(|_| ErrorCode::Uncategorized)
+    }
+
     pub fn lookup<'a>(
         &self,
         parent: u64,

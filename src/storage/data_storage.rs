@@ -7,6 +7,7 @@ use crate::storage::ROOT_INODE;
 use crate::utils::{into_error_code, node_id_from_address, LengthPrefixedVec};
 use futures::future::{err, join_all, Either};
 use log::info;
+use sha2::{Digest, Sha256};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -16,6 +17,7 @@ use std::os::unix::fs::FileExt;
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
+use walkdir::WalkDir;
 
 pub const BLOCK_SIZE: u64 = 512;
 
@@ -83,6 +85,27 @@ impl DataStorage {
                 .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
                 .collect(),
         }
+    }
+
+    pub fn local_data_checksum(&self) -> io::Result<Vec<u8>> {
+        let mut hasher = Sha256::new();
+        for entry in
+            WalkDir::new(&self.local_data_dir).sort_by(|a, b| a.file_name().cmp(b.file_name()))
+        {
+            let entry = entry?;
+            if entry.file_type().is_file() {
+                // TODO hash the data and file attributes too
+                let path_bytes = entry
+                    .path()
+                    .to_str()
+                    .unwrap()
+                    .trim_start_matches(&self.local_data_dir)
+                    .as_bytes();
+                hasher.write_all(path_bytes).unwrap();
+            }
+            // TODO handle other file types
+        }
+        return Ok(hasher.result().to_vec());
     }
 
     fn to_local_path(&self, path: &str) -> PathBuf {
