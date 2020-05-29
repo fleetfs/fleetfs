@@ -20,6 +20,7 @@ use tokio::net::TcpStream;
 // TODO: should have a larger pool for connections to the leader, and smaller for other peers
 const POOL_SIZE: usize = 8;
 
+#[derive(Debug)]
 pub struct PeerClient {
     server_ip_port: SocketAddr,
     pool: Arc<Mutex<Vec<TcpStream>>>,
