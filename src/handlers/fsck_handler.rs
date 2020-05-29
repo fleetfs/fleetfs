@@ -3,7 +3,7 @@ use crate::peer_client::PeerClient;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::RaftNode;
 use crate::storage_node::LocalContext;
-use crate::utils::{empty_response, into_error_code, FlatBufferResponse, ResultResponse};
+use crate::utils::{empty_response, FlatBufferResponse, ResultResponse};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use futures::FutureExt;
 use std::collections::HashMap;
@@ -30,11 +30,7 @@ pub async fn fsck(
     let mut peer_futures = vec![];
     for peer in context.peers.iter() {
         let client = PeerClient::new(*peer);
-        peer_futures.push(
-            client
-                .filesystem_checksum()
-                .map(|x| x.map_err(into_error_code)),
-        );
+        peer_futures.push(client.filesystem_checksum());
     }
 
     futures::future::join_all(peer_futures)

@@ -153,6 +153,10 @@ impl DataStorage {
         return Ok(local_data.len() as u32);
     }
 
+    pub(super) fn file_inode_exists(&self, inode: u64) -> bool {
+        self.to_local_path(&inode.to_string()).exists()
+    }
+
     pub fn read_raw(
         &self,
         inode: u64,
