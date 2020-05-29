@@ -2,7 +2,7 @@ use crate::generated::*;
 use crate::storage::metadata_storage::InodeAttributes;
 use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use crate::utils::{
-    check_access, empty_response, fileattr_response_to_inode_attributes, finalize_request,
+    check_access, empty_response, fileattr_response_to_inode_attributes,
     finalize_request_without_prefix, finalize_response, response_or_error, FlatBufferWithResponse,
 };
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
@@ -359,7 +359,7 @@ async fn getattrs(
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::GetattrRequest, finish_offset);
         let request = get_root_as_generic_request(builder.finished_data());
         let response_data = remote_rafts
             .forward_request(&request)
@@ -412,7 +412,7 @@ async fn lookup(
         request_builder.add_name(builder_name);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::LookupRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::LookupRequest, finish_offset);
         let request = get_root_as_generic_request(builder.finished_data());
         let response_data = remote_rafts
             .forward_request(&request)
