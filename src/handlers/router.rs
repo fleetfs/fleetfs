@@ -494,10 +494,34 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
+        RequestType::RaftGroupLeaderRequest => {
+            if let Some(raft_group_leader_request) = request.request_as_raft_group_leader_request()
+            {
+                let rgroup = raft.lookup_by_raft_group(raft_group_leader_request.raft_group());
+                let leader = rgroup.get_leader().await?;
+
+                let mut response_builder = NodeIdResponseBuilder::new(&mut builder);
+                response_builder.add_node_id(leader);
+                let response_offset = response_builder.finish().as_union_value();
+                return Ok(Partial((
+                    builder,
+                    ResponseType::NodeIdResponse,
+                    response_offset,
+                )));
+            } else {
+                return Err(ErrorCode::BadRequest);
+            }
+        }
         RequestType::FilesystemReadyRequest => {
             for node in raft.all_groups() {
                 node.get_leader().await?;
             }
+            // Ensure that all other nodes are ready too
+            remote_rafts
+                .wait_for_ready()
+                .await
+                .map_err(|_| ErrorCode::Uncategorized)?;
+
             let response_builder = EmptyResponseBuilder::new(&mut builder);
             let response_offset = response_builder.finish().as_union_value();
             return Ok(Partial((
@@ -521,6 +545,7 @@ fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroup
         }
         // These requests don't access a specific inode
         RequestType::RaftRequest => None,
+        RequestType::RaftGroupLeaderRequest => None,
         RequestType::LatestCommitRequest => None,
         RequestType::FilesystemReadyRequest
         | RequestType::FilesystemCheckRequest
@@ -537,6 +562,10 @@ fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroup
         let raft_group = match request.request_type() {
             // These requests must go to a specific raft group
             RequestType::RaftRequest => request.request_as_raft_request().unwrap().raft_group(),
+            RequestType::RaftGroupLeaderRequest => request
+                .request_as_raft_group_leader_request()
+                .unwrap()
+                .raft_group(),
             RequestType::LatestCommitRequest => request
                 .request_as_latest_commit_request()
                 .unwrap()
