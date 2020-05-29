@@ -129,6 +129,7 @@ impl RaftNode {
             peers: context
                 .peers
                 .iter()
+                .filter(|peer| peer_ids.contains(&node_id_from_address(peer)))
                 .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
                 .collect(),
             node_id,
