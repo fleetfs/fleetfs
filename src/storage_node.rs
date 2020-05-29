@@ -23,6 +23,7 @@ use futures_util::stream::StreamExt;
 #[derive(Clone)]
 pub struct LocalContext {
     pub data_dir: String,
+    pub server_ip_port: SocketAddr,
     pub peers: Vec<SocketAddr>,
     pub node_id: u64,
     pub replicas_per_raft_group: usize,
@@ -31,12 +32,14 @@ pub struct LocalContext {
 impl LocalContext {
     pub fn new(
         data_dir: &str,
+        server_ip_port: SocketAddr,
         peers: Vec<SocketAddr>,
         node_id: u64,
         replicas_per_raft_group: usize,
     ) -> LocalContext {
         LocalContext {
             data_dir: data_dir.to_string(),
+            server_ip_port,
             peers,
             node_id,
             replicas_per_raft_group,
@@ -141,6 +144,7 @@ impl Node {
         let node_id = node_id_from_address(&bind_address);
         let context = LocalContext::new(
             data_dir.to_str().unwrap(),
+            bind_address,
             peers,
             node_id,
             replicas_per_raft_group,

@@ -20,7 +20,14 @@ impl LocalRaftGroupManager {
         let mut groups = HashMap::new();
         // TODO: groups should be divided among nodes. Not every group on every node.
         for i in 0..rgroups {
-            groups.insert(i, RaftNode::new(context.clone(), i, rgroups));
+            if node_contains_raft_group(
+                context.node_index(),
+                context.total_nodes(),
+                i,
+                context.replicas_per_raft_group,
+            ) {
+                groups.insert(i, RaftNode::new(context.clone(), i, rgroups));
+            }
         }
 
         LocalRaftGroupManager {
@@ -80,23 +87,32 @@ impl RemoteRaftGroups {
         let mut groups = HashMap::new();
 
         for group in 0..rgroups {
-            // TODO: this sends all traffic to one node that supports the raft. We should load
-            // balance it.
-            let addr = context
-                .peers_with_node_indices()
-                .iter()
-                .find_map(|(addr, index)| {
-                    if node_contains_raft_group(
-                        *index,
-                        context.total_nodes(),
-                        group,
-                        context.replicas_per_raft_group,
-                    ) {
-                        return Some(*addr);
-                    }
-                    None
-                })
-                .unwrap();
+            let addr = if node_contains_raft_group(
+                context.node_index(),
+                context.total_nodes(),
+                group,
+                context.replicas_per_raft_group,
+            ) {
+                context.server_ip_port
+            } else {
+                // TODO: this sends all traffic to one node that supports the raft. We should load
+                // balance it.
+                context
+                    .peers_with_node_indices()
+                    .iter()
+                    .find_map(|(addr, index)| {
+                        if node_contains_raft_group(
+                            *index,
+                            context.total_nodes(),
+                            group,
+                            context.replicas_per_raft_group,
+                        ) {
+                            return Some(*addr);
+                        }
+                        None
+                    })
+                    .unwrap()
+            };
 
             groups.insert(group, PeerClient::new(addr));
         }
