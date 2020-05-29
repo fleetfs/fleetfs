@@ -30,6 +30,8 @@ pjdfs_tests: build_integration_tests
 
 test: pre pjdfs_tests xfstests
 	./test.sh
+	# Additional tests with no redundancy
+	./test.sh 0
 	cargo test
 
 publish:
