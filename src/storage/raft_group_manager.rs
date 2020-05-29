@@ -61,8 +61,14 @@ impl LocalRaftGroupManager {
     }
 
     pub fn lookup_by_inode(&self, inode: u64) -> &RaftNode {
-        // TODO: assumes every storage node has every rgroup
-        &self.groups[&((inode % self.groups.len() as u64) as u16)]
+        let raft_group_id = (inode % self.total_raft_groups as u64) as u16;
+        assert!(node_contains_raft_group(
+            self.context.node_index(),
+            self.context.total_nodes(),
+            raft_group_id,
+            self.context.replicas_per_raft_group,
+        ));
+        &self.groups[&raft_group_id]
     }
 
     // TODO: sharding of data across rgroups is not implemented yet
