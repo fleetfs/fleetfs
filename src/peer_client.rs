@@ -12,6 +12,7 @@ use futures::Future;
 use futures::FutureExt;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -162,7 +163,9 @@ impl PeerClient {
             })
     }
 
-    pub fn filesystem_checksum(&self) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    pub fn filesystem_checksum(
+        &self,
+    ) -> impl Future<Output = Result<HashMap<u16, Vec<u8>>, std::io::Error>> {
         let mut builder = FlatBufferBuilder::new();
         let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
@@ -173,13 +176,20 @@ impl PeerClient {
         );
 
         self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
-            .map(|response| {
-                Ok(response_or_error(&response?)
+            .map(|maybe_response| {
+                let mut checksums = HashMap::new();
+                let response = maybe_response?;
+                let checksums_response = response_or_error(&response)
                     .unwrap()
-                    .response_as_read_response()
-                    .unwrap()
-                    .data()
-                    .to_vec())
+                    .response_as_checksum_response()
+                    .unwrap();
+
+                let entries = checksums_response.checksums();
+                for i in 0..entries.len() {
+                    let entry = entries.get(i);
+                    checksums.insert(entry.raft_group(), entry.checksum().to_vec());
+                }
+                Ok(checksums)
             })
     }
 

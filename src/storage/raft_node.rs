@@ -145,6 +145,14 @@ impl RaftNode {
         }
     }
 
+    pub fn get_raft_group_id(&self) -> u16 {
+        self.raft_group_id
+    }
+
+    pub fn local_data_checksum(&self) -> Result<Vec<u8>, ErrorCode> {
+        self.file_storage.local_data_checksum()
+    }
+
     // TODO: remove this method
     pub fn file_storage(&self) -> &FileStorage {
         &self.file_storage
