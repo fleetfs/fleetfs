@@ -8,7 +8,8 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    LockRequest, UnlockRequest,
-                   RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest}
+                   RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest,
+                   RaftGroupLeaderRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -33,6 +34,10 @@ table RaftRequest {
 }
 
 table LatestCommitRequest {
+  raft_group: ushort;
+}
+
+table RaftGroupLeaderRequest {
   raft_group: ushort;
 }
 
@@ -351,6 +356,10 @@ table LockResponse {
   lock_id: ulong;
 }
 
+table NodeIdResponse {
+  node_id: ulong;
+}
+
 table HardlinkTransactionResponse {
   last_modified_time: Timestamp (required);
   kind: FileKind;
@@ -372,7 +381,7 @@ table ChecksumResponse {
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
                      WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse,
-                     LockResponse, RemoveLinkResponse, ChecksumResponse }
+                     LockResponse, RemoveLinkResponse, ChecksumResponse, NodeIdResponse }
 
 table GenericResponse {
   response: ResponseType;

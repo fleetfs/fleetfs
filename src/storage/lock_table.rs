@@ -92,6 +92,7 @@ pub fn request_locks(request: &GenericRequest<'_>) -> Option<u64> {
         }
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::RaftGroupLeaderRequest => unreachable!(),
         RequestType::FilesystemReadyRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
@@ -178,6 +179,7 @@ pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
         RequestType::GetattrRequest => Some(request.request_as_getattr_request().unwrap().inode()),
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::RaftGroupLeaderRequest => unreachable!(),
         RequestType::FilesystemReadyRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
@@ -227,6 +229,7 @@ pub fn access_type(request_type: RequestType) -> AccessType {
         RequestType::ListXattrsRequest => AccessType::ReadMetadata,
         RequestType::RaftRequest => unreachable!(),
         RequestType::LatestCommitRequest => unreachable!(),
+        RequestType::RaftGroupLeaderRequest => unreachable!(),
         RequestType::FilesystemReadyRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
