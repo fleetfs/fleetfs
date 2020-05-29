@@ -47,6 +47,14 @@ impl FileStorage {
     }
 
     pub fn local_data_checksum(&self) -> Result<Vec<u8>, ErrorCode> {
+        // TODO: this only checks the integrity of metadata & plain files. Directories are purely
+        // stored in the metadata_storage
+        for inode in self.metadata_storage.non_directory_inodes()? {
+            if !self.data_storage.file_inode_exists(inode) {
+                return Err(ErrorCode::Corrupted);
+            }
+        }
+
         self.data_storage
             .local_data_checksum()
             .map_err(|_| ErrorCode::Uncategorized)

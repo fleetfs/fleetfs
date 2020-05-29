@@ -91,6 +91,18 @@ impl MetadataStorage {
         }
     }
 
+    pub(super) fn non_directory_inodes(&self) -> Result<Vec<u64>, ErrorCode> {
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut result = vec![];
+        for (inode, attrs) in metadata.iter() {
+            if attrs.kind != FileKind::Directory {
+                result.push(*inode);
+            }
+        }
+
+        Ok(result)
+    }
+
     pub fn lookup(
         &self,
         parent: Inode,

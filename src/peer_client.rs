@@ -165,7 +165,7 @@ impl PeerClient {
 
     pub fn filesystem_checksum(
         &self,
-    ) -> impl Future<Output = Result<HashMap<u16, Vec<u8>>, std::io::Error>> {
+    ) -> impl Future<Output = Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
         let mut builder = FlatBufferBuilder::new();
         let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
@@ -178,9 +178,8 @@ impl PeerClient {
         self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
             .map(|maybe_response| {
                 let mut checksums = HashMap::new();
-                let response = maybe_response?;
-                let checksums_response = response_or_error(&response)
-                    .unwrap()
+                let response = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
+                let checksums_response = response_or_error(&response)?
                     .response_as_checksum_response()
                     .unwrap();
 
