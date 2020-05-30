@@ -47,10 +47,10 @@ pub async fn fsck(
         .await
 }
 
-pub async fn checksum_request<'a>(
+pub async fn checksum_request(
     raft: Arc<LocalRaftGroupManager>,
-    mut builder: FlatBufferBuilder<'a>,
-) -> ResultResponse<'a> {
+    mut builder: FlatBufferBuilder<'_>,
+) -> ResultResponse<'_> {
     let mut checksums = vec![];
     for rgroup in raft.all_groups() {
         sync_with_leader(rgroup).await?;
