@@ -7,19 +7,13 @@ use crate::handlers::transaction_coordinator::{
 };
 use crate::storage::lock_table::accessed_inode;
 use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
-use crate::storage::raft_node::RaftNode;
+use crate::storage::raft_node::sync_with_leader;
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
 use flatbuffers::FlatBufferBuilder;
 use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;
 use std::sync::Arc;
-
-// Sync to ensure replicas serve latest data
-async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
-    let latest_commit = raft.get_latest_commit_from_leader().await?;
-    raft.sync(latest_commit).await
-}
 
 enum FullOrPartialResponse {
     Full(FlatBufferWithResponse<'static>),
