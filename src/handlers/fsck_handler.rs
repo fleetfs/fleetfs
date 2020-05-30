@@ -18,7 +18,7 @@ async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
 pub async fn fsck(
     context: LocalContext,
     raft: Arc<LocalRaftGroupManager>,
-    mut builder: FlatBufferBuilder<'_>,
+    builder: FlatBufferBuilder<'_>,
 ) -> Result<FlatBufferResponse<'_>, ErrorCode> {
     let mut local_checksums = HashMap::new();
     for rgroup in raft.all_groups() {
@@ -43,12 +43,7 @@ pub async fn fsck(
                         .or_insert_with(|| checksum.clone())
                         != checksum
                     {
-                        let args = ErrorResponseArgs {
-                            error_code: ErrorCode::Corrupted,
-                        };
-                        let response_offset =
-                            ErrorResponse::create(&mut builder, &args).as_union_value();
-                        return Ok((builder, ResponseType::ErrorResponse, response_offset));
+                        return Err(ErrorCode::Corrupted);
                     }
                 }
             }
