@@ -24,6 +24,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+// Sync to ensure replicas serve latest data
+pub async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
+    let latest_commit = raft.get_latest_commit_from_leader().await?;
+    raft.sync(latest_commit).await
+}
+
 fn lock_response(mut buffer: FlatBufferBuilder, lock_id: u64) -> ResultResponse {
     let mut response_builder = LockResponseBuilder::new(&mut buffer);
     response_builder.add_lock_id(lock_id);
