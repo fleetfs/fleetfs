@@ -48,6 +48,8 @@ echo "generic/286" >> xfs_excludes.txt
 echo "generic/430" >> xfs_excludes.txt
 echo "generic/431" >> xfs_excludes.txt
 echo "generic/434" >> xfs_excludes.txt
+
+# TODO: requires flock
 echo "generic/478" >> xfs_excludes.txt
 
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
