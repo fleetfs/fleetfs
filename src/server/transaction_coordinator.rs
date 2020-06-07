@@ -1,9 +1,9 @@
-use crate::generated::*;
-use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
-use crate::utils::{
+use crate::base::utils::{
     check_access, empty_response, finalize_request_without_prefix, finalize_response,
     response_or_error, FlatBufferWithResponse,
 };
+use crate::generated::*;
+use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
 use rand::Rng;
 use std::collections::HashSet;
