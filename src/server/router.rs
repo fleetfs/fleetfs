@@ -1,7 +1,10 @@
-use crate::generated::*;
-use crate::message_utils::{
+use crate::base::message_utils::{
     accessed_inode, distribution_requirement, raft_group, DistributionRequirement,
 };
+use crate::base::utils::{
+    empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse,
+};
+use crate::generated::*;
 use crate::server::fsck_handler::{checksum_request, fsck};
 use crate::server::router::FullOrPartialResponse::{Full, Partial};
 use crate::server::storage_node::LocalContext;
@@ -11,7 +14,6 @@ use crate::server::transaction_coordinator::{
 };
 use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use crate::storage::raft_node::sync_with_leader;
-use crate::utils::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
 use flatbuffers::FlatBufferBuilder;
 use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;

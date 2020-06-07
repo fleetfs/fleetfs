@@ -5,10 +5,10 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 use thread_local::CachedThreadLocal;
 
+use crate::base::utils::{decode_fast_read_response_inplace, finalize_request, response_or_error};
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
 use crate::tcp_client::TcpClient;
-use crate::utils::{decode_fast_read_response_inplace, finalize_request, response_or_error};
 use fuse::FileAttr;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};

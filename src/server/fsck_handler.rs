@@ -1,9 +1,9 @@
+use crate::base::utils::{empty_response, FlatBufferResponse, ResultResponse};
 use crate::generated::*;
 use crate::peer_client::PeerClient;
 use crate::server::storage_node::LocalContext;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
-use crate::utils::{empty_response, FlatBufferResponse, ResultResponse};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use futures::FutureExt;
 use std::collections::HashMap;

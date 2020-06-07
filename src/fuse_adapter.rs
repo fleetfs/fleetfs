@@ -10,9 +10,9 @@ use log::debug;
 use log::error;
 use log::warn;
 
+use crate::base::utils::check_access;
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
-use crate::utils::check_access;
 use bytes::{Buf, Bytes};
 use fuse::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,

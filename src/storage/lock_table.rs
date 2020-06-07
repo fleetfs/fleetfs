@@ -1,6 +1,6 @@
+use crate::base::message_utils::AccessType;
+use crate::base::utils::FlatBufferResponse;
 use crate::generated::*;
-use crate::message_utils::AccessType;
-use crate::utils::FlatBufferResponse;
 use flatbuffers::FlatBufferBuilder;
 use futures::channel::oneshot::Sender;
 use std::collections::HashMap;

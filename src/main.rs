@@ -13,19 +13,18 @@ use log::LevelFilter;
 use std::ffi::OsStr;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
+use crate::base::utils::fuse_allow_other_enabled;
 use crate::generated::ErrorCode;
-use crate::utils::fuse_allow_other_enabled;
 use std::thread::sleep;
 use std::time::Duration;
 
+pub mod base;
 pub mod client;
 pub mod fuse_adapter;
-pub mod message_utils;
 pub mod peer_client;
 pub mod server;
 pub mod storage;
 pub mod tcp_client;
-pub mod utils;
 
 include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
 

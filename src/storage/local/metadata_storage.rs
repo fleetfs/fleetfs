@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
+use crate::base::utils::check_access;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
-use crate::utils::check_access;
 use fuse::FUSE_ROOT_ID;
 use std::time::SystemTime;
 

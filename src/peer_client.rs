@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
 
-use crate::generated::*;
-use crate::utils::{
+use crate::base::utils::{
     finalize_request, response_or_error, FlatBufferWithResponse, LengthPrefixedVec,
 };
+use crate::generated::*;
 use byteorder::{ByteOrder, LittleEndian};
 use futures::future::{ok, ready, Either};
 use futures::Future;

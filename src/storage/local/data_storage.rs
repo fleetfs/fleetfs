@@ -1,10 +1,10 @@
 use futures::Future;
 use futures::FutureExt;
 
+use crate::base::utils::{into_error_code, node_id_from_address, LengthPrefixedVec};
 use crate::generated::ErrorCode;
 use crate::peer_client::PeerClient;
 use crate::storage::ROOT_INODE;
-use crate::utils::{into_error_code, node_id_from_address, LengthPrefixedVec};
 use futures::future::{err, join_all, Either};
 use log::info;
 use sha2::{Digest, Sha256};
