@@ -1,3 +1,5 @@
+// TODO: sort out the methods in this file into more specific files
+
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 use crate::generated::*;
