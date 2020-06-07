@@ -1,5 +1,5 @@
 mod local;
-pub mod lock_table;
+mod lock_table;
 pub mod raft_group_manager;
 pub mod raft_node;
 
