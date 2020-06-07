@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
-use crate::storage::data_storage::BLOCK_SIZE;
+use crate::storage::local::data_storage::BLOCK_SIZE;
 use crate::utils::check_access;
 use fuse::FUSE_ROOT_ID;
 use std::time::SystemTime;
@@ -30,6 +30,13 @@ pub struct InodeAttributes {
     pub uid: u32,
     pub gid: u32,
     pub xattrs: HashMap<String, Vec<u8>>,
+}
+
+impl InodeAttributes {
+    pub fn blocks(&self) -> u64 {
+        // TODO: seems like this should be rounded up? Is that a bug?
+        self.size / BLOCK_SIZE
+    }
 }
 
 // TODO: add persistence

@@ -6,7 +6,6 @@ use flatbuffers::FlatBufferBuilder;
 use thread_local::CachedThreadLocal;
 
 use crate::generated::*;
-use crate::storage::data_storage::BLOCK_SIZE;
 use crate::storage::ROOT_INODE;
 use crate::tcp_client::TcpClient;
 use crate::utils::{decode_fast_read_response_inplace, finalize_request, response_or_error};
@@ -21,6 +20,11 @@ fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
         FileKind::Symlink => fuse::FileType::Symlink,
         FileKind::DefaultValueNotAType => unreachable!(),
     }
+}
+
+pub struct StatFS {
+    pub block_size: u32,
+    pub max_name_length: u32,
 }
 
 fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
@@ -48,7 +52,7 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
         gid: metadata.group_id(),
         rdev: metadata.device_id(),
         flags: 0,
-        blksize: BLOCK_SIZE as u32,
+        blksize: metadata.block_size(),
         padding: 0,
     }
 }
@@ -219,6 +223,28 @@ impl NodeClient {
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(metadata_to_fuse_fileattr(&metadata));
+    }
+
+    pub fn statfs(&self) -> Result<StatFS, ErrorCode> {
+        let mut builder = self.get_or_create_builder();
+        let request_builder = FilesystemInformationRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request(
+            &mut builder,
+            RequestType::FilesystemInformationRequest,
+            finish_offset,
+        );
+
+        let mut buffer = self.get_or_create_buffer();
+        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let info = response
+            .response_as_filesystem_information_response()
+            .ok_or(ErrorCode::BadResponse)?;
+
+        return Ok(StatFS {
+            block_size: info.block_size(),
+            max_name_length: info.max_name_length(),
+        });
     }
 
     pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {
@@ -469,7 +495,9 @@ impl NodeClient {
         let mut request_builder = ReadRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_offset(0);
-        request_builder.add_read_size(BLOCK_SIZE as u32);
+        // TODO: this just tries to read a value longer than the longest link.
+        // instead we should be using a special readlink message
+        request_builder.add_read_size(999_999);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
 

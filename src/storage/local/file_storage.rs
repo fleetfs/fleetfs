@@ -2,13 +2,12 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
 
 use crate::generated::*;
-use crate::storage::data_storage::DataStorage;
-use crate::storage::metadata_storage::MetadataStorage;
+use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
+use crate::storage::local::metadata_storage::{InodeAttributes, MetadataStorage, MAX_NAME_LENGTH};
 use crate::storage::ROOT_INODE;
 use crate::utils::{
-    build_fileattr_response, empty_response, into_error_code, to_fast_read_response,
-    to_fileattr_response, to_inode_response, to_read_response, to_write_response,
-    to_xattrs_response, FlatBufferWithResponse, ResultResponse,
+    empty_response, into_error_code, to_fast_read_response, to_inode_response, to_read_response,
+    to_write_response, to_xattrs_response, FlatBufferWithResponse, ResultResponse,
 };
 use futures::Future;
 use futures::FutureExt;
@@ -24,6 +23,40 @@ pub fn remove_link_response(
     response_builder.add_processing_complete(processed);
     let offset = response_builder.finish().as_union_value();
     return Ok((buffer, ResponseType::RemoveLinkResponse, offset));
+}
+
+fn build_fileattr_response<'a>(
+    builder: &mut FlatBufferBuilder<'a>,
+    attributes: InodeAttributes,
+    directory_entries: u32,
+) -> WIPOffset<FileMetadataResponse<'a>> {
+    let mut response_builder = FileMetadataResponseBuilder::new(builder);
+    response_builder.add_inode(attributes.inode);
+    response_builder.add_size_bytes(attributes.size);
+    response_builder.add_size_blocks(attributes.blocks());
+    response_builder.add_last_access_time(&attributes.last_accessed);
+    response_builder.add_last_modified_time(&attributes.last_modified);
+    response_builder.add_last_metadata_modified_time(&attributes.last_metadata_changed);
+    response_builder.add_kind(attributes.kind);
+    response_builder.add_mode(attributes.mode);
+    response_builder.add_hard_links(attributes.hardlinks);
+    response_builder.add_user_id(attributes.uid);
+    response_builder.add_group_id(attributes.gid);
+    response_builder.add_device_id(0); // TODO
+    response_builder.add_block_size(BLOCK_SIZE as u32);
+    response_builder.add_directory_entries(directory_entries);
+
+    return response_builder.finish();
+}
+
+fn to_fileattr_response(
+    mut builder: FlatBufferBuilder,
+    attributes: InodeAttributes,
+    directory_entries: u32,
+) -> ResultResponse {
+    let offset =
+        build_fileattr_response(&mut builder, attributes, directory_entries).as_union_value();
+    return Ok((builder, ResponseType::FileMetadataResponse, offset));
 }
 
 pub struct FileStorage {
@@ -58,6 +91,15 @@ impl FileStorage {
         self.data_storage
             .local_data_checksum()
             .map_err(|_| ErrorCode::Uncategorized)
+    }
+
+    pub fn statfs<'a>(&self, mut builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
+        let mut response_builder = FilesystemInformationResponseBuilder::new(&mut builder);
+        response_builder.add_block_size(BLOCK_SIZE as u32);
+        response_builder.add_max_name_length(MAX_NAME_LENGTH);
+
+        let offset = response_builder.finish().as_union_value();
+        return Ok((builder, ResponseType::FilesystemInformationResponse, offset));
     }
 
     pub fn lookup<'a>(

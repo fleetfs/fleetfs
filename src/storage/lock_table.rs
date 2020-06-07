@@ -60,6 +60,7 @@ pub fn request_locks(request: &GenericRequest<'_>) -> Option<u64> {
             .map(|x| x.value()),
         RequestType::FilesystemCheckRequest
         | RequestType::FilesystemChecksumRequest
+        | RequestType::FilesystemInformationRequest
         | RequestType::ReadRequest
         | RequestType::ReadRawRequest
         | RequestType::SetXattrRequest
@@ -102,6 +103,7 @@ pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
     match request.request_type() {
         RequestType::FilesystemCheckRequest => None,
         RequestType::FilesystemChecksumRequest => None,
+        RequestType::FilesystemInformationRequest => None,
         RequestType::ReadRequest => Some(request.request_as_read_request().unwrap().inode()),
         RequestType::ReadRawRequest => Some(request.request_as_read_raw_request().unwrap().inode()),
         RequestType::SetXattrRequest => {
@@ -220,6 +222,7 @@ pub fn access_type(request_type: RequestType) -> AccessType {
         }
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),
+        RequestType::FilesystemInformationRequest => unreachable!(),
         RequestType::LookupRequest => AccessType::ReadMetadata,
         RequestType::ReadRequest => AccessType::ReadData,
         RequestType::ReadRawRequest => AccessType::ReadData,
