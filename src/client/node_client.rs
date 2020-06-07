@@ -1,3 +1,4 @@
+use flatbuffers::EndianScalar;
 use std::cell::{RefCell, RefMut};
 use std::ffi::OsString;
 use std::net::SocketAddr;
@@ -5,7 +6,7 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 use thread_local::CachedThreadLocal;
 
-use crate::base::utils::{decode_fast_read_response_inplace, finalize_request, response_or_error};
+use crate::base::{finalize_request, response_or_error};
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
@@ -19,6 +20,17 @@ fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
         FileKind::Directory => fuse::FileType::Directory,
         FileKind::Symlink => fuse::FileType::Symlink,
         FileKind::DefaultValueNotAType => unreachable!(),
+    }
+}
+
+pub fn decode_fast_read_response_inplace(response: &mut Vec<u8>) -> Result<&Vec<u8>, ErrorCode> {
+    let value = response.pop().unwrap().from_little_endian() as i8;
+    let p = &value as *const i8 as *const ErrorCode;
+    let error_code = unsafe { *p };
+    if error_code == ErrorCode::DefaultValueNotAnError {
+        Ok(response)
+    } else {
+        Err(error_code)
     }
 }
 

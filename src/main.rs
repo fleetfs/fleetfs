@@ -13,8 +13,10 @@ use log::LevelFilter;
 use std::ffi::OsStr;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
-use crate::base::utils::fuse_allow_other_enabled;
 use crate::generated::ErrorCode;
+use std::fs::File;
+use std::io;
+use std::io::{BufRead, BufReader};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -24,6 +26,16 @@ pub mod fuse_adapter;
 pub mod storage;
 
 include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
+
+pub fn fuse_allow_other_enabled() -> io::Result<bool> {
+    let file = File::open("/etc/fuse.conf")?;
+    for line in BufReader::new(file).lines() {
+        if line?.trim_start().starts_with("user_allow_other") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 
 fn main() -> Result<(), ErrorCode> {
     let matches = App::new("FleetFS")

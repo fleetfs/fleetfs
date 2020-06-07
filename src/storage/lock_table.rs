@@ -1,5 +1,5 @@
-use crate::base::message_utils::AccessType;
-use crate::base::utils::FlatBufferResponse;
+use crate::base::AccessType;
+use crate::base::FlatBufferResponse;
 use crate::generated::*;
 use flatbuffers::FlatBufferBuilder;
 use futures::channel::oneshot::Sender;

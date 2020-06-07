@@ -1,9 +1,10 @@
 use futures::Future;
 use futures::FutureExt;
 
-use crate::base::utils::{into_error_code, node_id_from_address, LengthPrefixedVec};
+use crate::base::{node_id_from_address, LengthPrefixedVec};
 use crate::client::PeerClient;
 use crate::generated::ErrorCode;
+use crate::storage::local::response_helpers::into_error_code;
 use crate::storage::ROOT_INODE;
 use futures::future::{err, join_all, Either};
 use log::info;

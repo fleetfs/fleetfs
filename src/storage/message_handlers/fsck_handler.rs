@@ -1,5 +1,5 @@
-use crate::base::utils::{empty_response, FlatBufferResponse, ResultResponse};
 use crate::base::LocalContext;
+use crate::base::{empty_response, FlatBufferResponse, ResultResponse};
 use crate::client::PeerClient;
 use crate::generated::*;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
