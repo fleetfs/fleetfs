@@ -6,7 +6,7 @@ use clap::Arg;
 
 use crate::client::NodeClient;
 use crate::fuse_adapter::FleetFUSE;
-use crate::storage_node::Node;
+use crate::server::Node;
 use log::debug;
 use log::warn;
 use log::LevelFilter;
@@ -20,10 +20,9 @@ use std::time::Duration;
 
 pub mod client;
 pub mod fuse_adapter;
-pub mod handlers;
 pub mod peer_client;
+pub mod server;
 pub mod storage;
-pub mod storage_node;
 pub mod tcp_client;
 pub mod utils;
 

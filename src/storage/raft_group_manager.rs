@@ -1,8 +1,8 @@
 use crate::generated::*;
 use crate::peer_client::PeerClient;
+use crate::server::LocalContext;
 use crate::storage::lock_table::accessed_inode;
 use crate::storage::raft_node::{node_contains_raft_group, RaftNode};
-use crate::storage_node::LocalContext;
 use crate::utils::{finalize_request_without_prefix, LengthPrefixedVec};
 use flatbuffers::FlatBufferBuilder;
 use futures_util::future::FutureExt;
