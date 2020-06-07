@@ -330,11 +330,6 @@ impl FileStorage {
         return empty_response(builder);
     }
 
-    pub fn hardlink_commit<'a>(&self, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
-        self.metadata_storage.hardlink_commit();
-        return empty_response(builder);
-    }
-
     pub fn hardlink_rollback<'a>(
         &self,
         inode: u64,

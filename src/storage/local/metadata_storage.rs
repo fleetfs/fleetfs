@@ -413,10 +413,6 @@ impl MetadataStorage {
         Ok(old_inode)
     }
 
-    pub fn hardlink_commit(&self) {
-        // TODO
-    }
-
     pub fn hardlink_rollback(
         &self,
         inode: Inode,

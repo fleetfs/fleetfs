@@ -67,11 +67,6 @@ impl LocalRaftGroupManager {
         &self.groups[&raft_group_id]
     }
 
-    // TODO: sharding of data across rgroups is not implemented yet
-    pub fn lookup_by_block(&self, inode: u64, _block: u64) -> &RaftNode {
-        self.lookup_by_inode(inode)
-    }
-
     pub fn background_tick(&self) {
         for node in self.groups.values() {
             node.background_tick();
