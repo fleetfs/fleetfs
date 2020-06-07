@@ -12,7 +12,6 @@ use log::warn;
 
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
-use crate::storage::metadata_storage::MAX_NAME_LENGTH;
 use crate::utils::check_access;
 use bytes::{Buf, Bytes};
 use fuse::{
@@ -774,9 +773,20 @@ impl Filesystem for FleetFUSE {
     }
 
     fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
-        warn!("statfs() implementation is a stub");
-        // TODO: real implementation of this
-        reply.statfs(10, 10, 10, 1, 10, 4096, MAX_NAME_LENGTH, 4096);
+        debug!("statfs()");
+        match self.client.statfs() {
+            Ok(info) => reply.statfs(
+                10,
+                10,
+                10,
+                1,
+                10,
+                info.block_size,
+                info.max_name_length,
+                4096,
+            ),
+            Err(error_code) => reply.error(into_fuse_error(error_code)),
+        }
     }
 
     fn setxattr(

@@ -1,9 +1,8 @@
 use crate::generated::*;
-use crate::storage::metadata_storage::InodeAttributes;
 use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use crate::utils::{
-    check_access, empty_response, fileattr_response_to_inode_attributes,
-    finalize_request_without_prefix, finalize_response, response_or_error, FlatBufferWithResponse,
+    check_access, empty_response, finalize_request_without_prefix, finalize_response,
+    response_or_error, FlatBufferWithResponse,
 };
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
 use rand::Rng;
@@ -328,12 +327,37 @@ async fn unlock_inode(
     Ok(())
 }
 
+struct FileOrDirAttrs {
+    inode: u64,
+    kind: FileKind,
+    // Permissions and special mode bits
+    mode: u16,
+    hardlinks: u32,
+    uid: u32,
+    gid: u32,
+    directory_entries: u32,
+}
+
+impl FileOrDirAttrs {
+    fn new(response: &FileMetadataResponse<'_>) -> FileOrDirAttrs {
+        FileOrDirAttrs {
+            inode: response.inode(),
+            kind: response.kind(),
+            mode: response.mode(),
+            hardlinks: response.hard_links(),
+            uid: response.user_id(),
+            gid: response.group_id(),
+            directory_entries: response.directory_entries(),
+        }
+    }
+}
+
 // TODO: even these read-only RPCs add a significant performance cost. Maybe they can be optimized?
 async fn getattrs(
     inode: u64,
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
-) -> Result<(InodeAttributes, u32), ErrorCode> {
+) -> Result<FileOrDirAttrs, ErrorCode> {
     if raft.inode_stored_locally(inode) {
         let rgroup = raft.lookup_by_inode(inode);
         let latest_commit = rgroup.get_latest_commit_from_leader().await?;
@@ -350,10 +374,7 @@ async fn getattrs(
             .response_as_file_metadata_response()
             .ok_or(ErrorCode::BadResponse)?;
 
-        return Ok((
-            fileattr_response_to_inode_attributes(&metadata),
-            metadata.directory_entries(),
-        ));
+        return Ok(FileOrDirAttrs::new(&metadata));
     } else {
         let mut builder = FlatBufferBuilder::new();
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
@@ -371,10 +392,7 @@ async fn getattrs(
             .response_as_file_metadata_response()
             .ok_or(ErrorCode::BadResponse)?;
 
-        return Ok((
-            fileattr_response_to_inode_attributes(&metadata),
-            metadata.directory_entries(),
-        ));
+        return Ok(FileOrDirAttrs::new(&metadata));
     }
 }
 
@@ -448,11 +466,11 @@ async fn decrement_inode(
 }
 
 fn rename_check_access(
-    parent_attrs: &InodeAttributes,
-    new_parent_attrs: &InodeAttributes,
-    inode_attrs: &InodeAttributes,
+    parent_attrs: &FileOrDirAttrs,
+    new_parent_attrs: &FileOrDirAttrs,
+    inode_attrs: &FileOrDirAttrs,
     // Attributes and directory entry count if it's a directory
-    existing_dest_inode_attrs: &Option<(InodeAttributes, u32)>,
+    existing_dest_inode_attrs: &Option<FileOrDirAttrs>,
     context: UserContext,
 ) -> Result<(), ErrorCode> {
     if !check_access(
@@ -488,7 +506,7 @@ fn rename_check_access(
 
     // "Sticky bit" handling in new_parent
     if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-        if let Some((attrs, _)) = existing_dest_inode_attrs {
+        if let Some(attrs) = existing_dest_inode_attrs {
             if context.uid() != 0
                 && context.uid() != new_parent_attrs.uid
                 && context.uid() != attrs.uid
@@ -499,8 +517,8 @@ fn rename_check_access(
     }
 
     // Only overwrite an existing directory if it's empty
-    if let Some((attrs, entry_count)) = existing_dest_inode_attrs {
-        if attrs.kind == FileKind::Directory && *entry_count > 0 {
+    if let Some(attrs) = existing_dest_inode_attrs {
+        if attrs.kind == FileKind::Directory && attrs.directory_entries > 0 {
             return Err(ErrorCode::NotEmpty);
         }
     }
@@ -610,9 +628,9 @@ async fn rename_transaction_lock_context<'a>(
     };
 
     // Perform access checks
-    let (parent_attrs, _) = getattrs(parent, &raft, &remote_rafts).await?;
-    let (new_parent_attrs, _) = getattrs(new_parent, &raft, &remote_rafts).await?;
-    let (inode_attrs, _) = getattrs(inode, &raft, &remote_rafts).await?;
+    let parent_attrs = getattrs(parent, &raft, &remote_rafts).await?;
+    let new_parent_attrs = getattrs(new_parent, &raft, &remote_rafts).await?;
+    let inode_attrs = getattrs(inode, &raft, &remote_rafts).await?;
     let existing_inode_attrs = if let Some(ref inode) = existing_dest_inode {
         Some(getattrs(*inode, &raft, &remote_rafts).await?)
     } else {
@@ -639,8 +657,8 @@ async fn rename_transaction_lock_context<'a>(
         )
         .await?;
         assert_eq!(old_inode, existing_inode);
-        if existing_inode_attrs.as_ref().unwrap().0.kind == FileKind::Directory {
-            assert_eq!(existing_inode_attrs.as_ref().unwrap().0.hardlinks, 2);
+        if existing_inode_attrs.as_ref().unwrap().kind == FileKind::Directory {
+            assert_eq!(existing_inode_attrs.as_ref().unwrap().hardlinks, 2);
             decrement_inode(old_inode, 2, existing_inode_lock_id, &raft, &remote_rafts).await;
         } else {
             decrement_inode(old_inode, 1, existing_inode_lock_id, &raft, &remote_rafts).await;
@@ -700,8 +718,8 @@ pub async fn rmdir_transaction<'a>(
         // lock the target inode and lookup its uid to allow processing of "sticky bit"
         let lock_id = lock_inode(inode, &raft, &remote_rafts).await?;
         match getattrs(inode, &raft, &remote_rafts).await {
-            Ok((attrs, directory_entries)) => {
-                if directory_entries > 0 {
+            Ok(attrs) => {
+                if attrs.directory_entries > 0 {
                     unlock_inode(inode, lock_id, &raft, &remote_rafts).await?;
                     return Err(ErrorCode::NotEmpty);
                 }
@@ -735,7 +753,7 @@ pub async fn rmdir_transaction<'a>(
     }
 
     // TODO: can remove this roundtrip. It's just for debuggability
-    let hardlinks = getattrs(inode, &raft, &remote_rafts).await?.0.hardlinks;
+    let hardlinks = getattrs(inode, &raft, &remote_rafts).await?.hardlinks;
     assert_eq!(hardlinks, 2);
 
     let mut decrement_request_builder = FlatBufferBuilder::new();
@@ -780,7 +798,7 @@ pub async fn unlink_transaction<'a>(
             // lock the target inode and lookup its uid to allow processing of "sticky bit"
             let lock_id = lock_inode(inode, &raft, &remote_rafts).await?;
             match getattrs(inode, &raft, &remote_rafts).await {
-                Ok((attrs, _)) => {
+                Ok(attrs) => {
                     match remove_link(
                         parent,
                         &name,

@@ -5,6 +5,7 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, FilesystemReadyRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
+                   FilesystemInformationRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    LockRequest, UnlockRequest,
@@ -39,6 +40,9 @@ table LatestCommitRequest {
 
 table RaftGroupLeaderRequest {
   raft_group: ushort;
+}
+
+table FilesystemInformationRequest {
 }
 
 table FilesystemReadyRequest {
@@ -334,6 +338,7 @@ table FileMetadataResponse {
   user_id: uint;
   group_id: uint;
   device_id: uint;
+  block_size: uint;
   // The number of directory entries in the directory. Only meaningful if kind == Directory
   directory_entries: uint;
 }
@@ -379,9 +384,15 @@ table ChecksumResponse {
   checksums: [GroupChecksum] (required);
 }
 
+table FilesystemInformationResponse {
+  block_size: uint;
+  max_name_length: uint;
+}
+
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
                      WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse,
-                     LockResponse, RemoveLinkResponse, ChecksumResponse, NodeIdResponse }
+                     LockResponse, RemoveLinkResponse, ChecksumResponse, NodeIdResponse,
+                     FilesystemInformationResponse }
 
 table GenericResponse {
   response: ResponseType;

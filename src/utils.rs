@@ -1,8 +1,6 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 use crate::generated::*;
-use crate::storage::data_storage::BLOCK_SIZE;
-use crate::storage::metadata_storage::InodeAttributes;
 use byteorder::{ByteOrder, LittleEndian};
 use flatbuffers::EndianScalar;
 use std::collections::hash_map::DefaultHasher;
@@ -212,57 +210,6 @@ pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultR
     response_builder.add_bytes_written(length);
     let offset = response_builder.finish().as_union_value();
     return Ok((builder, ResponseType::WrittenResponse, offset));
-}
-
-pub fn build_fileattr_response<'a>(
-    builder: &mut FlatBufferBuilder<'a>,
-    attributes: InodeAttributes,
-    directory_entries: u32,
-) -> WIPOffset<FileMetadataResponse<'a>> {
-    let mut response_builder = FileMetadataResponseBuilder::new(builder);
-    response_builder.add_inode(attributes.inode);
-    response_builder.add_size_bytes(attributes.size);
-    response_builder.add_size_blocks(attributes.size / BLOCK_SIZE);
-    response_builder.add_last_access_time(&attributes.last_accessed);
-    response_builder.add_last_modified_time(&attributes.last_modified);
-    response_builder.add_last_metadata_modified_time(&attributes.last_metadata_changed);
-    response_builder.add_kind(attributes.kind);
-    response_builder.add_mode(attributes.mode);
-    response_builder.add_hard_links(attributes.hardlinks);
-    response_builder.add_user_id(attributes.uid);
-    response_builder.add_group_id(attributes.gid);
-    response_builder.add_device_id(0); // TODO
-    response_builder.add_directory_entries(directory_entries);
-
-    return response_builder.finish();
-}
-
-pub fn fileattr_response_to_inode_attributes(
-    response: &FileMetadataResponse<'_>,
-) -> InodeAttributes {
-    InodeAttributes {
-        inode: response.inode(),
-        size: response.size_bytes(),
-        last_accessed: *response.last_access_time(),
-        last_modified: *response.last_modified_time(),
-        last_metadata_changed: *response.last_metadata_modified_time(),
-        kind: response.kind(),
-        mode: response.mode(),
-        hardlinks: response.hard_links(),
-        uid: response.user_id(),
-        gid: response.group_id(),
-        xattrs: Default::default(),
-    }
-}
-
-pub fn to_fileattr_response(
-    mut builder: FlatBufferBuilder,
-    attributes: InodeAttributes,
-    directory_entries: u32,
-) -> ResultResponse {
-    let offset =
-        build_fileattr_response(&mut builder, attributes, directory_entries).as_union_value();
-    return Ok((builder, ResponseType::FileMetadataResponse, offset));
 }
 
 pub fn check_access(

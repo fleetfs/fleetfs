@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use crate::generated::*;
 use crate::peer_client::PeerClient;
-use crate::storage::file_storage::FileStorage;
+use crate::storage::local::FileStorage;
 use crate::storage::lock_table::{access_type, accessed_inode, request_locks, LockTable};
 use crate::storage_node::LocalContext;
 use crate::utils::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
@@ -691,6 +691,7 @@ pub fn commit_write<'a, 'b>(
         RequestType::RaftGroupLeaderRequest => unreachable!(),
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),
+        RequestType::FilesystemInformationRequest => unreachable!(),
         RequestType::LookupRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),

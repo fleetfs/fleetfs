@@ -1,8 +1,6 @@
-pub mod data_storage;
-pub mod file_storage;
+mod local;
 pub mod lock_table;
-pub mod metadata_storage;
 pub mod raft_group_manager;
 pub mod raft_node;
 
-pub use metadata_storage::ROOT_INODE;
+pub use local::ROOT_INODE;
