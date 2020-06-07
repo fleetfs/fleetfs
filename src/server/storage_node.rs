@@ -9,7 +9,7 @@ use tokio_util::codec::length_delimited;
 use log::{debug, error};
 
 use crate::generated::get_root_as_generic_request;
-use crate::handlers::request_router;
+use crate::server::request_router;
 use crate::utils::node_id_from_address;
 use std::net::SocketAddr;
 use std::path::Path;
