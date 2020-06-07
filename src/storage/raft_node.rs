@@ -6,10 +6,11 @@ use raft::{Config, Error, RawNode, StorageError};
 use std::sync::Mutex;
 
 use crate::generated::*;
+use crate::message_utils::{access_type, accessed_inode, request_locks};
 use crate::peer_client::PeerClient;
 use crate::server::LocalContext;
 use crate::storage::local::FileStorage;
-use crate::storage::lock_table::{access_type, accessed_inode, request_locks, LockTable};
+use crate::storage::lock_table::LockTable;
 use crate::utils::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
 use flatbuffers::FlatBufferBuilder;
 use futures::channel::oneshot;
@@ -279,7 +280,7 @@ impl RaftNode {
         let mut to_process = vec![];
         if let Some(inode) = accessed_inode(&request) {
             let held_lock = request_locks(&request);
-            let access_type = access_type(request.request_type());
+            let access_type = access_type(&request);
             if lock_table.is_locked(inode, access_type, held_lock) {
                 lock_table.wait_for_lock(inode, (request_data, pending_response));
             } else {
