@@ -16,7 +16,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
+use crate::client::RemoteRaftGroups;
+use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use futures_util::future::FutureExt;
 use futures_util::stream::StreamExt;
 
