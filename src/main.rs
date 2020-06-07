@@ -20,6 +20,7 @@ use std::time::Duration;
 
 pub mod client;
 pub mod fuse_adapter;
+pub mod message_utils;
 pub mod peer_client;
 pub mod server;
 pub mod storage;

@@ -1,7 +1,7 @@
 use crate::generated::*;
+use crate::message_utils::accessed_inode;
 use crate::peer_client::PeerClient;
 use crate::server::LocalContext;
-use crate::storage::lock_table::accessed_inode;
 use crate::storage::raft_node::{node_contains_raft_group, RaftNode};
 use crate::utils::{finalize_request_without_prefix, LengthPrefixedVec};
 use flatbuffers::FlatBufferBuilder;

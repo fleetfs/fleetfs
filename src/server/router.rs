@@ -1,4 +1,7 @@
 use crate::generated::*;
+use crate::message_utils::{
+    accessed_inode, distribution_requirement, raft_group, DistributionRequirement,
+};
 use crate::server::fsck_handler::{checksum_request, fsck};
 use crate::server::router::FullOrPartialResponse::{Full, Partial};
 use crate::server::storage_node::LocalContext;
@@ -6,7 +9,6 @@ use crate::server::transaction_coordinator::{
     create_transaction, hardlink_transaction, rename_transaction, rmdir_transaction,
     unlink_transaction,
 };
-use crate::storage::lock_table::accessed_inode;
 use crate::storage::raft_group_manager::{LocalRaftGroupManager, RemoteRaftGroups};
 use crate::storage::raft_node::sync_with_leader;
 use crate::utils::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
@@ -547,48 +549,18 @@ async fn request_router_inner(
 // Determines whether the request can be handled by the local node, or whether it needs to be
 // forwarded to a different raft group
 fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroupManager) -> bool {
-    let inode = match request.request_type() {
-        // These requests will be broken up by the transaction coordinator. Any node can be the
-        // coordinator
-        RequestType::HardlinkRequest | RequestType::RenameRequest => {
-            return true;
+    match distribution_requirement(request) {
+        DistributionRequirement::Any => true,
+        DistributionRequirement::TransactionCoordinator => true,
+        // TODO: check that this message was sent to the right node. At the moment, we assume the client handled that
+        DistributionRequirement::Node => true,
+        DistributionRequirement::RaftGroup => {
+            if let Some(group) = raft_group(request) {
+                local_rafts.has_raft_group(group)
+            } else {
+                local_rafts.inode_stored_locally(accessed_inode(request).unwrap())
+            }
         }
-        // These requests don't access a specific inode
-        RequestType::RaftRequest => None,
-        RequestType::RaftGroupLeaderRequest => None,
-        RequestType::LatestCommitRequest => None,
-        RequestType::FilesystemReadyRequest
-        | RequestType::FilesystemCheckRequest
-        | RequestType::FilesystemInformationRequest
-        | RequestType::FilesystemChecksumRequest => {
-            return true;
-        }
-        RequestType::NONE => unreachable!(),
-        _ => accessed_inode(request),
-    };
-
-    if let Some(inode) = inode {
-        return local_rafts.inode_stored_locally(inode);
-    } else {
-        let raft_group = match request.request_type() {
-            // These requests must go to a specific raft group
-            RequestType::RaftRequest => request.request_as_raft_request().unwrap().raft_group(),
-            RequestType::RaftGroupLeaderRequest => request
-                .request_as_raft_group_leader_request()
-                .unwrap()
-                .raft_group(),
-            RequestType::LatestCommitRequest => request
-                .request_as_latest_commit_request()
-                .unwrap()
-                .raft_group(),
-            RequestType::CreateInodeRequest => request
-                .request_as_create_inode_request()
-                .unwrap()
-                .raft_group(),
-            _ => unreachable!(),
-        };
-
-        return local_rafts.has_raft_group(raft_group);
     }
 }
 
