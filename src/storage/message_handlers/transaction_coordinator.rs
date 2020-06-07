@@ -1,4 +1,4 @@
-use crate::base::utils::{
+use crate::base::{
     check_access, empty_response, finalize_request_without_prefix, finalize_response,
     response_or_error, FlatBufferWithResponse,
 };

@@ -8,7 +8,7 @@ use tokio_util::codec::length_delimited;
 
 use log::{debug, error};
 
-use crate::base::utils::node_id_from_address;
+use crate::base::node_id_from_address;
 use crate::generated::get_root_as_generic_request;
 use crate::storage::message_handlers::request_router;
 use std::net::SocketAddr;

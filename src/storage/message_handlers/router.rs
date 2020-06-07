@@ -1,10 +1,6 @@
-use crate::base::message_utils::{
-    accessed_inode, distribution_requirement, raft_group, DistributionRequirement,
-};
-use crate::base::utils::{
-    empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse,
-};
 use crate::base::LocalContext;
+use crate::base::{accessed_inode, distribution_requirement, raft_group, DistributionRequirement};
+use crate::base::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};

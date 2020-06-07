@@ -1,4 +1,4 @@
-use crate::base::utils::FlatBufferResponse;
+use crate::base::FlatBufferResponse;
 use crate::generated::*;
 use crate::storage::local::FileStorage;
 use flatbuffers::FlatBufferBuilder;

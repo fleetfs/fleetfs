@@ -10,7 +10,7 @@ use log::debug;
 use log::error;
 use log::warn;
 
-use crate::base::utils::check_access;
+use crate::base::check_access;
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use bytes::{Buf, Bytes};

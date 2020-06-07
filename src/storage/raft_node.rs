@@ -5,12 +5,10 @@ use raft::storage::MemStorage;
 use raft::{Config, Error, RawNode, StorageError};
 use std::sync::Mutex;
 
-use crate::base::message_utils::{access_type, accessed_inode, request_locks};
-use crate::base::raft_utils::node_contains_raft_group;
-use crate::base::utils::{
-    empty_response, node_id_from_address, FlatBufferResponse, ResultResponse,
-};
+use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
+use crate::base::{access_type, accessed_inode, request_locks};
+use crate::base::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
 use crate::client::PeerClient;
 use crate::generated::*;
 use crate::storage::local::FileStorage;
