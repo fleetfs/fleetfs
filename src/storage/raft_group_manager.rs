@@ -1,5 +1,6 @@
-use crate::server::LocalContext;
-use crate::storage::raft_node::{node_contains_raft_group, RaftNode};
+use crate::base::raft_utils::node_contains_raft_group;
+use crate::base::LocalContext;
+use crate::storage::raft_node::RaftNode;
 use std::collections::HashMap;
 
 // Manages all the local node's raft groups

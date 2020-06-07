@@ -4,12 +4,12 @@ use crate::base::message_utils::{
 use crate::base::utils::{
     empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse,
 };
+use crate::base::LocalContext;
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
-use crate::server::fsck_handler::{checksum_request, fsck};
-use crate::server::router::FullOrPartialResponse::{Full, Partial};
-use crate::server::storage_node::LocalContext;
-use crate::server::transaction_coordinator::{
+use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};
+use crate::storage::message_handlers::router::FullOrPartialResponse::{Full, Partial};
+use crate::storage::message_handlers::transaction_coordinator::{
     create_transaction, hardlink_transaction, rename_transaction, rmdir_transaction,
     unlink_transaction,
 };

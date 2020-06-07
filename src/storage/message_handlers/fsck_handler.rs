@@ -1,7 +1,7 @@
 use crate::base::utils::{empty_response, FlatBufferResponse, ResultResponse};
+use crate::base::LocalContext;
 use crate::client::PeerClient;
 use crate::generated::*;
-use crate::server::storage_node::LocalContext;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};

@@ -6,7 +6,7 @@ use clap::Arg;
 
 use crate::client::NodeClient;
 use crate::fuse_adapter::FleetFUSE;
-use crate::server::Node;
+use crate::storage::Node;
 use log::debug;
 use log::warn;
 use log::LevelFilter;
@@ -21,7 +21,6 @@ use std::time::Duration;
 pub mod base;
 pub mod client;
 pub mod fuse_adapter;
-pub mod server;
 pub mod storage;
 
 include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
