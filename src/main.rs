@@ -21,10 +21,8 @@ use std::time::Duration;
 pub mod base;
 pub mod client;
 pub mod fuse_adapter;
-pub mod peer_client;
 pub mod server;
 pub mod storage;
-pub mod tcp_client;
 
 include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
 
