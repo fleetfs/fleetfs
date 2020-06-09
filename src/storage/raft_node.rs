@@ -391,8 +391,11 @@ impl RaftNode {
 
         self.applied_index.store(applied_index, Ordering::SeqCst);
         // TODO: should be checkpointing to disk
-        if applied_index % 100 == 0 {
-            if let Err(error) = raft_node.mut_store().wl().compact(applied_index) {
+        if applied_index % 100 == 0 && applied_index > 100 {
+            // XXX: There's a bug with compacting in MemStorageCore, where it can cause
+            // a 'need non-empty snapshot' error, because it creates an empty snapshot. Therefore,
+            // we always leave a bunch of entries in the Raft log, instead of compacting all the way to the latest index
+            if let Err(error) = raft_node.mut_store().wl().compact(applied_index - 100) {
                 match error {
                     Error::Store(store_error) => match store_error {
                         StorageError::Compacted => {} // no-op
