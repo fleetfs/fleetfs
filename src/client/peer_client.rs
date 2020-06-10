@@ -40,6 +40,7 @@ pub trait PeerClient {
         inode: u64,
         offset: u64,
         size: u32,
+        required_commit: CommitId,
     ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>>;
 }
 
@@ -228,12 +229,14 @@ impl PeerClient for TcpPeerClient {
         inode: u64,
         offset: u64,
         size: u32,
+        required_commit: CommitId,
     ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>> {
         let mut builder = FlatBufferBuilder::new();
         let mut request_builder = ReadRawRequestBuilder::new(&mut builder);
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
         request_builder.add_inode(inode);
+        request_builder.add_required_commit(&required_commit);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::ReadRawRequest, finish_offset);
 
