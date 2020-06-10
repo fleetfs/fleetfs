@@ -74,8 +74,14 @@ table RemoveXattrRequest {
   key: string (required);
 }
 
+struct CommitId {
+  term: ulong;
+  index: ulong;
+}
+
 // Reads only the blocks of data on this node
 table ReadRawRequest {
+  required_commit: CommitId (required);
   inode: ulong;
   offset: ulong;
   read_size: uint;

@@ -58,11 +58,22 @@ async fn request_router_inner(
                 let inode = read_request.inode();
                 let offset = read_request.offset();
                 let read_size = read_request.read_size();
-                sync_with_leader(raft.lookup_by_inode(inode)).await?;
+                let latest_commit = raft
+                    .lookup_by_inode(inode)
+                    .get_latest_commit_from_leader()
+                    .await?;
+                raft.lookup_by_inode(inode).sync(latest_commit).await?;
                 return raft
                     .lookup_by_inode(inode)
                     .file_storage()
-                    .read(inode, offset, read_size, builder)
+                    // TODO: Use the real term, not zero
+                    .read(
+                        inode,
+                        offset,
+                        read_size,
+                        CommitId::new(0, latest_commit),
+                        builder,
+                    )
                     .await
                     .map(Full);
             } else {
@@ -71,16 +82,16 @@ async fn request_router_inner(
         }
         RequestType::ReadRawRequest => {
             if let Some(read_request) = request.request_as_read_raw_request() {
-                return Ok(Full(
-                    raft.lookup_by_inode(read_request.inode())
-                        .file_storage()
-                        .read_raw(
-                            read_request.inode(),
-                            read_request.offset(),
-                            read_request.read_size(),
-                            builder,
-                        ),
-                ));
+                let inode = read_request.inode();
+                raft.lookup_by_inode(inode)
+                    .sync(read_request.required_commit().index())
+                    .await?;
+                return Ok(Full(raft.lookup_by_inode(inode).file_storage().read_raw(
+                    inode,
+                    read_request.offset(),
+                    read_request.read_size(),
+                    builder,
+                )));
             } else {
                 return Err(ErrorCode::BadRequest);
             }

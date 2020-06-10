@@ -3,7 +3,7 @@ use futures::FutureExt;
 
 use crate::base::LengthPrefixedVec;
 use crate::client::PeerClient;
-use crate::generated::ErrorCode;
+use crate::generated::{CommitId, ErrorCode};
 use crate::storage::local::response_helpers::into_error_code;
 use crate::storage::ROOT_INODE;
 use futures::future::{err, join_all, Either};
@@ -188,6 +188,7 @@ impl<T: PeerClient> DataStorage<T> {
         inode: u64,
         global_offset: u64,
         global_size: u32,
+        required_commit: CommitId,
     ) -> impl Future<Output = Result<LengthPrefixedVec, ErrorCode>> + '_ {
         let local_data = match self.read_raw(inode, global_offset, global_size) {
             Ok(value) => value,
@@ -203,7 +204,7 @@ impl<T: PeerClient> DataStorage<T> {
             }
             remote_data_blocks.push(
                 self.peers[node_id]
-                    .read_raw(inode, global_offset, global_size)
+                    .read_raw(inode, global_offset, global_size, required_commit)
                     .map(|x| x.map_err(into_error_code)),
             );
         }
@@ -402,7 +403,10 @@ mod tests {
 
         fn read_assert(&self, inode: u64, offset: u64, size: u32, expected_data: &[u8]) {
             for s in self.data_stores.borrow().values() {
-                let result = s.read(inode, offset, size).now_or_never().unwrap();
+                let result = s
+                    .read(inode, offset, size, CommitId::new(0, 0))
+                    .now_or_never()
+                    .unwrap();
                 assert_eq!(result.unwrap().bytes(), expected_data);
             }
         }
@@ -448,6 +452,7 @@ mod tests {
             inode: u64,
             offset: u64,
             size: u32,
+            _required_commit: CommitId,
         ) -> BoxFuture<'static, Result<Vec<u8>, Error>> {
             let data = self
                 .cluster

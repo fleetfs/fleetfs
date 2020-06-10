@@ -229,10 +229,13 @@ impl FileStorage {
         inode: u64,
         offset: u64,
         read_size: u32,
+        required_commit: CommitId,
         builder: FlatBufferBuilder<'static>,
     ) -> impl Future<Output = Result<FlatBufferWithResponse<'static>, ErrorCode>> + '_ {
         // No access check is needed, since we rely on the client to do it
-        let read_result = self.data_storage.read(inode, offset, read_size);
+        let read_result = self
+            .data_storage
+            .read(inode, offset, read_size, required_commit);
         read_result.map(move |response| Ok(to_fast_read_response(builder, response)))
     }
 

@@ -185,6 +185,7 @@ impl RaftNode {
         unreachable!();
     }
 
+    // TODO: we need to also get the term from the leader. The index alone isn't meaningful
     pub fn get_latest_commit_from_leader(&self) -> impl Future<Output = Result<u64, ErrorCode>> {
         let raft_node = self.raft_node.lock().unwrap();
 
