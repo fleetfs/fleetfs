@@ -1,6 +1,6 @@
 use crate::base::LocalContext;
 use crate::base::{empty_response, FlatBufferResponse, ResultResponse};
-use crate::client::PeerClient;
+use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
@@ -23,7 +23,7 @@ pub async fn fsck(
 
     let mut peer_futures = vec![];
     for peer in context.peers.iter() {
-        let client = PeerClient::new(*peer);
+        let client = TcpPeerClient::new(*peer);
         peer_futures.push(client.filesystem_checksum());
     }
 

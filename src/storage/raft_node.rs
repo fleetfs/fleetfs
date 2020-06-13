@@ -9,7 +9,7 @@ use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
 use crate::base::{access_type, accessed_inode, request_locks};
 use crate::base::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
-use crate::client::PeerClient;
+use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use crate::storage::local::FileStorage;
 use crate::storage::lock_table::LockTable;
@@ -24,6 +24,7 @@ use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -51,7 +52,7 @@ pub struct RaftNode {
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     leader_requests: Mutex<Vec<Sender<u64>>>,
     applied_index: AtomicU64,
-    peers: HashMap<u64, PeerClient>,
+    peers: HashMap<u64, TcpPeerClient>,
     raft_group_id: u16,
     node_id: u64,
     file_storage: FileStorage,
@@ -106,27 +107,31 @@ impl RaftNode {
         fs::create_dir_all(&path).expect(&format!("Failed to create data dir: {:?}", &path));
         let data_dir = path.to_str().unwrap();
 
+        let peer_addresses: Vec<SocketAddr> = context
+            .peers
+            .iter()
+            .filter(|peer| peer_ids.contains(&node_id_from_address(peer)))
+            .cloned()
+            .collect();
+
         RaftNode {
             raft_node: Mutex::new(raft_node),
             pending_responses: Mutex::new(HashMap::new()),
             leader_requests: Mutex::new(vec![]),
             sync_requests: Mutex::new(vec![]),
             applied_index: AtomicU64::new(0),
-            peers: context
-                .peers
+            peers: peer_addresses
                 .iter()
-                .filter(|peer| peer_ids.contains(&node_id_from_address(peer)))
-                .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
+                .map(|peer| (node_id_from_address(peer), TcpPeerClient::new(*peer)))
                 .collect(),
             node_id,
             raft_group_id,
             file_storage: FileStorage::new(
                 node_id,
-                &peer_ids,
                 raft_group_id,
                 num_raft_groups,
                 data_dir,
-                &context.peers,
+                &peer_addresses,
             ),
             lock_table: Mutex::new(LockTable::new()),
         }

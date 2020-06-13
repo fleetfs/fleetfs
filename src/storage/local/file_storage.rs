@@ -1,7 +1,8 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
 
-use crate::base::{empty_response, FlatBufferWithResponse, ResultResponse};
+use crate::base::{empty_response, node_id_from_address, FlatBufferWithResponse, ResultResponse};
+use crate::client::TcpPeerClient;
 use crate::generated::*;
 use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
 use crate::storage::local::metadata_storage::{InodeAttributes, MetadataStorage, MAX_NAME_LENGTH};
@@ -61,21 +62,24 @@ fn to_fileattr_response(
 }
 
 pub struct FileStorage {
-    data_storage: DataStorage,
+    data_storage: DataStorage<TcpPeerClient>,
     metadata_storage: MetadataStorage,
 }
 
 impl FileStorage {
     pub fn new(
         node_id: u64,
-        all_node_ids: &[u64],
         raft_group: u16,
         num_raft_groups: u16,
         data_dir: &str,
         peers: &[SocketAddr],
     ) -> FileStorage {
+        let peer_clients = peers
+            .iter()
+            .map(|peer| (node_id_from_address(peer), TcpPeerClient::new(*peer)))
+            .collect();
         FileStorage {
-            data_storage: DataStorage::new(node_id, all_node_ids, data_dir, peers),
+            data_storage: DataStorage::new(node_id, data_dir, peer_clients),
             metadata_storage: MetadataStorage::new(raft_group, num_raft_groups),
         }
     }
@@ -226,7 +230,7 @@ impl FileStorage {
         offset: u64,
         read_size: u32,
         builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Output = Result<FlatBufferWithResponse<'static>, ErrorCode>> {
+    ) -> impl Future<Output = Result<FlatBufferWithResponse<'static>, ErrorCode>> + '_ {
         // No access check is needed, since we rely on the client to do it
         let read_result = self.data_storage.read(inode, offset, read_size);
         read_result.map(move |response| Ok(to_fast_read_response(builder, response)))
