@@ -2,7 +2,7 @@ use crate::base::accessed_inode;
 use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
 use crate::base::{finalize_request_without_prefix, LengthPrefixedVec};
-use crate::client::PeerClient;
+use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use flatbuffers::FlatBufferBuilder;
 use futures_util::future::FutureExt;
@@ -11,7 +11,7 @@ use std::future::Future;
 
 pub struct RemoteRaftGroups {
     total_raft_groups: u16,
-    groups: HashMap<u16, PeerClient>,
+    groups: HashMap<u16, TcpPeerClient>,
 }
 
 impl RemoteRaftGroups {
@@ -46,7 +46,7 @@ impl RemoteRaftGroups {
                     .unwrap()
             };
 
-            groups.insert(group, PeerClient::new(addr));
+            groups.insert(group, TcpPeerClient::new(addr));
         }
 
         RemoteRaftGroups {

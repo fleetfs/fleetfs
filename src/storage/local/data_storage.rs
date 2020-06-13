@@ -1,7 +1,7 @@
 use futures::Future;
 use futures::FutureExt;
 
-use crate::base::{node_id_from_address, LengthPrefixedVec};
+use crate::base::LengthPrefixedVec;
 use crate::client::PeerClient;
 use crate::generated::ErrorCode;
 use crate::storage::local::response_helpers::into_error_code;
@@ -13,7 +13,6 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::net::SocketAddr;
 use std::os::unix::fs::FileExt;
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
@@ -22,12 +21,12 @@ use walkdir::WalkDir;
 
 pub const BLOCK_SIZE: u64 = 512;
 
-pub struct DataStorage {
+pub struct DataStorage<T: PeerClient> {
     node_ids: Vec<u64>,
     local_rank: u64,
     local_node_id: u64,
     local_data_dir: String,
-    peers: HashMap<u64, PeerClient>,
+    peers: HashMap<u64, T>,
 }
 
 // Convert to local index, or the nearest greater index on this (local_rank) node, if this index lives on another node
@@ -66,25 +65,19 @@ fn to_global_index(local_index: u64, local_rank: u64, total_nodes: u64) -> u64 {
 
 // Abstraction of file storage. Files are split into blocks of BLOCK_SIZE, and stored in RAID0 across
 // multiple nodes
-impl DataStorage {
-    pub fn new(
-        local_node_id: u64,
-        node_ids: &[u64],
-        data_dir: &str,
-        peers: &[SocketAddr],
-    ) -> DataStorage {
-        let mut sorted = node_ids.to_vec();
+impl<T: PeerClient> DataStorage<T> {
+    pub fn new(local_node_id: u64, data_dir: &str, peers: HashMap<u64, T>) -> DataStorage<T> {
+        let mut sorted: Vec<u64> = peers.keys().cloned().collect();
+        sorted.push(local_node_id);
         sorted.sort();
+        sorted.dedup_by(|a, b| a == b);
         let local_rank = sorted.iter().position(|x| *x == local_node_id).unwrap() as u64;
         DataStorage {
             node_ids: sorted,
             local_node_id,
             local_rank,
             local_data_dir: data_dir.to_string(),
-            peers: peers
-                .iter()
-                .map(|peer| (node_id_from_address(peer), PeerClient::new(*peer)))
-                .collect(),
+            peers,
         }
     }
 
@@ -195,7 +188,7 @@ impl DataStorage {
         inode: u64,
         global_offset: u64,
         global_size: u32,
-    ) -> impl Future<Output = Result<LengthPrefixedVec, ErrorCode>> {
+    ) -> impl Future<Output = Result<LengthPrefixedVec, ErrorCode>> + '_ {
         let local_data = match self.read_raw(inode, global_offset, global_size) {
             Ok(value) => value,
             Err(error) => {

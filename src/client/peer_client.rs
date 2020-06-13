@@ -5,8 +5,7 @@ use flatbuffers::FlatBufferBuilder;
 use crate::base::{finalize_request, response_or_error, FlatBufferWithResponse, LengthPrefixedVec};
 use crate::generated::*;
 use byteorder::{ByteOrder, LittleEndian};
-use futures::future::{ok, ready, Either};
-use futures::Future;
+use futures::future::{ok, ready, BoxFuture, Either};
 use futures::FutureExt;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
@@ -18,13 +17,39 @@ use tokio::net::TcpStream;
 // TODO: should have a larger pool for connections to the leader, and smaller for other peers
 const POOL_SIZE: usize = 8;
 
+pub trait PeerClient {
+    fn send_and_receive_length_prefixed<T: AsRef<[u8]> + Send + Sync + 'static>(
+        &self,
+        data: T,
+    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>>;
+
+    fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
+        &self,
+        data: T,
+    ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>>;
+
+    fn send_raft_message(&self, raft_group: u16, message: Message) -> BoxFuture<'static, ()>;
+
+    fn get_latest_commit(&self, raft_group: u16)
+        -> BoxFuture<'static, Result<u64, std::io::Error>>;
+
+    fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>>;
+
+    fn read_raw(
+        &self,
+        inode: u64,
+        offset: u64,
+        size: u32,
+    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>>;
+}
+
 #[derive(Debug)]
-pub struct PeerClient {
+pub struct TcpPeerClient {
     server_ip_port: SocketAddr,
     pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
-async fn async_send_receive_length_prefixed<T: AsRef<[u8]>>(
+async fn async_send_receive_length_prefixed<T: AsRef<[u8]> + Send>(
     mut stream: TcpStream,
     data: T,
     pool: Arc<Mutex<Vec<TcpStream>>>,
@@ -38,12 +63,12 @@ async fn async_send_receive_length_prefixed<T: AsRef<[u8]>>(
     let mut buffer = vec![0; size as usize];
     stream.read_exact(&mut buffer).await?;
 
-    PeerClient::return_connection(pool, stream);
+    TcpPeerClient::return_connection(pool, stream);
 
     Ok(buffer)
 }
 
-async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]>>(
+async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]> + Send>(
     mut stream: TcpStream,
     data: T,
     pool: Arc<Mutex<Vec<TcpStream>>>,
@@ -64,26 +89,26 @@ async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]>>(
     let mut buffer = LengthPrefixedVec::zeros(size as usize);
     stream.read_exact(buffer.bytes_mut()).await?;
 
-    PeerClient::return_connection(pool, stream);
+    TcpPeerClient::return_connection(pool, stream);
 
     Ok(buffer)
 }
 
-impl PeerClient {
-    pub fn new(server_ip_port: SocketAddr) -> PeerClient {
-        PeerClient {
+impl TcpPeerClient {
+    pub fn new(server_ip_port: SocketAddr) -> TcpPeerClient {
+        TcpPeerClient {
             server_ip_port,
             pool: Arc::new(Mutex::new(vec![])),
         }
     }
 
-    fn connect(&self) -> impl Future<Output = Result<TcpStream, std::io::Error>> + Send {
+    fn connect(&self) -> BoxFuture<'static, Result<TcpStream, std::io::Error>> {
         let mut locked = self.pool.lock().unwrap();
         if let Some(stream) = locked.pop() {
-            Either::Left(ok(stream))
+            ok(stream).boxed()
         } else {
             // TODO: should have an upper limit on the number of outstanding connections
-            Either::Right(TcpStream::connect(self.server_ip_port))
+            TcpStream::connect(self.server_ip_port).boxed()
         }
     }
 
@@ -93,34 +118,40 @@ impl PeerClient {
             locked.push(connection);
         }
     }
+}
 
-    pub fn send_and_receive_length_prefixed<T: AsRef<[u8]>>(
+impl PeerClient for TcpPeerClient {
+    fn send_and_receive_length_prefixed<T: AsRef<[u8]> + Send + Sync + 'static>(
         &self,
         data: T,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>> {
         let pool = self.pool.clone();
 
-        self.connect().then(move |tcp_stream| match tcp_stream {
-            Ok(stream) => Either::Left(async_send_receive_length_prefixed(stream, data, pool)),
-            Err(e) => Either::Right(ready(Err(e))),
-        })
+        self.connect()
+            .then(move |tcp_stream| match tcp_stream {
+                Ok(stream) => Either::Left(async_send_receive_length_prefixed(stream, data, pool)),
+                Err(e) => Either::Right(ready(Err(e))),
+            })
+            .boxed()
     }
 
-    pub fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]>>(
+    fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
         &self,
         data: T,
-    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+    ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>> {
         let pool = self.pool.clone();
 
-        self.connect().then(move |tcp_stream| match tcp_stream {
-            Ok(stream) => Either::Left(async_send_unprefixed_receive_length_prefixed(
-                stream, data, pool,
-            )),
-            Err(e) => Either::Right(ready(Err(e))),
-        })
+        self.connect()
+            .then(move |tcp_stream| match tcp_stream {
+                Ok(stream) => Either::Left(async_send_unprefixed_receive_length_prefixed(
+                    stream, data, pool,
+                )),
+                Err(e) => Either::Right(ready(Err(e))),
+            })
+            .boxed()
     }
 
-    pub fn send_raft_message(&self, raft_group: u16, message: Message) -> impl Future<Output = ()> {
+    fn send_raft_message(&self, raft_group: u16, message: Message) -> BoxFuture<'static, ()> {
         let serialized_message = message.write_to_bytes().unwrap();
         let mut builder = FlatBufferBuilder::new();
         let data_offset = builder.create_vector_direct(&serialized_message);
@@ -134,12 +165,13 @@ impl PeerClient {
             .map(|x| {
                 x.expect("Error sending Raft message");
             })
+            .boxed()
     }
 
-    pub fn get_latest_commit(
+    fn get_latest_commit(
         &self,
         raft_group: u16,
-    ) -> impl Future<Output = Result<u64, std::io::Error>> {
+    ) -> BoxFuture<'static, Result<u64, std::io::Error>> {
         let mut builder = FlatBufferBuilder::new();
         let mut request_builder = LatestCommitRequestBuilder::new(&mut builder);
         request_builder.add_raft_group(raft_group);
@@ -160,11 +192,10 @@ impl PeerClient {
                         .index()
                 })
             })
+            .boxed()
     }
 
-    pub fn filesystem_checksum(
-        &self,
-    ) -> impl Future<Output = Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
+    fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
         let mut builder = FlatBufferBuilder::new();
         let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
@@ -189,14 +220,15 @@ impl PeerClient {
                 }
                 Ok(checksums)
             })
+            .boxed()
     }
 
-    pub fn read_raw(
+    fn read_raw(
         &self,
         inode: u64,
         offset: u64,
         size: u32,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>> {
         let mut builder = FlatBufferBuilder::new();
         let mut request_builder = ReadRawRequestBuilder::new(&mut builder);
         request_builder.add_offset(offset);
@@ -216,5 +248,6 @@ impl PeerClient {
                 response.pop();
                 Ok(response)
             })
+            .boxed()
     }
 }
