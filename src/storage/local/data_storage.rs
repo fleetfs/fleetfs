@@ -222,13 +222,14 @@ impl<T: PeerClient> DataStorage<T> {
 
             let mut result = LengthPrefixedVec::with_capacity(global_size as usize);
             let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
-            let first_block_size = data_blocks[0].len();
+            let first_block_index = (global_offset / BLOCK_SIZE) as usize % data_blocks.len();
+            let first_block_size = data_blocks[first_block_index].len();
             let mut indices = vec![0; data_blocks.len()];
             let first_block_read = min(partial_first_block as usize, first_block_size);
-            result.extend(&data_blocks[0][0..first_block_read]);
-            indices[0] = first_block_read;
+            result.extend(&data_blocks[first_block_index][0..first_block_read]);
+            indices[first_block_index] = first_block_read;
 
-            let mut next_block = min(1, data_blocks.len() - 1);
+            let mut next_block = (first_block_index + 1) % data_blocks.len();
             while indices[next_block] < data_blocks[next_block].len() {
                 let index = indices[next_block];
                 let remaining = data_blocks[next_block].len() - index;
@@ -278,9 +279,21 @@ impl<T: PeerClient> DataStorage<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::base::LengthPrefixedVec;
+    use crate::client::PeerClient;
+    use crate::generated::*;
     use crate::storage::local::data_storage::{
-        stores_index, to_global_index, to_local_index_ceiling, BLOCK_SIZE,
+        stores_index, to_global_index, to_local_index_ceiling, DataStorage, BLOCK_SIZE,
     };
+    use futures::future::{ready, BoxFuture};
+    use futures_util::future::FutureExt;
+    use raft::eraftpb::Message;
+    use rand::Rng;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::fs;
+    use std::io::Error;
+    use tempfile::tempdir;
 
     #[test]
     fn local_index_ceiling() {
@@ -317,6 +330,134 @@ mod tests {
                     assert_eq!(index, to_global_index(local_index, rank, 2));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn sharding_integration() {
+        let nodes = 6;
+        let tmp_dir = tempdir().unwrap();
+
+        let cluster = FakeCluster {
+            data_stores: RefCell::new(HashMap::new()),
+        };
+
+        let mut clients = HashMap::new();
+        for i in 0..nodes {
+            clients.insert(
+                i,
+                FakePeerClient {
+                    cluster: &cluster,
+                    node_id: i,
+                },
+            );
+        }
+
+        for i in 0..nodes {
+            let storage_path = tmp_dir.path().join(i.to_string());
+            fs::create_dir(&storage_path).unwrap();
+            cluster.data_stores.borrow_mut().insert(
+                i,
+                DataStorage::new(i, storage_path.to_str().unwrap(), clients.clone()),
+            );
+        }
+
+        let mut data = vec![0u8; 20 * 1024];
+        for i in 0..data.len() {
+            data[i] = rand::thread_rng().gen();
+        }
+
+        cluster.write(0, 0, &data);
+        cluster.read_assert(0, 0, data.len() as u32, &data);
+
+        // Do a bunch of random writes
+        let num_writes = 1000;
+        for _ in 0..num_writes {
+            let size = rand::thread_rng().gen_range(0, data.len());
+            let offset = rand::thread_rng().gen_range(0, data.len() - size);
+            for i in 0..size {
+                data[offset + i] = data[offset + i].wrapping_add(1);
+            }
+            cluster.write(0, offset as u64, &data[offset..(offset + size)]);
+            cluster.read_assert(
+                0,
+                offset as u64,
+                size as u32,
+                &data[offset..(offset + size)],
+            );
+            cluster.read_assert(0, 0, data.len() as u32, &data);
+        }
+    }
+
+    struct FakeCluster<'a> {
+        data_stores: RefCell<HashMap<u64, DataStorage<FakePeerClient<'a>>>>,
+    }
+
+    impl<'a> FakeCluster<'a> {
+        fn write(&self, inode: u64, offset: u64, data: &[u8]) {
+            for s in self.data_stores.borrow().values() {
+                s.write_local_blocks(inode, offset, &data).unwrap();
+            }
+        }
+
+        fn read_assert(&self, inode: u64, offset: u64, size: u32, expected_data: &[u8]) {
+            for s in self.data_stores.borrow().values() {
+                let result = s.read(inode, offset, size).now_or_never().unwrap();
+                assert_eq!(result.unwrap().bytes(), expected_data);
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakePeerClient<'a> {
+        cluster: &'a FakeCluster<'a>,
+        node_id: u64,
+    }
+
+    impl<'a> PeerClient for FakePeerClient<'a> {
+        fn send_and_receive_length_prefixed<T: AsRef<[u8]> + Send + Sync + 'static>(
+            &self,
+            _data: T,
+        ) -> BoxFuture<'static, Result<Vec<u8>, Error>> {
+            unimplemented!()
+        }
+
+        fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
+            &self,
+            _data: T,
+        ) -> BoxFuture<'static, Result<LengthPrefixedVec, Error>> {
+            unimplemented!()
+        }
+
+        fn send_raft_message(&self, _raft_group: u16, _message: Message) -> BoxFuture<'static, ()> {
+            unimplemented!()
+        }
+
+        fn get_latest_commit(&self, _raft_group: u16) -> BoxFuture<'static, Result<u64, Error>> {
+            unimplemented!()
+        }
+
+        fn filesystem_checksum(
+            &self,
+        ) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
+            unimplemented!()
+        }
+
+        fn read_raw(
+            &self,
+            inode: u64,
+            offset: u64,
+            size: u32,
+        ) -> BoxFuture<'static, Result<Vec<u8>, Error>> {
+            let data = self
+                .cluster
+                .data_stores
+                .borrow()
+                .get(&self.node_id)
+                .unwrap()
+                .read_raw(inode, offset, size)
+                .unwrap();
+            ready(Ok(data.bytes().to_vec())).boxed()
         }
     }
 }
