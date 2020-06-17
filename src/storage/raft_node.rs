@@ -381,7 +381,7 @@ impl RaftNode {
                             // There should only be a few types of messages that can fail here. truncate is one,
                             // since you can call it with LONG_MAX or some other value that balloons
                             // the message into a huge write. Probably most other messages can't fail
-                            error!("Commit failed {:?} {:?}", err, request.request_type());
+                            error!("Commit failed! {:?} {:?}", err, request.request_type());
                         }
                     }
 

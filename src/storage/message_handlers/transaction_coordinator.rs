@@ -128,6 +128,7 @@ async fn propose(
             .await?;
         finalize_response(&mut builder, response_type, response_offset);
         // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+        response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
         // TODO: optimize this to_vec() copy
         return Ok(builder.finished_data()[SIZE_UOFFSET..].to_vec());
     } else {
@@ -136,6 +137,7 @@ async fn propose(
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
         // TODO: optimize this to_vec() copy
+        response_or_error(response.bytes())?;
         return Ok(response.bytes().to_vec());
     }
 }
@@ -906,17 +908,7 @@ pub async fn create_transaction<'a>(
     );
 
     match propose(parent, create_link, &raft, &remote_rafts).await {
-        Ok(response_data) => {
-            if response_or_error(&response_data).is_err() {
-                // Rollback the transaction
-                let mut internal_request_builder = FlatBufferBuilder::new();
-                let rollback =
-                    decrement_inode_request(inode, link_count, None, &mut internal_request_builder);
-                // TODO: if this fails the inode will leak ;(
-                let response_data = propose(inode, rollback, &raft, &remote_rafts).await?;
-                response_or_error(&response_data)?;
-            }
-
+        Ok(_) => {
             // This is the response back to the client
             return Ok(FlatBufferWithResponse::with_separate_response(
                 builder,
