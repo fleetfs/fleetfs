@@ -18,12 +18,12 @@ DATA_DIR5=$(mktemp --directory)
 DATA_DIR6=$(mktemp --directory)
 DIR=$(mktemp --directory)
 cargo build
-cargo run -- --port 3300 --data-dir $DATA_DIR --peers 127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon0.log 2>&1 &
-cargo run -- --port 3301 --data-dir $DATA_DIR2 --peers 127.0.0.1:3300,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon1.log 2>&1 &
-cargo run -- --port 3302 --data-dir $DATA_DIR3 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon2.log 2>&1 &
-cargo run -- --port 3303 --data-dir $DATA_DIR4 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon3.log 2>&1 &
-cargo run -- --port 3304 --data-dir $DATA_DIR5 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3305 > /code/logs/daemon4.log 2>&1 &
-cargo run -- --port 3305 --data-dir $DATA_DIR6 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304 > /code/logs/daemon5.log 2>&1 &
+cargo run -- --port 3300 --data-dir $DATA_DIR  --redundancy-level 1 --peers 127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon0.log 2>&1 &
+cargo run -- --port 3301 --data-dir $DATA_DIR2 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon1.log 2>&1 &
+cargo run -- --port 3302 --data-dir $DATA_DIR3 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon2.log 2>&1 &
+cargo run -- --port 3303 --data-dir $DATA_DIR4 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon3.log 2>&1 &
+cargo run -- --port 3304 --data-dir $DATA_DIR5 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3305 > /code/logs/daemon4.log 2>&1 &
+cargo run -- --port 3305 --data-dir $DATA_DIR6 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304 > /code/logs/daemon5.log 2>&1 &
 
 # Wait for leader to be elected
 until cargo run -- --server-ip-port 127.0.0.1:3300 --get-leader; do
