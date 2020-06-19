@@ -158,7 +158,7 @@ impl MetadataStorage {
         Ok(metadata
             .get(&inode)
             .map(|x| x.xattrs.keys().cloned().collect())
-            .unwrap_or_else(|| vec![]))
+            .unwrap_or_else(Vec::new))
     }
 
     pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) -> Result<(), ErrorCode> {

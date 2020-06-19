@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use libc;
 use log::debug;
 use log::error;
 use log::warn;
