@@ -258,7 +258,7 @@ fn main() -> Result<(), ErrorCode> {
 
         fuse_args.push(&OsStr::new(&options));
         let fs = FleetFUSE::new(server_ip_port);
-        fuse::mount(fs, &mount_point, &fuse_args).unwrap();
+        fuser::mount(fs, &mount_point, &fuse_args).unwrap();
     }
 
     return Ok(());
