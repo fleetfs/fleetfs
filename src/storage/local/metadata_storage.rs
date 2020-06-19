@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use crate::base::check_access;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
-use fuse::FUSE_ROOT_ID;
+use fuser::FUSE_ROOT_ID;
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;

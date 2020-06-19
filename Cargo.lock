@@ -159,7 +159,7 @@ dependencies = [
  "clap",
  "env_logger",
  "flatbuffers",
- "fuse",
+ "fuser",
  "futures",
  "futures-util",
  "libc",
@@ -198,28 +198,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3dcaa9ae7725d12cdb85b3ad99a434db70b468c09ded17e012d86b5c1010f7a7"
 
 [[package]]
-name = "fuse"
-version = "0.4.0-dev"
-source = "git+https://github.com/cberner/rust-fuse?branch=fallocate#33e78dca794c07d9d2674c3d08401362a855954d"
+name = "fuser"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c592407454dd28d7036f9e1a3a1e2ac96bfa6e416c02541f47ed77dde22e1bc"
 dependencies = [
- "fuse-abi",
- "fuse-sys",
  "libc",
  "log",
- "thread-scoped",
-]
-
-[[package]]
-name = "fuse-abi"
-version = "0.4.0-dev"
-source = "git+https://github.com/cberner/rust-fuse?branch=fallocate#33e78dca794c07d9d2674c3d08401362a855954d"
-
-[[package]]
-name = "fuse-sys"
-version = "0.4.0-dev"
-source = "git+https://github.com/cberner/rust-fuse?branch=fallocate#33e78dca794c07d9d2674c3d08401362a855954d"
-dependencies = [
  "pkg-config",
+ "thread-scoped",
 ]
 
 [[package]]

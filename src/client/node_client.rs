@@ -10,15 +10,15 @@ use crate::base::{finalize_request, response_or_error};
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
-use fuse::FileAttr;
+use fuser::FileAttr;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
-fn to_fuse_file_type(file_type: FileKind) -> fuse::FileType {
+fn to_fuse_file_type(file_type: FileKind) -> fuser::FileType {
     match file_type {
-        FileKind::File => fuse::FileType::RegularFile,
-        FileKind::Directory => fuse::FileType::Directory,
-        FileKind::Symlink => fuse::FileType::Symlink,
+        FileKind::File => fuser::FileType::RegularFile,
+        FileKind::Directory => fuser::FileType::Directory,
+        FileKind::Symlink => fuser::FileType::Symlink,
         FileKind::DefaultValueNotAType => unreachable!(),
     }
 }
@@ -572,7 +572,7 @@ impl NodeClient {
         Ok(buffer)
     }
 
-    pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuse::FileType)>, ErrorCode> {
+    pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuser::FileType)>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
