@@ -2,7 +2,6 @@
 [![Build Status](https://travis-ci.com/fleetfs/fleetfs.svg?branch=master)](https://travis-ci.com/fleetfs/fleetfs)
 [![Crates](https://img.shields.io/crates/v/fleetfs.svg)](https://crates.io/crates/fleetfs)
 [![Documentation](https://docs.rs/fleetfs/badge.svg)](https://docs.rs/fleetfs)
-[![dependency status](https://deps.rs/repo/github/fleetfs/fleetfs/status.svg)](https://deps.rs/repo/github/fleetfs/fleetfs)
 
 FleetFS distributed filesystem
 
