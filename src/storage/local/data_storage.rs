@@ -99,7 +99,7 @@ impl<T: PeerClient> DataStorage<T> {
             }
             // TODO handle other file types
         }
-        return Ok(hasher.result().to_vec());
+        return Ok(hasher.finalize().to_vec());
     }
 
     fn to_local_path(&self, path: &str) -> PathBuf {
