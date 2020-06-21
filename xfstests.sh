@@ -16,27 +16,24 @@ DATA_DIR3=$(mktemp --directory)
 DATA_DIR4=$(mktemp --directory)
 DATA_DIR5=$(mktemp --directory)
 DATA_DIR6=$(mktemp --directory)
-cargo build --release
-# Copy into PATH, so that xfstests can find the binary
-cp target/release/fleetfs /bin/fleetfs
 
-cargo run --release -- --port 3300 --data-dir $DATA_DIR  --redundancy-level 1 --peers 127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon0.log 2>&1 &
-cargo run --release -- --port 3301 --data-dir $DATA_DIR2 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon1.log 2>&1 &
-cargo run --release -- --port 3302 --data-dir $DATA_DIR3 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon2.log 2>&1 &
-cargo run --release -- --port 3303 --data-dir $DATA_DIR4 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon3.log 2>&1 &
-cargo run --release -- --port 3304 --data-dir $DATA_DIR5 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3305 > /code/logs/daemon4.log 2>&1 &
-cargo run --release -- --port 3305 --data-dir $DATA_DIR6 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304 > /code/logs/daemon5.log 2>&1 &
+fleetfs --port 3300 --data-dir $DATA_DIR  --redundancy-level 1 --peers 127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon0.log 2>&1 &
+fleetfs --port 3301 --data-dir $DATA_DIR2 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon1.log 2>&1 &
+fleetfs --port 3302 --data-dir $DATA_DIR3 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3303,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon2.log 2>&1 &
+fleetfs --port 3303 --data-dir $DATA_DIR4 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3304,127.0.0.1:3305 > /code/logs/daemon3.log 2>&1 &
+fleetfs --port 3304 --data-dir $DATA_DIR5 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3305 > /code/logs/daemon4.log 2>&1 &
+fleetfs --port 3305 --data-dir $DATA_DIR6 --redundancy-level 1 --peers 127.0.0.1:3300,127.0.0.1:3301,127.0.0.1:3302,127.0.0.1:3303,127.0.0.1:3304 > /code/logs/daemon5.log 2>&1 &
 
 SCRATCH_DIR=$(mktemp --directory)
 SCRATCH_DIR2=$(mktemp --directory)
-cargo run --release -- --port 3400 --data-dir $SCRATCH_DIR --peers 127.0.0.1:3401 > /code/logs/scratch0.log 2>&1 &
-cargo run --release -- --port 3401 --data-dir $SCRATCH_DIR2 --peers 127.0.0.1:3400 > /code/logs/scratch1.log 2>&1 &
+fleetfs --port 3400 --data-dir $SCRATCH_DIR --peers 127.0.0.1:3401 > /code/logs/scratch0.log 2>&1 &
+fleetfs --port 3401 --data-dir $SCRATCH_DIR2 --peers 127.0.0.1:3400 > /code/logs/scratch1.log 2>&1 &
 
 # Wait for leaders to be elected
-until cargo run --release -- --server-ip-port 127.0.0.1:3300 --get-leader; do
+until fleetfs --server-ip-port 127.0.0.1:3300 --get-leader; do
     sleep 0.1
 done
-until cargo run --release -- --server-ip-port 127.0.0.1:3400 --get-leader; do
+until fleetfs --server-ip-port 127.0.0.1:3400 --get-leader; do
     sleep 0.1
 done
 
