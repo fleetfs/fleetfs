@@ -215,6 +215,16 @@ impl MetadataStorage {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         let inode_attrs = metadata.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
+        // Non-owners are only allowed to change atime & mtime to current:
+        // http://man7.org/linux/man-pages/man2/utimensat.2.html
+        if inode_attrs.uid != context.uid()
+            && context.uid() != 0
+            && (!atime.map_or(false, |x| x.nanos() == libc::UTIME_NOW as i32)
+                || !mtime.map_or(false, |x| x.nanos() == libc::UTIME_NOW as i32))
+        {
+            return Err(ErrorCode::OperationNotPermitted);
+        }
+
         if inode_attrs.uid != context.uid()
             && !check_access(
                 inode_attrs.uid,
@@ -229,18 +239,6 @@ impl MetadataStorage {
         }
 
         if let Some(inode_metadata) = metadata.get_mut(&inode) {
-            // Non-owners are only allowed to change atime & mtime to current:
-            // http://man7.org/linux/man-pages/man2/utimensat.2.html
-            if inode_metadata.uid != context.uid()
-                && context.uid() != 0
-                && (atime.map_or(libc::UTIME_NOW as i32, Timestamp::nanos)
-                    != libc::UTIME_NOW as i32
-                    || mtime.map_or(libc::UTIME_NOW as i32, Timestamp::nanos)
-                        != libc::UTIME_NOW as i32)
-            {
-                return Err(ErrorCode::OperationNotPermitted);
-            }
-
             if let Some(atime) = atime {
                 if atime.nanos() == libc::UTIME_NOW as i32 {
                     // TODO: this should be set during proposal. Currently each node set its own timestamp
