@@ -50,8 +50,6 @@ cd /code/fuse-xfstests
 echo "generic/113" > xfs_excludes.txt
 # TODO: Fix test 258. Crashes server due to overflow in rust-fuse
 echo "generic/258" >> xfs_excludes.txt
-# TODO: Fails due to missing FUSE OP (46)
-echo "generic/286" >> xfs_excludes.txt
 # TODO: Hangs
 echo "generic/430" >> xfs_excludes.txt
 echo "generic/431" >> xfs_excludes.txt
