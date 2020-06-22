@@ -147,8 +147,6 @@ echo "generic/089" >> xfs_excludes.txt
 # TODO: fails (from non-quick suite)
 echo "generic/074" >> xfs_excludes.txt
 echo "generic/192" >> xfs_excludes.txt
-echo "generic/209" >> xfs_excludes.txt
-echo "generic/239" >> xfs_excludes.txt
 echo "generic/340" >> xfs_excludes.txt
 echo "generic/344" >> xfs_excludes.txt
 echo "generic/345" >> xfs_excludes.txt
