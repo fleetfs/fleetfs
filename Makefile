@@ -1,4 +1,5 @@
 VERSION = $(shell git describe --tags --always --dirty)
+INTERACTIVE ?= i
 
 build: pre
 	cargo build
@@ -19,13 +20,13 @@ build_integration_tests: pre
 
 xfstests: build_integration_tests
 	# Additional permissions are needed to be able to mount FUSE
-	docker run --rm -it --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
+	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 --memory=2g --kernel-memory=200m \
 	 -v "$(shell pwd)/logs:/code/logs" fleetfs:tests bash -c "cd /code/fleetfs && ./xfstests.sh"
 
 pjdfs_tests: build_integration_tests
 	# Additional permissions are needed to be able to mount FUSE
-	docker run --rm -it --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
+	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 -v "$(shell pwd)/logs:/code/logs" fleetfs:tests bash -c "cd /code/fleetfs && ./pjdfs.sh"
 
 test: pre pjdfs_tests xfstests
