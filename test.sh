@@ -12,7 +12,7 @@ exit_handler() {
     exit "$TEST_EXIT_STATUS"
 }
 trap exit_handler TERM
-trap 'kill $(jobs -p); exit' INT EXIT
+trap 'kill $(jobs -p); exit $TEST_EXIT_STATUS' INT EXIT
 
 export RUST_BACKTRACE=1
 
