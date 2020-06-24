@@ -46,7 +46,7 @@ DIR=/var/tmp/fuse-xfstests/check-fleetfs
 mkdir -p $DIR
 cd /code/fuse-xfstests
 
-# TODO: Fix test 113. It hangs
+# TODO: Fix test 113. It seems to cause future tests to fail in CI
 echo "generic/113" > xfs_excludes.txt
 # TODO: Fix test 258. Crashes server due to overflow in rust-fuse
 echo "generic/258" >> xfs_excludes.txt
@@ -124,7 +124,6 @@ echo "generic/306" >> xfs_excludes.txt
 echo "generic/314" >> xfs_excludes.txt
 echo "generic/317" >> xfs_excludes.txt
 echo "generic/319" >> xfs_excludes.txt
-echo "generic/346" >> xfs_excludes.txt
 echo "generic/393" >> xfs_excludes.txt
 echo "generic/401" >> xfs_excludes.txt
 echo "generic/412" >> xfs_excludes.txt
@@ -147,9 +146,6 @@ echo "generic/089" >> xfs_excludes.txt
 # TODO: fails (from non-quick suite)
 echo "generic/074" >> xfs_excludes.txt
 echo "generic/192" >> xfs_excludes.txt
-echo "generic/340" >> xfs_excludes.txt
-echo "generic/344" >> xfs_excludes.txt
-echo "generic/345" >> xfs_excludes.txt
 echo "generic/354" >> xfs_excludes.txt
 echo "generic/438" >> xfs_excludes.txt
 
