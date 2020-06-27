@@ -153,6 +153,10 @@ echo "generic/345" >> xfs_excludes.txt
 echo "generic/354" >> xfs_excludes.txt
 echo "generic/438" >> xfs_excludes.txt
 
+# TODO: requires COPY_FILE_RANGE support
+echo "generic/432" >> xfs_excludes.txt
+echo "generic/433" >> xfs_excludes.txt
+
 FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
 ./check-fleetfs -E xfs_excludes.txt \
 | tee /code/logs/xfstests.log
