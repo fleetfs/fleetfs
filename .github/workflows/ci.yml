@@ -5,14 +5,14 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     steps:
       - uses: actions/checkout@v2
       - name: Install packages
         run: |
           sudo apt update
-          sudo apt install -y libfuse-dev python-xattr build-essential xattr
+          sudo apt install -y libfuse-dev build-essential xattr
       - name: Compile Flatbuffers
         run: |
           git clone https://github.com/google/flatbuffers -b v1.12.0 /tmp/flatbuffers
