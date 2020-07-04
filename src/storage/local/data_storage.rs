@@ -251,7 +251,11 @@ impl<T: PeerClient> DataStorage<T> {
         let local_bytes =
             to_local_index_ceiling(global_length, self.local_rank, self.node_ids.len() as u64);
         let local_path = self.to_local_path(&inode.to_string());
-        let file = File::create(&local_path).expect("Couldn't create file");
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&local_path)
+            .expect("Couldn't create file");
         file.set_len(local_bytes)?;
 
         Ok(())
