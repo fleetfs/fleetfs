@@ -177,7 +177,9 @@ impl MetadataStorage {
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
-        inode_attrs.xattrs.remove(key);
+        if inode_attrs.xattrs.remove(key).is_none() {
+            return Err(ErrorCode::MissingXattrKey);
+        }
         inode_attrs.last_metadata_changed = now();
 
         Ok(())
