@@ -110,10 +110,6 @@ echo "generic/452" >> xfs_excludes.txt
 # TODO: requires atime support
 echo "generic/003" >> xfs_excludes.txt
 
-# TODO: relies on mmap
-echo "generic/029" >> xfs_excludes.txt
-echo "generic/030" >> xfs_excludes.txt
-
 # TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
 echo "generic/130" >> xfs_excludes.txt
 echo "generic/135" >> xfs_excludes.txt
