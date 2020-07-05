@@ -275,12 +275,18 @@ impl NodeClient {
         return Ok(metadata_to_fuse_fileattr(&metadata));
     }
 
-    pub fn getxattr(&self, inode: u64, key: &str) -> Result<Vec<u8>, ErrorCode> {
+    pub fn getxattr(
+        &self,
+        inode: u64,
+        key: &str,
+        context: UserContext,
+    ) -> Result<Vec<u8>, ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_key = builder.create_string(key);
         let mut request_builder = GetXattrRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_key(builder_key);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::GetXattrRequest, finish_offset);
 
@@ -344,12 +350,18 @@ impl NodeClient {
         Ok(())
     }
 
-    pub fn removexattr(&self, inode: u64, key: &str) -> Result<(), ErrorCode> {
+    pub fn removexattr(
+        &self,
+        inode: u64,
+        key: &str,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_key = builder.create_string(key);
         let mut request_builder = RemoveXattrRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         request_builder.add_key(builder_key);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RemoveXattrRequest, finish_offset);
 

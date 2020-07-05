@@ -185,6 +185,7 @@ pub fn commit_write<'a, 'b>(
             response = file_storage.remove_xattr(
                 remove_xattr_request.inode(),
                 remove_xattr_request.key(),
+                *remove_xattr_request.context(),
                 builder,
             );
         }

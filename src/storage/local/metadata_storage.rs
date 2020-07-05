@@ -188,19 +188,21 @@ impl MetadataStorage {
         Ok(maybe_inode)
     }
 
-    pub fn get_xattr(&self, inode: Inode, key: &str) -> Result<Vec<u8>, ErrorCode> {
+    pub fn get_xattr(
+        &self,
+        inode: Inode,
+        key: &str,
+        context: UserContext,
+    ) -> Result<Vec<u8>, ErrorCode> {
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        if let Some(value) = metadata
-            .get(&inode)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
+        let inode_attrs = metadata.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
+        xattr_access_check(key, libc::R_OK as u32, inode_attrs, &context)?;
+
+        inode_attrs
             .xattrs
             .get(key)
             .cloned()
-        {
-            Ok(value)
-        } else {
-            Err(ErrorCode::MissingXattrKey)
-        }
+            .ok_or(ErrorCode::MissingXattrKey)
     }
 
     pub fn list_xattrs(&self, inode: Inode) -> Result<Vec<String>, ErrorCode> {
@@ -229,11 +231,17 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn remove_xattr(&self, inode: Inode, key: &str) -> Result<(), ErrorCode> {
+    pub fn remove_xattr(
+        &self,
+        inode: Inode,
+        key: &str,
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
+        xattr_access_check(key, libc::W_OK as u32, inode_attrs, &context)?;
         if inode_attrs.xattrs.remove(key).is_none() {
             return Err(ErrorCode::MissingXattrKey);
         }

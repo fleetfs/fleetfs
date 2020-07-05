@@ -353,9 +353,10 @@ impl FileStorage {
         &self,
         inode: u64,
         key: &str,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        let attr = self.metadata_storage.get_xattr(inode, key)?;
+        let attr = self.metadata_storage.get_xattr(inode, key, context)?;
         return to_read_response(builder, &attr);
     }
 
@@ -385,9 +386,10 @@ impl FileStorage {
         &self,
         inode: u64,
         key: &str,
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage.remove_xattr(inode, key)?;
+        self.metadata_storage.remove_xattr(inode, key, context)?;
         return empty_response(builder);
     }
 
