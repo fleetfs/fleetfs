@@ -440,7 +440,7 @@ async fn request_router_inner(
                 return raft
                     .lookup_by_inode(inode)
                     .file_storage()
-                    .get_xattr(inode, &key, builder)
+                    .get_xattr(inode, &key, *get_xattr_request.context(), builder)
                     .map(Partial);
             } else {
                 return Err(ErrorCode::BadRequest);

@@ -817,7 +817,7 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn getxattr(&mut self, _req: &Request, inode: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+    fn getxattr(&mut self, req: &Request, inode: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
         debug!("getxattr() called with {:?} {:?}", inode, name);
         let name = if let Some(value) = name.to_str() {
             value
@@ -826,7 +826,10 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EINVAL);
             return;
         };
-        match self.client.getxattr(inode, name) {
+        match self
+            .client
+            .getxattr(inode, name, UserContext::new(req.uid(), req.gid()))
+        {
             Ok(data) => {
                 if size == 0 {
                     reply.size(data.len() as u32);
@@ -864,7 +867,7 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn removexattr(&mut self, _req: &Request, inode: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn removexattr(&mut self, req: &Request, inode: u64, name: &OsStr, reply: ReplyEmpty) {
         debug!("removexattr() called with {:?} {:?}", inode, name);
         let name = if let Some(value) = name.to_str() {
             value
@@ -873,7 +876,10 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EINVAL);
             return;
         };
-        if let Err(error_code) = self.client.removexattr(inode, name) {
+        if let Err(error_code) =
+            self.client
+                .removexattr(inode, name, UserContext::new(req.uid(), req.gid()))
+        {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();

@@ -61,6 +61,7 @@ table ListXattrsRequest {
 table GetXattrRequest {
   inode: ulong;
   key: string (required);
+  context: UserContext (required);
 }
 
 table SetXattrRequest {
@@ -73,6 +74,7 @@ table SetXattrRequest {
 table RemoveXattrRequest {
   inode: ulong;
   key: string (required);
+  context: UserContext (required);
 }
 
 struct CommitId {
