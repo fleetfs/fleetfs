@@ -128,6 +128,7 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::NotEmpty => libc::ENOTEMPTY,
         ErrorCode::MissingXattrKey => libc::ENODATA,
         ErrorCode::AlreadyExists => libc::EEXIST,
+        ErrorCode::InvalidXattrNamespace => libc::ENOTSUP,
         ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
@@ -790,7 +791,7 @@ impl Filesystem for FleetFUSE {
 
     fn setxattr(
         &mut self,
-        _req: &Request,
+        req: &Request,
         inode: u64,
         name: &OsStr,
         value: &[u8],
@@ -806,7 +807,10 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EINVAL);
             return;
         };
-        if let Err(error_code) = self.client.setxattr(inode, name, value) {
+        if let Err(error_code) =
+            self.client
+                .setxattr(inode, name, value, UserContext::new(req.uid(), req.gid()))
+        {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();

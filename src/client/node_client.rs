@@ -317,7 +317,13 @@ impl NodeClient {
         return Ok(attrs);
     }
 
-    pub fn setxattr(&self, inode: u64, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
+    pub fn setxattr(
+        &self,
+        inode: u64,
+        key: &str,
+        value: &[u8],
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut builder = self.get_or_create_builder();
         let builder_key = builder.create_string(key);
         let builder_value = builder.create_vector_direct(value);
@@ -325,6 +331,7 @@ impl NodeClient {
         request_builder.add_inode(inode);
         request_builder.add_key(builder_key);
         request_builder.add_value(builder_value);
+        request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::SetXattrRequest, finish_offset);
 
