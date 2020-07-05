@@ -67,6 +67,7 @@ table SetXattrRequest {
   inode: ulong;
   key: string (required);
   value: [ubyte] (required);
+  context: UserContext (required);
 }
 
 table RemoveXattrRequest {
@@ -298,6 +299,7 @@ enum ErrorCode: byte {
   BadRequest,
   Corrupted,
   RaftFailure,
+  InvalidXattrNamespace,
   Uncategorized
 }
 

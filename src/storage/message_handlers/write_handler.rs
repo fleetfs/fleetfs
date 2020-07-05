@@ -174,6 +174,7 @@ pub fn commit_write<'a, 'b>(
                 set_xattr_request.inode(),
                 set_xattr_request.key(),
                 set_xattr_request.value(),
+                *set_xattr_request.context(),
                 builder,
             );
         }

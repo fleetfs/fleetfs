@@ -112,7 +112,6 @@ echo "generic/003" >> xfs_excludes.txt
 
 # TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
 echo "generic/130" >> xfs_excludes.txt
-echo "generic/237" >> xfs_excludes.txt
 echo "generic/294" >> xfs_excludes.txt
 echo "generic/306" >> xfs_excludes.txt
 echo "generic/314" >> xfs_excludes.txt

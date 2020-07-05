@@ -373,9 +373,11 @@ impl FileStorage {
         inode: u64,
         key: &str,
         value: &[u8],
+        context: UserContext,
         builder: FlatBufferBuilder<'a>,
     ) -> ResultResponse<'a> {
-        self.metadata_storage.set_xattr(inode, key, value)?;
+        self.metadata_storage
+            .set_xattr(inode, key, value, context)?;
         return empty_response(builder);
     }
 

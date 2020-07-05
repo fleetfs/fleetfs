@@ -39,6 +39,56 @@ impl InodeAttributes {
     }
 }
 
+enum XattrNamespace {
+    SECURITY,
+    SYSTEM,
+    TRUSTED,
+    USER,
+}
+
+fn parse_xattr_namespace(key: &str) -> Result<XattrNamespace, ErrorCode> {
+    if let Some(namespace) = key.split('.').next() {
+        match namespace {
+            "security" => Ok(XattrNamespace::SECURITY),
+            "system" => Ok(XattrNamespace::SYSTEM),
+            "trusted" => Ok(XattrNamespace::TRUSTED),
+            "user" => Ok(XattrNamespace::USER),
+            _ => Err(ErrorCode::InvalidXattrNamespace),
+        }
+    } else {
+        Err(ErrorCode::InvalidXattrNamespace)
+    }
+}
+
+fn xattr_access_check(
+    key: &str,
+    access_mask: u32,
+    inode_attrs: &InodeAttributes,
+    context: &UserContext,
+) -> Result<(), ErrorCode> {
+    match parse_xattr_namespace(key)? {
+        XattrNamespace::SECURITY | XattrNamespace::SYSTEM | XattrNamespace::TRUSTED => {
+            if context.uid() != 0 {
+                return Err(ErrorCode::OperationNotPermitted);
+            }
+        }
+        XattrNamespace::USER => {
+            if !check_access(
+                inode_attrs.uid,
+                inode_attrs.gid,
+                inode_attrs.mode,
+                context.uid(),
+                context.gid(),
+                access_mask,
+            ) {
+                return Err(ErrorCode::OperationNotPermitted);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 // TODO: add persistence
 // When acquiring locks on multiple fields, they must be in alphabetical order
 pub struct MetadataStorage {
@@ -161,11 +211,18 @@ impl MetadataStorage {
             .unwrap_or_else(Vec::new))
     }
 
-    pub fn set_xattr(&self, inode: Inode, key: &str, value: &[u8]) -> Result<(), ErrorCode> {
+    pub fn set_xattr(
+        &self,
+        inode: Inode,
+        key: &str,
+        value: &[u8],
+        context: UserContext,
+    ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
+        xattr_access_check(key, libc::W_OK as u32, inode_attrs, &context)?;
         inode_attrs.xattrs.insert(key.to_string(), value.to_vec());
         inode_attrs.last_metadata_changed = now();
 
