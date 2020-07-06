@@ -50,9 +50,11 @@ cd /code/fuse-xfstests
 echo "generic/113" > xfs_excludes.txt
 # TODO: Test 258 doesn't work because libfuse uses u64 type instead of i64 like the Linux kernel uses for timespec.
 echo "generic/258" >> xfs_excludes.txt
-# TODO: Hangs
+# TODO: Fails
 echo "generic/430" >> xfs_excludes.txt
 echo "generic/431" >> xfs_excludes.txt
+
+# TODO: hangs or very slow (> 30min)
 echo "generic/434" >> xfs_excludes.txt
 
 # TODO: requires flock
@@ -64,12 +66,8 @@ echo "generic/035" >> xfs_excludes.txt
 # Writes directly to scratch block dev
 echo "generic/062" >> xfs_excludes.txt
 
-# TODO: hangs (or maybe just very slow? 5min+)
+# TODO: takes > 10min
 echo "generic/069" >> xfs_excludes.txt
-echo "generic/162" >> xfs_excludes.txt
-echo "generic/163" >> xfs_excludes.txt
-echo "generic/374" >> xfs_excludes.txt
-echo "generic/403" >> xfs_excludes.txt
 
 # TODO: seems like ctime failure
 echo "generic/221" >> xfs_excludes.txt
@@ -122,9 +120,6 @@ echo "generic/401" >> xfs_excludes.txt
 echo "generic/412" >> xfs_excludes.txt
 echo "generic/453" >> xfs_excludes.txt
 echo "generic/454" >> xfs_excludes.txt
-
-# TODO: hangs
-echo "generic/170" >> xfs_excludes.txt
 
 # TODO: fails
 echo "generic/127" >> xfs_excludes.txt
