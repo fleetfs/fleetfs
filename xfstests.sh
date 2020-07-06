@@ -130,9 +130,6 @@ echo "generic/170" >> xfs_excludes.txt
 # TODO: fails
 echo "generic/127" >> xfs_excludes.txt
 
-# TODO: hangs
-echo "generic/464" >> xfs_excludes.txt
-
 # TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
 echo "generic/089" >> xfs_excludes.txt
 
