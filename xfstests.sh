@@ -124,7 +124,6 @@ echo "generic/453" >> xfs_excludes.txt
 echo "generic/454" >> xfs_excludes.txt
 
 # TODO: hangs
-echo "generic/133" >> xfs_excludes.txt
 echo "generic/170" >> xfs_excludes.txt
 
 # TODO: fails
