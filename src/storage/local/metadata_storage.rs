@@ -39,6 +39,7 @@ impl InodeAttributes {
     }
 }
 
+#[derive(Debug)]
 enum XattrNamespace {
     SECURITY,
     SYSTEM,
@@ -67,11 +68,35 @@ fn xattr_access_check(
     context: &UserContext,
 ) -> Result<(), ErrorCode> {
     match parse_xattr_namespace(key)? {
-        XattrNamespace::SECURITY | XattrNamespace::SYSTEM | XattrNamespace::TRUSTED => {
+        XattrNamespace::SECURITY => {
+            if access_mask != libc::R_OK as u32 && context.uid() != 0 {
+                return Err(ErrorCode::OperationNotPermitted);
+            }
+        }
+        XattrNamespace::TRUSTED => {
             if context.uid() != 0 {
                 return Err(ErrorCode::OperationNotPermitted);
             }
         }
+        XattrNamespace::SYSTEM => match key {
+            "system.posix_acl_access" => {
+                if !check_access(
+                    inode_attrs.uid,
+                    inode_attrs.gid,
+                    inode_attrs.mode,
+                    context.uid(),
+                    context.gid(),
+                    access_mask,
+                ) {
+                    return Err(ErrorCode::OperationNotPermitted);
+                }
+            }
+            _ => {
+                if context.uid() != 0 {
+                    return Err(ErrorCode::OperationNotPermitted);
+                }
+            }
+        },
         XattrNamespace::USER => {
             if !check_access(
                 inode_attrs.uid,
