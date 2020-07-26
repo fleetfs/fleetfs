@@ -385,11 +385,22 @@ impl RaftNode {
                             // since you can call it with LONG_MAX or some other value that balloons
                             // the message into a huge write. Probably most other messages can't fail
                             Err(error_code) => {
-                                error!(
-                                    "Commit failed {:?} {:?}",
-                                    error_code,
-                                    request.request_type()
-                                );
+                                // Ignore errors which the user caused
+                                if error_code != ErrorCode::InodeDoesNotExist
+                                    && error_code != ErrorCode::DoesNotExist
+                                    && error_code != ErrorCode::AccessDenied
+                                    && error_code != ErrorCode::OperationNotPermitted
+                                    && error_code != ErrorCode::AlreadyExists
+                                    && error_code != ErrorCode::NotEmpty
+                                    && error_code != ErrorCode::InvalidXattrNamespace
+                                    && error_code != ErrorCode::MissingXattrKey
+                                {
+                                    error!(
+                                        "Commit failed {:?} {:?}",
+                                        error_code,
+                                        request.request_type()
+                                    );
+                                }
                                 sender.send(Err(error_code)).ok().unwrap()
                             }
                         }
@@ -398,13 +409,30 @@ impl RaftNode {
                         // that submitted the proposal will reply to the client.
                         let builder = FlatBufferBuilder::new();
                         // TODO: pass None for builder to avoid this useless allocation
-                        if let Err(err) = commit_write(request, &self.file_storage, builder) {
+                        if let Err(error_code) = commit_write(request, &self.file_storage, builder)
+                        {
                             // TODO: handle this somehow. If not all nodes failed, then the filesystem
                             // is probably corrupted, since some will have applied the write, but not all.
                             // There should only be a few types of messages that can fail here. truncate is one,
                             // since you can call it with LONG_MAX or some other value that balloons
                             // the message into a huge write. Probably most other messages can't fail
-                            error!("Commit failed! {:?} {:?}", err, request.request_type());
+
+                            // Ignore errors which the user caused
+                            if error_code != ErrorCode::InodeDoesNotExist
+                                && error_code != ErrorCode::DoesNotExist
+                                && error_code != ErrorCode::AccessDenied
+                                && error_code != ErrorCode::OperationNotPermitted
+                                && error_code != ErrorCode::AlreadyExists
+                                && error_code != ErrorCode::NotEmpty
+                                && error_code != ErrorCode::InvalidXattrNamespace
+                                && error_code != ErrorCode::MissingXattrKey
+                            {
+                                error!(
+                                    "Commit failed {:?} {:?}",
+                                    error_code,
+                                    request.request_type()
+                                );
+                            }
                         }
                     }
 
