@@ -1,3 +1,4 @@
+use log::error;
 use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
@@ -162,9 +163,15 @@ impl PeerClient for TcpPeerClient {
         let finish_offset = request_builder.finish().as_union_value();
         finalize_request(&mut builder, RequestType::RaftRequest, finish_offset);
 
+        let ip_and_port = self.server_ip_port;
         self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
-            .map(|x| {
-                x.expect("Error sending Raft message");
+            .map(move |x| {
+                if let Err(io_error) = x {
+                    error!(
+                        "Error sending Raft message to {}: {}",
+                        ip_and_port, io_error
+                    );
+                }
             })
             .boxed()
     }
