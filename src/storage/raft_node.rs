@@ -2,7 +2,7 @@ use log::{error, info};
 use raft::eraftpb::Message;
 use raft::prelude::EntryType;
 use raft::storage::MemStorage;
-use raft::{Config, Error, RawNode, StorageError};
+use raft::{Config, Error, ProgressSet, RawNode, StateRole, StorageError};
 use std::sync::Mutex;
 
 use crate::base::node_contains_raft_group;
@@ -20,6 +20,7 @@ use futures::channel::oneshot::Sender;
 use futures::future::{ready, Either};
 use futures::FutureExt;
 use futures::{Future, TryFutureExt};
+use raft::storage::Storage;
 use rand::Rng;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -27,6 +28,11 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use protobuf::Message as ProtobufMessage;
+
+// Compact storage when it reaches 10MB
+const COMPACTION_THRESHOLD: u64 = 10 * 1024 * 1024;
 
 // Sync to ensure replicas serve latest data
 pub async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
@@ -46,12 +52,23 @@ type PendingResponse = (
     Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
 );
 
+fn latest_applied_on_all_followers(node_id: u64, progress_set: &ProgressSet) -> u64 {
+    progress_set
+        .voters()
+        .filter(|(id, _)| **id != node_id)
+        .map(|(_, progress)| progress.matched)
+        .min()
+        .unwrap()
+}
+
 pub struct RaftNode {
     raft_node: Mutex<RawNode<MemStorage>>,
     pending_responses: Mutex<HashMap<u128, PendingResponse>>,
     sync_requests: Mutex<Vec<(u64, Sender<()>)>>,
     leader_requests: Mutex<Vec<Sender<u64>>>,
     applied_index: AtomicU64,
+    // TODO: this should be part of MemStorage, once we implement our own raft log storage
+    storage_size: AtomicU64,
     peers: HashMap<u64, TcpPeerClient>,
     raft_group_id: u16,
     node_id: u64,
@@ -120,6 +137,7 @@ impl RaftNode {
             leader_requests: Mutex::new(vec![]),
             sync_requests: Mutex::new(vec![]),
             applied_index: AtomicU64::new(0),
+            storage_size: AtomicU64::new(0),
             peers: peer_addresses
                 .iter()
                 .map(|peer| (node_id_from_address(peer), TcpPeerClient::new(*peer)))
@@ -323,9 +341,14 @@ impl RaftNode {
                 .apply_snapshot(ready.snapshot().clone())?;
         }
 
+        let mut entries_size = 0u64;
         if !ready.entries().is_empty() {
+            for entry in ready.entries().iter() {
+                entries_size += entry.compute_size() as u64;
+            }
             raft_node.mut_store().wl().append(ready.entries())?;
         }
+        self.storage_size.fetch_add(entries_size, Ordering::SeqCst);
 
         if let Some(hard_state) = ready.hs() {
             raft_node.mut_store().wl().set_hardstate(hard_state.clone());
@@ -397,11 +420,22 @@ impl RaftNode {
 
         self.applied_index.store(applied_index, Ordering::SeqCst);
         // TODO: should be checkpointing to disk
-        if applied_index % 1000 == 0 && applied_index > 1000 {
-            // XXX: There's a bug with compacting in MemStorageCore, where it can cause
-            // a 'need non-empty snapshot' error, because it creates an empty snapshot. Therefore,
-            // we always leave a bunch of entries in the Raft log, instead of compacting all the way to the latest index
-            if let Err(error) = raft_node.mut_store().wl().compact(applied_index - 1000) {
+        // Attempt to compact the log once it reaches the compaction threshold
+        // TODO: if the log becomes too full we might OOM. Change this to write to disk
+        if self.storage_size.load(Ordering::SeqCst) > COMPACTION_THRESHOLD {
+            // TODO: Snapshots aren't implemented, so ensure that we keep any entries
+            // that still need to be replicated to a follower(s)
+            let mut compact_to = match raft_node.raft.state {
+                StateRole::Leader => {
+                    latest_applied_on_all_followers(self.node_id, raft_node.raft.prs())
+                }
+                StateRole::Follower => applied_index,
+                StateRole::Candidate | StateRole::PreCandidate => applied_index,
+            };
+            if compact_to > 0 {
+                compact_to -= 1;
+            }
+            if let Err(error) = raft_node.mut_store().wl().compact(compact_to) {
                 match error {
                     Error::Store(store_error) => match store_error {
                         StorageError::Compacted => {} // no-op
@@ -414,6 +448,17 @@ impl RaftNode {
                     }
                 }
             }
+            let last = raft_node.get_store().last_index().unwrap();
+            let first = raft_node.get_store().first_index().unwrap();
+            let mut new_size = 0u64;
+            let entries = raft_node
+                .get_store()
+                .entries(first, last, 999_999_999)
+                .unwrap();
+            for entry in entries {
+                new_size += entry.compute_size() as u64;
+            }
+            self.storage_size.store(new_size, Ordering::SeqCst);
         }
 
         // TODO: once drain_filter is stable, it could be used to make this a lot nicer
