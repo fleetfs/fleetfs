@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{error, info, warn};
 use raft::eraftpb::Message;
 use raft::prelude::EntryType;
 use raft::storage::MemStorage;
@@ -450,7 +450,14 @@ impl RaftNode {
         // TODO: should be checkpointing to disk
         // Attempt to compact the log once it reaches the compaction threshold
         // TODO: if the log becomes too full we might OOM. Change this to write to disk
-        if self.storage_size.load(Ordering::SeqCst) > COMPACTION_THRESHOLD {
+        let storage_size = self.storage_size.load(Ordering::SeqCst);
+        if storage_size > COMPACTION_THRESHOLD {
+            if storage_size > 2 * COMPACTION_THRESHOLD {
+                warn!(
+                    "Raft log storage has exceeded memory limit. Current size: {} bytes",
+                    storage_size
+                );
+            }
             // TODO: Snapshots aren't implemented, so ensure that we keep any entries
             // that still need to be replicated to a follower(s)
             let mut compact_to = match raft_node.raft.state {
