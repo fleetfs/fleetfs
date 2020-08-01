@@ -77,12 +77,14 @@ echo "generic/263" >> xfs_excludes.txt
 echo "generic/075" >> xfs_excludes.txt
 echo "generic/112" >> xfs_excludes.txt
 echo "generic/184" >> xfs_excludes.txt
-echo "generic/423" >> xfs_excludes.txt
 echo "generic/426" >> xfs_excludes.txt
 echo "generic/467" >> xfs_excludes.txt
 echo "generic/469" >> xfs_excludes.txt
 echo "generic/477" >> xfs_excludes.txt
 echo "generic/484" >> xfs_excludes.txt
+
+# TODO: requires fifo support
+echo "generic/423" >> xfs_excludes.txt
 
 # TODO: requires ulimit support for limiting file size
 echo "generic/394" >> xfs_excludes.txt
