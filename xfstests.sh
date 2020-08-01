@@ -128,7 +128,6 @@ echo "generic/089" >> xfs_excludes.txt
 # TODO: fails (from non-quick suite)
 echo "generic/074" >> xfs_excludes.txt
 echo "generic/192" >> xfs_excludes.txt
-echo "generic/354" >> xfs_excludes.txt
 
 # TODO: very slow. Passes, but takes 20min
 echo "generic/438" >> xfs_excludes.txt
