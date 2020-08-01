@@ -107,7 +107,9 @@ impl RaftNode {
             id: node_id,
             peers: peer_ids.clone(),
             learners: vec![],
-            election_tick: 10 * 3,
+            // TODO: this is set much longer than the recommended 10x heartbeat,
+            // because we don't handle leader transitions well (likely will crash)
+            election_tick: 100 * 3,
             heartbeat_tick: 3,
             // TODO: need to restore this from storage
             applied: 0,
