@@ -46,10 +46,8 @@ DIR=/var/tmp/fuse-xfstests/check-fleetfs
 mkdir -p $DIR
 cd /code/fuse-xfstests
 
-# TODO: Fix test 113. It seems to cause future tests to fail in CI
-echo "generic/113" > xfs_excludes.txt
 # TODO: Test 258 doesn't work because libfuse uses u64 type instead of i64 like the Linux kernel uses for timespec.
-echo "generic/258" >> xfs_excludes.txt
+echo "generic/258" > xfs_excludes.txt
 # TODO: Fails
 echo "generic/430" >> xfs_excludes.txt
 echo "generic/431" >> xfs_excludes.txt
