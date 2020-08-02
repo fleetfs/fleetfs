@@ -112,6 +112,9 @@ echo "generic/192" >> xfs_excludes.txt
 
 # TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
 echo "generic/130" >> xfs_excludes.txt
+
+# TODO: uses namespaces and inodes don't seem to get mapped properly
+# this test ends up trying to chmod "/" (the root inode)
 echo "generic/317" >> xfs_excludes.txt
 
 # TODO: requires more complete ACL support
