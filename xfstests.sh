@@ -49,14 +49,15 @@ cd /code/fuse-xfstests
 # TODO: Test 258 doesn't work because libfuse uses u64 type instead of i64 like the Linux kernel uses for timespec.
 echo "generic/258" > xfs_excludes.txt
 
-# TODO: hangs or very slow (> 30min)
-echo "generic/434" >> xfs_excludes.txt
-
 # TODO: requires flock
 echo "generic/478" >> xfs_excludes.txt
 
 # TODO: requires supporting orphaned files, that have an open file handle, but no links
 echo "generic/035" >> xfs_excludes.txt
+echo "generic/426" >> xfs_excludes.txt
+echo "generic/467" >> xfs_excludes.txt
+echo "generic/477" >> xfs_excludes.txt
+echo "generic/484" >> xfs_excludes.txt
 
 # Writes directly to scratch block dev
 echo "generic/062" >> xfs_excludes.txt
@@ -70,14 +71,13 @@ echo "generic/221" >> xfs_excludes.txt
 # TODO: needs fallocate
 echo "generic/263" >> xfs_excludes.txt
 
-# TODO: Broken. Dunno why
+# TODO: part of FSX tests. Unclear why these fail
 echo "generic/075" >> xfs_excludes.txt
 echo "generic/112" >> xfs_excludes.txt
+echo "generic/127" >> xfs_excludes.txt
+
+# TODO: requires support for mknod on character files
 echo "generic/184" >> xfs_excludes.txt
-echo "generic/426" >> xfs_excludes.txt
-echo "generic/467" >> xfs_excludes.txt
-echo "generic/477" >> xfs_excludes.txt
-echo "generic/484" >> xfs_excludes.txt
 
 # TODO: requires fifo support
 echo "generic/423" >> xfs_excludes.txt
@@ -116,9 +116,6 @@ echo "generic/401" >> xfs_excludes.txt
 echo "generic/453" >> xfs_excludes.txt
 echo "generic/454" >> xfs_excludes.txt
 
-# TODO: fails
-echo "generic/127" >> xfs_excludes.txt
-
 # TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
 echo "generic/089" >> xfs_excludes.txt
 
@@ -134,6 +131,7 @@ echo "generic/430" >> xfs_excludes.txt
 echo "generic/431" >> xfs_excludes.txt
 echo "generic/432" >> xfs_excludes.txt
 echo "generic/433" >> xfs_excludes.txt
+echo "generic/434" >> xfs_excludes.txt
 
 FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
 ./check-fleetfs -E xfs_excludes.txt \
