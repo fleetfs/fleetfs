@@ -110,7 +110,8 @@ echo "generic/452" >> xfs_excludes.txt
 echo "generic/003" >> xfs_excludes.txt
 echo "generic/192" >> xfs_excludes.txt
 
-# TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
+# TODO: Passes, but takes ~10min and writes > 20GB. Needs support for writing files with large holes,
+# for this test to be fast
 echo "generic/130" >> xfs_excludes.txt
 
 # TODO: uses namespaces and inodes don't seem to get mapped properly
