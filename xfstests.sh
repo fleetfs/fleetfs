@@ -48,9 +48,6 @@ cd /code/fuse-xfstests
 
 # TODO: Test 258 doesn't work because libfuse uses u64 type instead of i64 like the Linux kernel uses for timespec.
 echo "generic/258" > xfs_excludes.txt
-# TODO: Fails
-echo "generic/430" >> xfs_excludes.txt
-echo "generic/431" >> xfs_excludes.txt
 
 # TODO: hangs or very slow (> 30min)
 echo "generic/434" >> xfs_excludes.txt
@@ -133,6 +130,8 @@ echo "generic/192" >> xfs_excludes.txt
 echo "generic/438" >> xfs_excludes.txt
 
 # TODO: requires COPY_FILE_RANGE support
+echo "generic/430" >> xfs_excludes.txt
+echo "generic/431" >> xfs_excludes.txt
 echo "generic/432" >> xfs_excludes.txt
 echo "generic/433" >> xfs_excludes.txt
 
