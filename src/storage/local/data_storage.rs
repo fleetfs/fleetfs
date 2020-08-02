@@ -136,14 +136,31 @@ impl<T: PeerClient> DataStorage<T> {
         // TODO: hack
         let path = inode.to_string();
         let local_path = self.to_local_path(&path);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&local_path)?;
+        if local_data.is_empty() {
+            // Ensure that the local file has been zero-extended properly.
+            // Otherwise a small write that leaves a hole in the file may not be
+            // zero filled correctly
+            // TODO: this should be optimized to store sparely written files more optimally
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&local_path)
+                .expect("Couldn't create file");
+            let local_size = file.metadata()?.len();
+            if local_size < local_index {
+                file.set_len(local_index)?;
+            }
+        } else {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(&local_path)?;
 
-        file.seek(SeekFrom::Start(local_index))?;
+            file.seek(SeekFrom::Start(local_index))?;
 
-        file.write_all(&local_data)?;
+            file.write_all(&local_data)?;
+        }
         return Ok(local_data.len() as u32);
     }
 
