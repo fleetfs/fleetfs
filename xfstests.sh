@@ -78,6 +78,7 @@ echo "generic/127" >> xfs_excludes.txt
 
 # TODO: requires support for mknod on character files
 echo "generic/184" >> xfs_excludes.txt
+echo "generic/401" >> xfs_excludes.txt
 
 # TODO: requires fifo support
 echo "generic/423" >> xfs_excludes.txt
@@ -95,24 +96,28 @@ echo "generic/105" >> xfs_excludes.txt
 
 # TODO: requires proper suid-bit support
 echo "generic/193" >> xfs_excludes.txt
+echo "generic/314" >> xfs_excludes.txt
 echo "generic/355" >> xfs_excludes.txt
 echo "generic/375" >> xfs_excludes.txt
 echo "generic/444" >> xfs_excludes.txt
 
 # TODO: requires support for mounting read-only
+echo "generic/294" >> xfs_excludes.txt
+echo "generic/306" >> xfs_excludes.txt
 echo "generic/452" >> xfs_excludes.txt
 
 # TODO: requires atime support
 echo "generic/003" >> xfs_excludes.txt
+echo "generic/192" >> xfs_excludes.txt
 
 # TODO: Broken (from scratch_mnt, attr, acl, and quota tests)
 echo "generic/130" >> xfs_excludes.txt
-echo "generic/294" >> xfs_excludes.txt
-echo "generic/306" >> xfs_excludes.txt
-echo "generic/314" >> xfs_excludes.txt
 echo "generic/317" >> xfs_excludes.txt
+
+# TODO: requires more complete ACL support
 echo "generic/319" >> xfs_excludes.txt
-echo "generic/401" >> xfs_excludes.txt
+
+# TODO: requires supporting non-UTF8 xattr keys
 echo "generic/453" >> xfs_excludes.txt
 echo "generic/454" >> xfs_excludes.txt
 
@@ -121,7 +126,6 @@ echo "generic/089" >> xfs_excludes.txt
 
 # TODO: fails (from non-quick suite)
 echo "generic/074" >> xfs_excludes.txt
-echo "generic/192" >> xfs_excludes.txt
 
 # TODO: very slow. Passes, but takes 20min
 echo "generic/438" >> xfs_excludes.txt
