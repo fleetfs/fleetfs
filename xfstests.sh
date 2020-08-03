@@ -128,7 +128,7 @@ echo "generic/454" >> xfs_excludes.txt
 # TODO: Seems to cause a host OOM (even from inside Docker), when run with 84, 87, 88, 100, and 109
 echo "generic/089" >> xfs_excludes.txt
 
-# TODO: fails (from non-quick suite)
+# TODO: very slow. Passes, but takes > 30min
 echo "generic/074" >> xfs_excludes.txt
 
 # TODO: very slow. Passes, but takes 20min
