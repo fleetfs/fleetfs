@@ -71,9 +71,7 @@ echo "generic/221" >> xfs_excludes.txt
 # TODO: needs fallocate
 echo "generic/263" >> xfs_excludes.txt
 
-# TODO: part of FSX tests. Unclear why these fail
-echo "generic/075" >> xfs_excludes.txt
-echo "generic/112" >> xfs_excludes.txt
+# TODO: Passes, but takes ~30min
 echo "generic/127" >> xfs_excludes.txt
 
 # TODO: requires support for mknod on character files
