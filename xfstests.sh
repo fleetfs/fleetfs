@@ -139,6 +139,9 @@ echo "generic/432" >> xfs_excludes.txt
 echo "generic/433" >> xfs_excludes.txt
 echo "generic/434" >> xfs_excludes.txt
 
+# TODO: seems to crash host
+echo "generic/476" >> xfs_excludes.txt
+
 FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.0.0.1:3400" \
 ./check-fleetfs -E xfs_excludes.txt \
 | tee /code/logs/xfstests.log
