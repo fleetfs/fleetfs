@@ -537,7 +537,7 @@ impl NodeClient {
         decode_fast_read_response_inplace(response).map(Clone::clone)
     }
 
-    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>) -> ()>(
+    pub fn read<F: FnOnce(Result<&[u8], ErrorCode>)>(
         &self,
         inode: u64,
         offset: u64,
