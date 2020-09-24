@@ -133,15 +133,17 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
     }
 }
 
-fn as_file_kind(mode: u32) -> FileKind {
-    if mode & libc::S_IFREG != 0 {
+fn as_file_kind(mut mode: u32) -> FileKind {
+    mode &= libc::S_IFMT as u32;
+
+    if mode == libc::S_IFREG as u32 {
         return FileKind::File;
-    } else if mode & libc::S_IFLNK != 0 {
+    } else if mode == libc::S_IFLNK as u32 {
         return FileKind::Symlink;
-    } else if mode & libc::S_IFDIR != 0 {
+    } else if mode == libc::S_IFDIR as u32 {
         return FileKind::Directory;
     } else {
-        unimplemented!();
+        unimplemented!("{}", mode);
     }
 }
 
@@ -318,9 +320,14 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EINVAL);
             return;
         };
-        if (mode & (libc::S_IFREG | libc::S_IFLNK)) == 0 {
+        let file_type = mode & libc::S_IFMT as u32;
+
+        if file_type != libc::S_IFREG as u32
+            && file_type != libc::S_IFLNK as u32
+            && file_type != libc::S_IFDIR as u32
+        {
             // TODO
-            warn!("mknod() implementation is incomplete. Only supports regular files and symlinks. Got {:o}", mode);
+            warn!("mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}", mode);
             reply.error(libc::ENOSYS);
         } else {
             match self.client.create(
