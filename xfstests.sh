@@ -148,6 +148,11 @@ FLEETFS_EXTRA_MOUNT_OPTIONS="" TEST_SERVER="127.0.0.1:3300" SCRATCH_SERVER="127.
 
 export XFSTESTS_EXIT_STATUS=${PIPESTATUS[0]}
 
+if [ $XFSTESTS_EXIT_STATUS ]
+then
+  cat /code/logs/*.log
+fi
+
 rm -rf ${DATA_DIR}
 rm -rf ${DATA_DIR2}
 rm -rf ${SCRATCH_DIR}
