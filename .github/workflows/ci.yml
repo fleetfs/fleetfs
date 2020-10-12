@@ -36,7 +36,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo-deny
-        run: cargo install --force cargo-deny --locked
+        run: cargo install --force --version 0.6.6 cargo-deny --locked
 
       - name: Run tests
         run: INTERACTIVE="" make test
