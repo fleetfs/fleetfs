@@ -13,6 +13,7 @@ use crate::base::check_access;
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use bytes::{Buf, Bytes};
+use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
     Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
@@ -47,15 +48,17 @@ struct CachedRead {
 pub struct FleetFUSE {
     client: NodeClient,
     next_file_handle: AtomicU64,
+    direct_io: bool,
     file_handles: Mutex<HashMap<u64, FileHandleAttributes>>,
     read_ahead_cache: Mutex<HashMap<u64, CachedRead>>,
 }
 
 impl FleetFUSE {
-    pub fn new(server_ip_port: SocketAddr) -> FleetFUSE {
+    pub fn new(server_ip_port: SocketAddr, direct_io: bool) -> FleetFUSE {
         FleetFUSE {
             client: NodeClient::new(server_ip_port),
             next_file_handle: AtomicU64::new(1),
+            direct_io,
             file_handles: Mutex::new(HashMap::new()),
             read_ahead_cache: Mutex::new(HashMap::new()),
         }
@@ -551,7 +554,8 @@ impl Filesystem for FleetFUSE {
                     req.gid(),
                     access_mask as u32,
                 ) {
-                    reply.opened(self.allocate_file_handle(read, write), 0);
+                    let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
+                    reply.opened(self.allocate_file_handle(read, write), flags);
                     return;
                 } else {
                     reply.error(libc::EACCES);
@@ -716,7 +720,8 @@ impl Filesystem for FleetFUSE {
                     req.gid(),
                     access_mask as u32,
                 ) {
-                    reply.opened(self.allocate_file_handle(read, write), 0);
+                    let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
+                    reply.opened(self.allocate_file_handle(read, write), flags);
                     return;
                 } else {
                     reply.error(libc::EACCES);
@@ -943,13 +948,14 @@ impl Filesystem for FleetFUSE {
             as_file_kind(mode),
         ) {
             Ok(attr) => {
+                let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                 // TODO: implement flags
                 reply.created(
                     &Duration::new(0, 0),
                     &attr,
                     0,
                     self.allocate_file_handle(read, write),
-                    0,
+                    flags,
                 )
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),

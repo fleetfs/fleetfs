@@ -10,10 +10,10 @@ use crate::storage::Node;
 use log::debug;
 use log::warn;
 use log::LevelFilter;
-use std::ffi::OsStr;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 use crate::generated::ErrorCode;
+use fuser::MountOption;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -242,23 +242,23 @@ fn main() -> Result<(), ErrorCode> {
             "Connecting to server {} and mounting FUSE at {}",
             &server_ip_port, &mount_point
         );
-        let mut fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o")];
-        let mut options = "fsname=fleetfs,auto_unmount".to_string();
+        let mut options = vec![
+            MountOption::FSName("fleetfs".to_string()),
+            MountOption::AutoUnmount,
+        ];
         if direct_io {
             println!("Using Direct IO");
-            options.push_str(",direct_io");
         }
         if let Ok(enabled) = fuse_allow_other_enabled() {
             if enabled {
-                options.push_str(",allow_other");
+                options.push(MountOption::AllowOther);
             }
         } else {
             eprintln!("Unable to read /etc/fuse.conf");
         }
 
-        fuse_args.push(&OsStr::new(&options));
-        let fs = FleetFUSE::new(server_ip_port);
-        fuser::mount(fs, &mount_point, &fuse_args).unwrap();
+        let fs = FleetFUSE::new(server_ip_port, direct_io);
+        fuser::mount2(fs, &mount_point, &options).unwrap();
     }
 
     return Ok(());
