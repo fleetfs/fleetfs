@@ -6,7 +6,6 @@
 FleetFS distributed filesystem
 
 ## Development
-* `apt install libfuse-dev` (needed by `fuse` dependency)
 * `apt install flatbuffers-compiler` (https://github.com/google/flatbuffers)
 * rustup component add rustfmt
 * rustup component add clippy
