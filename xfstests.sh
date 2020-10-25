@@ -150,6 +150,7 @@ export XFSTESTS_EXIT_STATUS=${PIPESTATUS[0]}
 
 if [ $XFSTESTS_EXIT_STATUS ]
 then
+  ps auxw
   cat /code/logs/*.log
 fi
 
