@@ -115,24 +115,20 @@ impl Node {
         let remote_rafts = Arc::new(self.remote_rafts);
         let raft_manager_cloned = raft_manager.clone();
         let server = async move {
-            let mut listener = match TcpListener::bind(bind_address).await {
+            let listener = match TcpListener::bind(bind_address).await {
                 Ok(x) => x,
                 Err(e) => {
                     error!("Error binding listener: {}", e);
                     return;
                 }
             };
-            let mut sockets = listener.incoming();
             loop {
-                let socket = match sockets.next().await {
-                    None => return,
-                    Some(connection) => match connection {
-                        Ok(x) => x,
-                        Err(e) => {
-                            debug!("Client error on connect: {}", e);
-                            continue;
-                        }
-                    },
+                let socket = match listener.accept().await {
+                    Ok((sock, _)) => sock,
+                    Err(e) => {
+                        debug!("Client error on connect: {}", e);
+                        continue;
+                    }
                 };
                 spawn_connection_handler(
                     socket,
@@ -152,11 +148,10 @@ impl Node {
         .flatten();
 
         // TODO: currently we run single threaded to uncover deadlocks more easily
-        let mut runtime = tokio::runtime::Builder::new()
-            .threaded_scheduler()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_io()
             .enable_time()
-            .core_threads(1)
+            .worker_threads(1)
             .build()
             .unwrap();
         runtime.spawn(server);
