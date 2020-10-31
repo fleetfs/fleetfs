@@ -11,9 +11,9 @@ exclude = ["*.sh", "cloud_benchmark/"]
 [dependencies]
 futures = "0.3"
 futures-util = "0.3"
-tokio-util = { version = "0.3", features = ['codec'] }
-tokio = { version = "0.2", features = ['io-driver', 'io-util', 'tcp', 'time', 'rt-threaded', 'stream'] }
-clap = "2.32"
+tokio-util = { version = "0.5", features = ['codec'] }
+tokio = { version = "0.3.0", features = ['io-util', 'time', 'rt-multi-thread', 'net', 'stream'] }
+clap = "2"
 log = "0.4"
 env_logger = "0.7"
 fuser = { version = "0.5", features = ['abi-7-19'], default-features = false }
