@@ -63,13 +63,13 @@ fn parse_xattr_namespace(key: &str) -> Result<XattrNamespace, ErrorCode> {
 
 fn xattr_access_check(
     key: &str,
-    access_mask: u32,
+    access_mask: i32,
     inode_attrs: &InodeAttributes,
     context: &UserContext,
 ) -> Result<(), ErrorCode> {
     match parse_xattr_namespace(key)? {
         XattrNamespace::SECURITY => {
-            if access_mask != libc::R_OK as u32 && context.uid() != 0 {
+            if access_mask != libc::R_OK && context.uid() != 0 {
                 return Err(ErrorCode::OperationNotPermitted);
             }
         }
@@ -204,7 +204,7 @@ impl MetadataStorage {
             parent_attrs.mode,
             context.uid(),
             context.gid(),
-            libc::X_OK as u32,
+            libc::X_OK,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
@@ -221,7 +221,7 @@ impl MetadataStorage {
     ) -> Result<Vec<u8>, ErrorCode> {
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
-        xattr_access_check(key, libc::R_OK as u32, inode_attrs, &context)?;
+        xattr_access_check(key, libc::R_OK, inode_attrs, &context)?;
 
         inode_attrs
             .xattrs
@@ -249,7 +249,7 @@ impl MetadataStorage {
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
-        xattr_access_check(key, libc::W_OK as u32, inode_attrs, &context)?;
+        xattr_access_check(key, libc::W_OK, inode_attrs, &context)?;
         inode_attrs.xattrs.insert(key.to_string(), value.to_vec());
         inode_attrs.last_metadata_changed = now();
 
@@ -266,7 +266,7 @@ impl MetadataStorage {
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
-        xattr_access_check(key, libc::W_OK as u32, inode_attrs, &context)?;
+        xattr_access_check(key, libc::W_OK, inode_attrs, &context)?;
         if inode_attrs.xattrs.remove(key).is_none() {
             return Err(ErrorCode::MissingXattrKey);
         }
@@ -324,7 +324,7 @@ impl MetadataStorage {
                 inode_attrs.mode,
                 context.uid(),
                 context.gid(),
-                libc::W_OK as u32,
+                libc::W_OK,
             )
         {
             return Err(ErrorCode::AccessDenied);
@@ -453,7 +453,7 @@ impl MetadataStorage {
             parent_attrs.mode,
             context.uid(),
             context.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
@@ -487,7 +487,7 @@ impl MetadataStorage {
             parent_attrs.mode,
             context.uid(),
             context.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
@@ -560,7 +560,7 @@ impl MetadataStorage {
             inode_attrs.mode,
             context.uid(),
             context.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
@@ -607,7 +607,7 @@ impl MetadataStorage {
             parent_attrs.mode,
             context.uid(),
             context.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         ) {
             return Err(ErrorCode::AccessDenied);
         }
