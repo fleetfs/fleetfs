@@ -15,8 +15,9 @@ use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use bytes::{Buf, Bytes};
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
-    Filesystem, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
+    Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
+    ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
+    TimeOrNow,
 };
 use libc::ENOSYS;
 use std::collections::HashMap;
@@ -151,7 +152,7 @@ fn as_file_kind(mut mode: u32) -> FileKind {
 }
 
 impl Filesystem for FleetFUSE {
-    fn init(&mut self, _req: &Request) -> Result<(), c_int> {
+    fn init(&mut self, _req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
         Ok(())
     }
 
@@ -196,10 +197,9 @@ impl Filesystem for FleetFUSE {
         uid: Option<u32>,
         gid: Option<u32>,
         size: Option<u64>,
-        atime: Option<SystemTime>,
-        atime_now: bool,
-        mtime: Option<SystemTime>,
-        mtime_now: bool,
+        atime: Option<TimeOrNow>,
+        mtime: Option<TimeOrNow>,
+        _ctime: Option<SystemTime>,
         fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
@@ -268,20 +268,34 @@ impl Filesystem for FleetFUSE {
                 "utimens() called with {:?}, {:?}, {:?}",
                 inode, atime, mtime
             );
-            let atimestamp = if atime_now {
-                Some(Timestamp::new(0, libc::UTIME_NOW as i32))
-            } else {
-                atime
-                    .map(|x| x.duration_since(UNIX_EPOCH).unwrap())
-                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32))
-            };
-            let mtimestamp = if mtime_now {
-                Some(Timestamp::new(0, libc::UTIME_NOW as i32))
-            } else {
-                mtime
-                    .map(|x| x.duration_since(UNIX_EPOCH).unwrap())
-                    .map(|x| Timestamp::new(x.as_secs() as i64, x.subsec_nanos() as i32))
-            };
+            let atimestamp = atime.map(|time_or_now| match time_or_now {
+                TimeOrNow::SpecificTime(x) => {
+                    let (seconds, nanos) = match x.duration_since(UNIX_EPOCH) {
+                        Ok(x) => (x.as_secs() as i64, x.subsec_nanos() as i32),
+                        // We get an error if the timestamp if before the epoch
+                        Err(error) => (
+                            -(error.duration().as_secs() as i64),
+                            error.duration().subsec_nanos() as i32,
+                        ),
+                    };
+                    Timestamp::new(seconds, nanos)
+                }
+                TimeOrNow::Now => Timestamp::new(0, libc::UTIME_NOW as i32),
+            });
+            let mtimestamp = mtime.map(|time_or_now| match time_or_now {
+                TimeOrNow::SpecificTime(x) => {
+                    let (seconds, nanos) = match x.duration_since(UNIX_EPOCH) {
+                        Ok(x) => (x.as_secs() as i64, x.subsec_nanos() as i32),
+                        // We get an error if the timestamp if before the epoch
+                        Err(error) => (
+                            -(error.duration().as_secs() as i64),
+                            error.duration().subsec_nanos() as i32,
+                        ),
+                    };
+                    Timestamp::new(seconds, nanos)
+                }
+                TimeOrNow::Now => Timestamp::new(0, libc::UTIME_NOW as i32),
+            });
             if let Err(error_code) = self.client.utimens(
                 inode,
                 atimestamp,
@@ -313,6 +327,7 @@ impl Filesystem for FleetFUSE {
         parent: u64,
         name: &OsStr,
         mode: u32,
+        _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
@@ -347,7 +362,15 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn mkdir(&mut self, req: &Request, parent: u64, name: &OsStr, mode: u32, reply: ReplyEntry) {
+    fn mkdir(
+        &mut self,
+        req: &Request,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        _umask: u32,
+        reply: ReplyEntry,
+    ) {
         debug!("mkdir() called with {:?} {:?} {:o}", parent, name, mode);
         let name = if let Some(value) = name.to_str() {
             value
@@ -460,6 +483,7 @@ impl Filesystem for FleetFUSE {
         name: &OsStr,
         new_parent: u64,
         new_name: &OsStr,
+        _flags: u32,
         reply: ReplyEmpty,
     ) {
         let name = if let Some(value) = name.to_str() {
@@ -519,7 +543,7 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn open(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
         let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
             libc::O_RDONLY => {
@@ -552,7 +576,7 @@ impl Filesystem for FleetFUSE {
                     attr.perm,
                     req.uid(),
                     req.gid(),
-                    access_mask as u32,
+                    access_mask,
                 ) {
                     let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                     reply.opened(self.allocate_file_handle(read, write), flags);
@@ -573,6 +597,8 @@ impl Filesystem for FleetFUSE {
         fh: u64,
         offset: i64,
         size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
         debug!("read() called on {:?}", inode);
@@ -646,7 +672,9 @@ impl Filesystem for FleetFUSE {
         fh: u64,
         offset: i64,
         data: &[u8],
-        _flags: u32,
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
         debug!("write() called with {:?}", inode);
@@ -671,8 +699,8 @@ impl Filesystem for FleetFUSE {
         _req: &Request,
         inode: u64,
         fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
@@ -690,7 +718,7 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn opendir(&mut self, req: &Request, inode: u64, flags: u32, reply: ReplyOpen) {
+    fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
         let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
             libc::O_RDONLY => {
@@ -718,7 +746,7 @@ impl Filesystem for FleetFUSE {
                     attr.perm,
                     req.uid(),
                     req.gid(),
-                    access_mask as u32,
+                    access_mask,
                 ) {
                     let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                     reply.opened(self.allocate_file_handle(read, write), flags);
@@ -762,7 +790,7 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn releasedir(&mut self, _req: &Request, inode: u64, fh: u64, _flags: u32, reply: ReplyEmpty) {
+    fn releasedir(&mut self, _req: &Request, inode: u64, fh: u64, _flags: i32, reply: ReplyEmpty) {
         debug!("releasedir() called on {:?} {}", inode, fh);
         self.deallocate_file_handle(fh);
         reply.ok();
@@ -807,7 +835,7 @@ impl Filesystem for FleetFUSE {
         inode: u64,
         name: &OsStr,
         value: &[u8],
-        _flags: u32,
+        _flags: i32,
         _position: u32,
         reply: ReplyEmpty,
     ) {
@@ -898,7 +926,7 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn access(&mut self, req: &Request, inode: u64, mask: u32, reply: ReplyEmpty) {
+    fn access(&mut self, req: &Request, inode: u64, mask: i32, reply: ReplyEmpty) {
         debug!("access() called with {:?} {:?}", inode, mask);
         match self.client.getattr(inode) {
             Ok(attr) => {
@@ -918,7 +946,8 @@ impl Filesystem for FleetFUSE {
         parent: u64,
         name: &OsStr,
         mode: u32,
-        flags: u32,
+        _umask: u32,
+        flags: i32,
         reply: ReplyCreate,
     ) {
         debug!("create() called with {:?} {:?}", parent, name);
@@ -970,7 +999,7 @@ impl Filesystem for FleetFUSE {
         _lock_owner: u64,
         _start: u64,
         _end: u64,
-        _typ: u32,
+        _typ: i32,
         _pid: u32,
         reply: ReplyLock,
     ) {
@@ -985,7 +1014,7 @@ impl Filesystem for FleetFUSE {
         _lock_owner: u64,
         _start: u64,
         _end: u64,
-        _typ: u32,
+        _typ: i32,
         _pid: u32,
         _sleep: bool,
         reply: ReplyEmpty,

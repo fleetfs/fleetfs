@@ -482,7 +482,7 @@ fn rename_check_access(
         parent_attrs.mode,
         context.uid(),
         context.gid(),
-        libc::W_OK as u32,
+        libc::W_OK,
     ) {
         return Err(ErrorCode::AccessDenied);
     }
@@ -502,7 +502,7 @@ fn rename_check_access(
         new_parent_attrs.mode,
         context.uid(),
         context.gid(),
-        libc::W_OK as u32,
+        libc::W_OK,
     ) {
         return Err(ErrorCode::AccessDenied);
     }
@@ -536,7 +536,7 @@ fn rename_check_access(
             inode_attrs.mode,
             context.uid(),
             context.gid(),
-            libc::W_OK as u32,
+            libc::W_OK,
         )
     {
         return Err(ErrorCode::AccessDenied);
