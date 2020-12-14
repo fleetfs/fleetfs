@@ -10,8 +10,8 @@ exclude = ["*.sh", "cloud_benchmark/"]
 
 [dependencies]
 futures = "0.3"
-futures-util = "0.3"
-tokio-util = { version = "0.5", features = ['codec'] }
+futures-util = "0.3.8"
+tokio-util = { version = "0.5.1", features = ['codec'] }
 tokio = { version = "0.3.0", features = ['io-util', 'time', 'rt-multi-thread', 'net', 'stream'] }
 clap = "2"
 log = "0.4"
