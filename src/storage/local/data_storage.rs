@@ -69,7 +69,7 @@ impl<T: PeerClient> DataStorage<T> {
     pub fn new(local_node_id: u64, data_dir: &str, peers: HashMap<u64, T>) -> DataStorage<T> {
         let mut sorted: Vec<u64> = peers.keys().cloned().collect();
         sorted.push(local_node_id);
-        sorted.sort();
+        sorted.sort_unstable();
         sorted.dedup_by(|a, b| a == b);
         let local_rank = sorted.iter().position(|x| *x == local_node_id).unwrap() as u64;
         DataStorage {

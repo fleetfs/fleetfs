@@ -37,7 +37,7 @@ impl LocalContext {
         for peer in self.peers.iter() {
             ids.push(node_id_from_address(peer));
         }
-        ids.sort();
+        ids.sort_unstable();
 
         ids.iter().position(|x| *x == self.node_id).unwrap()
     }
@@ -47,7 +47,7 @@ impl LocalContext {
         for peer in self.peers.iter() {
             ids.push(node_id_from_address(peer));
         }
-        ids.sort();
+        ids.sort_unstable();
 
         self.peers
             .iter()
