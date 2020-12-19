@@ -395,8 +395,8 @@ mod tests {
         // Do a bunch of random writes
         let num_writes = 1000;
         for _ in 0..num_writes {
-            let size = rand::thread_rng().gen_range(0, data.len());
-            let offset = rand::thread_rng().gen_range(0, data.len() - size);
+            let size = rand::thread_rng().gen_range(0..data.len());
+            let offset = rand::thread_rng().gen_range(0..(data.len() - size));
             for i in 0..size {
                 data[offset + i] = data[offset + i].wrapping_add(1);
             }

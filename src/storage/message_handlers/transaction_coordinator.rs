@@ -53,7 +53,7 @@ fn create_inode_request<'a>(
 ) -> GenericRequest<'a> {
     let mut request_builder = CreateInodeRequestBuilder::new(builder);
     // TODO: actually load balance
-    request_builder.add_raft_group(rand::thread_rng().gen_range(0, total_raft_groups));
+    request_builder.add_raft_group(rand::thread_rng().gen_range(0..total_raft_groups));
     request_builder.add_uid(uid);
     request_builder.add_gid(gid);
     request_builder.add_mode(mode);
