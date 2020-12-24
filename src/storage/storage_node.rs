@@ -1,9 +1,7 @@
 use std::fs;
 
 use flatbuffers::FlatBufferBuilder;
-use futures::future::{lazy, ready};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::prelude::*;
 use tokio_util::codec::length_delimited;
 
 use log::{debug, error};
@@ -19,8 +17,8 @@ use std::time::Duration;
 use crate::base::LocalContext;
 use crate::client::RemoteRaftGroups;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
-use futures_util::future::FutureExt;
 use futures_util::stream::StreamExt;
+use tokio::io::AsyncWriteExt;
 
 fn spawn_connection_handler(
     mut socket: TcpStream,
@@ -139,13 +137,13 @@ impl Node {
             }
         };
 
-        let background_raft = lazy(|_| {
-            tokio::time::interval(Duration::from_millis(100)).for_each(move |_| {
+        let background_raft = async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                interval.tick().await;
                 raft_manager_cloned.background_tick();
-                ready(())
-            })
-        })
-        .flatten();
+            }
+        };
 
         // TODO: currently we run single threaded to uncover deadlocks more easily
         let runtime = tokio::runtime::Builder::new_multi_thread()
