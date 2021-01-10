@@ -87,6 +87,9 @@ echo "generic/394" >> xfs_excludes.txt
 # TODO: requires lock support
 echo "generic/504" >> xfs_excludes.txt
 
+# TODO: requires RENAME_EXCHANGE support
+echo "generic/025" >> xfs_excludes.txt
+
 # TODO: requires support for system.posix_acl_access xattr sync'ing to file permissions
 # Some information about it linked from here: https://stackoverflow.com/questions/29569408/documentation-of-posix-acl-access-and-friends
 echo "generic/099" >> xfs_excludes.txt
