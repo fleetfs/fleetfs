@@ -539,6 +539,6 @@ impl RaftNode {
 
         self.process_raft_queue();
 
-        return receiver.map(|x| x.unwrap_or_else(|_| Err(ErrorCode::Uncategorized)));
+        return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
     }
 }
