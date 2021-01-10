@@ -12,7 +12,6 @@ use log::warn;
 use crate::base::check_access;
 use crate::client::NodeClient;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
-use bytes::{Buf, Bytes};
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
@@ -23,14 +22,7 @@ use libc::ENOSYS;
 use std::collections::HashMap;
 use std::os::raw::c_int;
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-const READ_AHEAD_CACHE_TTL_MS: u64 = 1;
-// Fuse splits reads larger than 128kb into multiple smaller reads
-const FUSE_MAX_READ_SIZE: u32 = 128 * 1024;
-// TODO: should dynamically size this, based on prediction of what client process will read
-// TODO: should also track wasted read aheads
-const SPECULATIVE_READ_SIZE: u32 = 8 * FUSE_MAX_READ_SIZE;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const FMODE_EXEC: i32 = 0x20;
 
@@ -39,19 +31,11 @@ struct FileHandleAttributes {
     write: bool,
 }
 
-struct CachedRead {
-    data: Bytes,
-    file_offset: u64,
-    process_id: u32,
-    read_at: Instant,
-}
-
 pub struct FleetFUSE {
     client: NodeClient,
     next_file_handle: AtomicU64,
     direct_io: bool,
     file_handles: Mutex<HashMap<u64, FileHandleAttributes>>,
-    read_ahead_cache: Mutex<HashMap<u64, CachedRead>>,
 }
 
 impl FleetFUSE {
@@ -61,7 +45,6 @@ impl FleetFUSE {
             next_file_handle: AtomicU64::new(1),
             direct_io,
             file_handles: Mutex::new(HashMap::new()),
-            read_ahead_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -82,11 +65,6 @@ impl FleetFUSE {
             .lock()
             .expect("file_handles lock is poisoned");
         handles.remove(&handle);
-        let mut read_cache = self
-            .read_ahead_cache
-            .lock()
-            .expect("read_ahead_cache lock is poisoned");
-        read_cache.remove(&handle);
     }
 
     fn check_read(&self, handle: u64) -> bool {
@@ -592,7 +570,7 @@ impl Filesystem for FleetFUSE {
 
     fn read(
         &mut self,
-        req: &Request,
+        _req: &Request,
         inode: u64,
         fh: u64,
         offset: i64,
@@ -608,61 +586,11 @@ impl Filesystem for FleetFUSE {
             return;
         }
 
-        {
-            let mut read_cache = self
-                .read_ahead_cache
-                .lock()
-                .expect("read_ahead_cache lock is poisoned");
-            if let Some(cached) = read_cache.get_mut(&fh) {
-                if cached.file_offset == offset as u64
-                    && req.pid() == cached.process_id
-                    && size <= cached.data.len() as u32
-                    && cached.read_at.elapsed() < Duration::from_millis(READ_AHEAD_CACHE_TTL_MS)
-                {
-                    reply.data(&cached.data[0..size as usize]);
-                    cached.data.advance(size as usize);
-                    cached.file_offset += u64::from(size);
-                    // TODO: should drop cached reads that have been fully consumed
-                    return;
-                }
-            }
-        }
-
-        if size >= FUSE_MAX_READ_SIZE {
-            match self
-                .client
-                .read_to_vec(inode, offset as u64, SPECULATIVE_READ_SIZE)
-            {
-                Ok(data) => {
-                    let mut read_cache = self
-                        .read_ahead_cache
-                        .lock()
-                        .expect("read_ahead_cache lock is poisoned");
-                    if data.len() > size as usize {
-                        reply.data(&data[0..size as usize]);
-                        let mut data_bytes = Bytes::from(data);
-                        data_bytes.advance(size as usize);
-                        let cached = CachedRead {
-                            data: data_bytes,
-                            file_offset: (offset + i64::from(size)) as u64,
-                            process_id: req.pid(),
-                            read_at: Instant::now(),
-                        };
-
-                        read_cache.insert(fh, cached);
-                    } else {
-                        reply.data(&data);
-                    }
-                }
+        self.client
+            .read(inode, offset as u64, size, move |result| match result {
+                Ok(data) => reply.data(data),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
-            }
-        } else {
-            self.client
-                .read(inode, offset as u64, size, move |result| match result {
-                    Ok(data) => reply.data(data),
-                    Err(error_code) => reply.error(into_fuse_error(error_code)),
-                });
-        }
+            });
     }
 
     fn write(
