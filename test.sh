@@ -304,7 +304,17 @@ fi
 kill $FUSE_PID
 wait $FUSE_PID
 
-if rmdir ${DIR}; then
+# Retry loop because FUSE auto-unmount works asynchronously via a guard process (fusermount3)
+n=0
+until [ "$n" -ge 10 ]
+do
+   rmdir ${DIR} && break
+   echo "retrying rmdir"
+   n=$((n+1))
+   sleep 1
+done
+
+if [ "$n" -lt 10 ]; then
     echo -e "$GREEN OK END $NC"
 else
     echo -e "$RED FAILED cleaning up mount point $NC"
