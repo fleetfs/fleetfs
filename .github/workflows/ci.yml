@@ -13,6 +13,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y libfuse-dev build-essential xattr flatbuffers-compiler
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
 
       - uses: actions-rs/toolchain@v1
         with:
