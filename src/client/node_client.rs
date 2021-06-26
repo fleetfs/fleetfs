@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
-use thread_local::CachedThreadLocal;
+use thread_local::ThreadLocal;
 
 use crate::base::{finalize_request, response_or_error};
 use crate::client::tcp_client::TcpClient;
@@ -70,16 +70,16 @@ fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
 
 pub struct NodeClient {
     tcp_client: TcpClient,
-    response_buffer: CachedThreadLocal<RefCell<Vec<u8>>>,
-    request_builder: CachedThreadLocal<RefCell<FlatBufferBuilder<'static>>>,
+    response_buffer: ThreadLocal<RefCell<Vec<u8>>>,
+    request_builder: ThreadLocal<RefCell<FlatBufferBuilder<'static>>>,
 }
 
 impl NodeClient {
     pub fn new(server_ip_port: SocketAddr) -> NodeClient {
         NodeClient {
             tcp_client: TcpClient::new(server_ip_port),
-            response_buffer: CachedThreadLocal::new(),
-            request_builder: CachedThreadLocal::new(),
+            response_buffer: ThreadLocal::new(),
+            request_builder: ThreadLocal::new(),
         }
     }
 
