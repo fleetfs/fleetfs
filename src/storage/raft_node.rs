@@ -1,8 +1,8 @@
 use log::{error, info, warn};
 use raft::eraftpb::Message;
-use raft::prelude::EntryType;
+use raft::prelude::{ConfChange, ConfChangeType, EntryType};
 use raft::storage::MemStorage;
-use raft::{Config, Error, ProgressSet, RawNode, StateRole, StorageError};
+use raft::{Config, Error, ProgressTracker, RawNode, StateRole, StorageError};
 use std::sync::Mutex;
 
 use crate::base::node_contains_raft_group;
@@ -22,6 +22,7 @@ use futures::FutureExt;
 use futures::{Future, TryFutureExt};
 use raft::storage::Storage;
 use rand::Rng;
+use slog::{o, Drain};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::fs;
@@ -52,9 +53,9 @@ type PendingResponse = (
     Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
 );
 
-fn latest_applied_on_all_followers(node_id: u64, progress_set: &ProgressSet) -> u64 {
-    progress_set
-        .voters()
+fn latest_applied_on_all_followers(node_id: u64, progress: &ProgressTracker) -> u64 {
+    progress
+        .iter()
         .filter(|(id, _)| **id != node_id)
         .map(|(_, progress)| progress.matched)
         .min()
@@ -105,8 +106,6 @@ impl RaftNode {
 
         let raft_config = Config {
             id: node_id,
-            peers: peer_ids.clone(),
-            learners: vec![],
             // TODO: this is set much longer than the recommended 10x heartbeat,
             // because we don't handle leader transitions well (likely will crash)
             election_tick: 100 * 3,
@@ -115,11 +114,28 @@ impl RaftNode {
             applied: 0,
             max_size_per_msg: 1024 * 1024 * 1024,
             max_inflight_msgs: 256,
-            tag: format!("peer_{}", node_id),
             ..Default::default()
         };
+        raft_config.validate().unwrap();
         let raft_storage = MemStorage::new();
-        let raft_node = RawNode::new(&raft_config, raft_storage, vec![]).unwrap();
+        // Bridge the messages to the log backend since we use env_logger
+        let slogger = slog::Logger::root(
+            slog_stdlog::StdLog.fuse(),
+            o!("tag" => format!("peer_{}", node_id)),
+        );
+        let mut raft_node = RawNode::new(&raft_config, raft_storage, &slogger).unwrap();
+        // Add the peers
+        // TODO: we should dynamically discover these later and process ConfChange messages in the
+        // message handling loop
+        for &peer in peer_ids.iter() {
+            let mut conf_change = ConfChange {
+                node_id: peer,
+                ..Default::default()
+            };
+            conf_change.set_change_type(ConfChangeType::AddNode);
+            let new_state = raft_node.apply_conf_change(&conf_change).unwrap();
+            raft_node.mut_store().wl().set_conf_state(new_state);
+        }
 
         let path = Path::new(&context.data_dir).join(format!("rgroup_{}", raft_group_id));
         #[allow(clippy::expect_fun_call)]
@@ -326,6 +342,103 @@ impl RaftNode {
         return to_process;
     }
 
+    fn _process_commited_entries(
+        &self,
+        entries: &[raft::prelude::Entry],
+        raft_node: &RawNode<MemStorage>,
+    ) {
+        let mut applied_index = self.applied_index.load(Ordering::SeqCst);
+        for entry in entries {
+            // TODO: probably need to save the term too
+            applied_index = max(applied_index, entry.index);
+
+            if entry.data.is_empty() {
+                // New leaders send empty entries
+                continue;
+            }
+
+            assert_eq!(entry.entry_type, EntryType::EntryNormal);
+
+            let mut pending_responses = self.pending_responses.lock().unwrap();
+
+            let mut uuid = [0; 16];
+            uuid.copy_from_slice(&entry.context[0..16]);
+            let pending_response = pending_responses.remove(&u128::from_le_bytes(uuid));
+            let to_process = self._process_lock_table(entry.data.to_vec(), pending_response);
+
+            for (data, pending_response) in to_process {
+                let request = get_root_as_generic_request(&data);
+                if let Some((builder, sender)) = pending_response {
+                    match commit_write(request, &self.file_storage, builder) {
+                        Ok(response) => sender.send(Ok(response)).ok().unwrap(),
+                        // TODO: handle this somehow. If not all nodes failed, then the filesystem
+                        // is probably corrupted, since some will have applied the write, but not all
+                        // There should only be a few types of messages that can fail here. truncate is one,
+                        // since you can call it with LONG_MAX or some other value that balloons
+                        // the message into a huge write. Probably most other messages can't fail
+                        Err(error_code) => {
+                            // Ignore errors which the user caused
+                            if error_code != ErrorCode::InodeDoesNotExist
+                                && error_code != ErrorCode::DoesNotExist
+                                && error_code != ErrorCode::AccessDenied
+                                && error_code != ErrorCode::OperationNotPermitted
+                                && error_code != ErrorCode::AlreadyExists
+                                && error_code != ErrorCode::NotEmpty
+                                && error_code != ErrorCode::InvalidXattrNamespace
+                                && error_code != ErrorCode::MissingXattrKey
+                            {
+                                error!(
+                                    "Commit failed {:?} {:?}",
+                                    error_code,
+                                    request.request_type()
+                                );
+                            }
+                            sender.send(Err(error_code)).ok().unwrap()
+                        }
+                    }
+                } else {
+                    // Replicas won't have a pending response to reply to, since the node
+                    // that submitted the proposal will reply to the client.
+                    let builder = FlatBufferBuilder::new();
+                    // TODO: pass None for builder to avoid this useless allocation
+                    if let Err(error_code) = commit_write(request, &self.file_storage, builder) {
+                        // TODO: handle this somehow. If not all nodes failed, then the filesystem
+                        // is probably corrupted, since some will have applied the write, but not all.
+                        // There should only be a few types of messages that can fail here. truncate is one,
+                        // since you can call it with LONG_MAX or some other value that balloons
+                        // the message into a huge write. Probably most other messages can't fail
+
+                        // Ignore errors which the user caused
+                        if error_code != ErrorCode::InodeDoesNotExist
+                            && error_code != ErrorCode::DoesNotExist
+                            && error_code != ErrorCode::AccessDenied
+                            && error_code != ErrorCode::OperationNotPermitted
+                            && error_code != ErrorCode::AlreadyExists
+                            && error_code != ErrorCode::NotEmpty
+                            && error_code != ErrorCode::InvalidXattrNamespace
+                            && error_code != ErrorCode::MissingXattrKey
+                        {
+                            error!(
+                                "Commit failed {:?} {:?}",
+                                error_code,
+                                request.request_type()
+                            );
+                        }
+                    }
+                }
+
+                info!(
+                    "Committed write index {} (leader={}): {:?}",
+                    entry.index,
+                    raft_node.raft.leader_id,
+                    request.request_type()
+                );
+            }
+        }
+
+        self.applied_index.store(applied_index, Ordering::SeqCst);
+    }
+
     // Returns the last applied index
     fn _process_raft_queue(&self) -> raft::Result<Vec<Message>> {
         let mut raft_node = self.raft_node.lock().unwrap();
@@ -336,7 +449,7 @@ impl RaftNode {
 
         let mut ready = raft_node.ready();
 
-        if !raft::is_empty_snap(ready.snapshot()) {
+        if !ready.snapshot().is_empty() {
             raft_node
                 .mut_store()
                 .wl()
@@ -356,102 +469,12 @@ impl RaftNode {
             raft_node.mut_store().wl().set_hardstate(hard_state.clone());
         }
 
-        let mut applied_index = self.applied_index.load(Ordering::SeqCst);
-        if let Some(committed_entries) = ready.committed_entries.take() {
-            for entry in committed_entries {
-                // TODO: probably need to save the term too
-                applied_index = max(applied_index, entry.index);
+        self._process_commited_entries(&ready.take_committed_entries(), &raft_node);
 
-                if entry.data.is_empty() {
-                    // New leaders send empty entries
-                    continue;
-                }
-
-                assert_eq!(entry.entry_type, EntryType::EntryNormal);
-
-                let mut pending_responses = self.pending_responses.lock().unwrap();
-
-                let mut uuid = [0; 16];
-                uuid.copy_from_slice(&entry.context[0..16]);
-                let pending_response = pending_responses.remove(&u128::from_le_bytes(uuid));
-                let to_process = self._process_lock_table(entry.data, pending_response);
-
-                for (data, pending_response) in to_process {
-                    let request = get_root_as_generic_request(&data);
-                    if let Some((builder, sender)) = pending_response {
-                        match commit_write(request, &self.file_storage, builder) {
-                            Ok(response) => sender.send(Ok(response)).ok().unwrap(),
-                            // TODO: handle this somehow. If not all nodes failed, then the filesystem
-                            // is probably corrupted, since some will have applied the write, but not all
-                            // There should only be a few types of messages that can fail here. truncate is one,
-                            // since you can call it with LONG_MAX or some other value that balloons
-                            // the message into a huge write. Probably most other messages can't fail
-                            Err(error_code) => {
-                                // Ignore errors which the user caused
-                                if error_code != ErrorCode::InodeDoesNotExist
-                                    && error_code != ErrorCode::DoesNotExist
-                                    && error_code != ErrorCode::AccessDenied
-                                    && error_code != ErrorCode::OperationNotPermitted
-                                    && error_code != ErrorCode::AlreadyExists
-                                    && error_code != ErrorCode::NotEmpty
-                                    && error_code != ErrorCode::InvalidXattrNamespace
-                                    && error_code != ErrorCode::MissingXattrKey
-                                {
-                                    error!(
-                                        "Commit failed {:?} {:?}",
-                                        error_code,
-                                        request.request_type()
-                                    );
-                                }
-                                sender.send(Err(error_code)).ok().unwrap()
-                            }
-                        }
-                    } else {
-                        // Replicas won't have a pending response to reply to, since the node
-                        // that submitted the proposal will reply to the client.
-                        let builder = FlatBufferBuilder::new();
-                        // TODO: pass None for builder to avoid this useless allocation
-                        if let Err(error_code) = commit_write(request, &self.file_storage, builder)
-                        {
-                            // TODO: handle this somehow. If not all nodes failed, then the filesystem
-                            // is probably corrupted, since some will have applied the write, but not all.
-                            // There should only be a few types of messages that can fail here. truncate is one,
-                            // since you can call it with LONG_MAX or some other value that balloons
-                            // the message into a huge write. Probably most other messages can't fail
-
-                            // Ignore errors which the user caused
-                            if error_code != ErrorCode::InodeDoesNotExist
-                                && error_code != ErrorCode::DoesNotExist
-                                && error_code != ErrorCode::AccessDenied
-                                && error_code != ErrorCode::OperationNotPermitted
-                                && error_code != ErrorCode::AlreadyExists
-                                && error_code != ErrorCode::NotEmpty
-                                && error_code != ErrorCode::InvalidXattrNamespace
-                                && error_code != ErrorCode::MissingXattrKey
-                            {
-                                error!(
-                                    "Commit failed {:?} {:?}",
-                                    error_code,
-                                    request.request_type()
-                                );
-                            }
-                        }
-                    }
-
-                    info!(
-                        "Committed write index {} (leader={}): {:?}",
-                        entry.index,
-                        raft_node.raft.leader_id,
-                        request.request_type()
-                    );
-                }
-            }
-        }
-
-        self.applied_index.store(applied_index, Ordering::SeqCst);
         // TODO: should be checkpointing to disk
         // Attempt to compact the log once it reaches the compaction threshold
         // TODO: if the log becomes too full we might OOM. Change this to write to disk
+        let applied_index = self.applied_index.load(Ordering::SeqCst);
         let storage_size = self.storage_size.load(Ordering::SeqCst);
         if storage_size > COMPACTION_THRESHOLD {
             if storage_size > 2 * COMPACTION_THRESHOLD {
@@ -485,13 +508,10 @@ impl RaftNode {
                     }
                 }
             }
-            let last = raft_node.get_store().last_index().unwrap();
-            let first = raft_node.get_store().first_index().unwrap();
+            let last = raft_node.store().last_index().unwrap();
+            let first = raft_node.store().first_index().unwrap();
             let mut new_size = 0u64;
-            let entries = raft_node
-                .get_store()
-                .entries(first, last, 999_999_999)
-                .unwrap();
+            let entries = raft_node.store().entries(first, last, 999_999_999).unwrap();
             for entry in entries {
                 new_size += entry.compute_size() as u64;
             }
@@ -509,8 +529,25 @@ impl RaftNode {
             }
         }
 
-        let messages = ready.messages.drain(..).collect();
-        raft_node.advance(ready);
+        if let Err(e) = raft_node.mut_store().wl().append(ready.entries()) {
+            panic!("persist raft log fail: {:?}, need to retry or panic", e);
+        }
+
+        let mut messages = ready.take_messages();
+        messages.extend(ready.take_persisted_messages());
+        let mut light_ready = raft_node.advance(ready);
+
+        if let Some(commit) = light_ready.commit_index() {
+            raft_node
+                .mut_store()
+                .wl()
+                .mut_hard_state()
+                .set_commit(commit);
+        }
+        // Send these messages as well
+        messages.extend(light_ready.take_messages());
+        self._process_commited_entries(&light_ready.take_committed_entries(), &raft_node);
+        raft_node.advance_apply();
 
         Ok(messages)
     }

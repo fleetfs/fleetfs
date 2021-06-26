@@ -40,6 +40,7 @@ impl InodeAttributes {
 }
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 enum XattrNamespace {
     SECURITY,
     SYSTEM,
