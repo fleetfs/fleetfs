@@ -81,7 +81,7 @@ async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]> + Send>(
     // once that's supported in tokio: https://github.com/tokio-rs/tokio/issues/1271
     // We merge them into a single buffer to be sure it's sent a single packet.
     // Otherwise delayed TCP ACKs can add ~40ms of latency: https://eklitzke.org/the-caveats-of-tcp-nodelay
-    request[4..(data.as_ref().len() + 4)].clone_from_slice(&data.as_ref()[..]);
+    request[4..(data.as_ref().len() + 4)].clone_from_slice(data.as_ref());
     stream.write_all(&request).await?;
 
     let mut response_size = vec![0; 4];
