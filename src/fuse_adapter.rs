@@ -556,10 +556,8 @@ impl Filesystem for FleetFUSE {
                 ) {
                     let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                     reply.opened(self.allocate_file_handle(read, write), flags);
-                    return;
                 } else {
                     reply.error(libc::EACCES);
-                    return;
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -609,7 +607,7 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EACCES);
             return;
         }
-        match self.client.write(inode, &data, offset as u64) {
+        match self.client.write(inode, data, offset as u64) {
             Ok(written) => reply.written(written),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
@@ -676,10 +674,8 @@ impl Filesystem for FleetFUSE {
                 ) {
                     let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                     reply.opened(self.allocate_file_handle(read, write), flags);
-                    return;
                 } else {
                     reply.error(libc::EACCES);
-                    return;
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
