@@ -134,8 +134,6 @@ impl Filesystem for FleetFUSE {
         Ok(())
     }
 
-    fn destroy(&mut self, _req: &Request) {}
-
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let name = if let Some(value) = name.to_str() {
             value
