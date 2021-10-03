@@ -25,7 +25,8 @@ flatbuffers = "0.7"
 thread_local = "1.0"
 sha2 = "0.9"
 walkdir = "2.3"
-raft = "0.6"
+# Use our forked version of raft
+raft = { version = "0.6", package = "fleetfs_raft" }
 protobuf = "2.24"
 rand = "0.8"
 bytes = "1.0"
