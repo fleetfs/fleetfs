@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -7,11 +8,15 @@ use crate::base::check_access;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
+use redb::Table;
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
 pub const MAX_NAME_LENGTH: u32 = 255;
 pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024 * 1024;
+
+// Stores mapping of directory inodes to their parent
+const PARENTS_TABLE_NAME: &[u8] = b"parents";
 
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
@@ -123,9 +128,8 @@ pub struct MetadataStorage {
     // Maybe we should revisit that design?
     // Maps directory inodes to maps of name -> inode
     directories: Mutex<HashMap<Inode, DirectoryDescriptor>>,
-    // Stores mapping of directory inodes to their parent
-    directory_parents: Mutex<HashMap<Inode, Inode>>,
     metadata: Mutex<HashMap<Inode, InodeAttributes>>,
+    storage: Mutex<redb::Database>,
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
@@ -134,12 +138,18 @@ pub struct MetadataStorage {
 
 impl MetadataStorage {
     #[allow(clippy::new_without_default)]
-    pub fn new(raft_group: u16, num_raft_groups: u16) -> MetadataStorage {
+    pub fn new(raft_group: u16, num_raft_groups: u16, metadata_dir: &Path) -> MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
-        let mut parents = HashMap::new();
-        parents.insert(ROOT_INODE, ROOT_INODE);
+        let db = unsafe {
+            redb::Database::open(&metadata_dir.join("metadata.redb"), 2 * 1024 * 1024 * 1024)
+                .unwrap()
+        };
+        let mut table = db.open_table(PARENTS_TABLE_NAME).unwrap();
+        let mut txn = table.begin_write().unwrap();
+        txn.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
+        txn.commit().unwrap();
 
         let mut metadata = HashMap::new();
         metadata.insert(
@@ -168,7 +178,7 @@ impl MetadataStorage {
         MetadataStorage {
             metadata: Mutex::new(metadata),
             directories: Mutex::new(directories),
-            directory_parents: Mutex::new(parents),
+            storage: Mutex::new(db),
             next_inode: AtomicU64::new(start_inode),
             num_raft_groups: num_raft_groups as u64,
         }
@@ -278,13 +288,17 @@ impl MetadataStorage {
 
     pub fn readdir(&self, inode: Inode) -> Result<Vec<(Inode, String, FileKind)>, ErrorCode> {
         let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let parents = self
-            .directory_parents
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         if let Some(entries) = directories.get(&inode) {
-            let parent_inode = *parents.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
+            let table: Table<Inode, Inode> = db.open_table(PARENTS_TABLE_NAME).unwrap();
+            let txn = table.read_transaction().unwrap();
+            let parent_inode = txn
+                .get(&inode)
+                .unwrap()
+                .ok_or(ErrorCode::InodeDoesNotExist)?
+                .to_value();
+
             let mut result: Vec<(Inode, String, FileKind)> = entries
                 .iter()
                 .map(|(name, (inode, kind))| (*inode, name.clone(), *kind))
@@ -520,13 +534,13 @@ impl MetadataStorage {
     }
 
     pub fn update_parent(&self, inode: u64, new_parent: u64) -> Result<(), ErrorCode> {
-        let mut parents = self
-            .directory_parents
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
-        parents.insert(inode, new_parent);
+        let mut table = db.open_table(PARENTS_TABLE_NAME).unwrap();
+        let mut txn = table.begin_write().unwrap();
+        txn.insert(&inode, &new_parent).unwrap();
+        txn.commit().unwrap();
 
         Ok(())
     }
@@ -662,11 +676,8 @@ impl MetadataStorage {
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let mut parents = self
-            .directory_parents
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         let inode = self.allocate_inode();
         let size = if kind == FileKind::Directory {
@@ -694,7 +705,10 @@ impl MetadataStorage {
 
         if kind == FileKind::Directory {
             directories.insert(inode, HashMap::new());
-            parents.insert(inode, parent);
+            let mut table = db.open_table(PARENTS_TABLE_NAME).unwrap();
+            let mut txn = table.begin_write().unwrap();
+            txn.insert(&inode, &parent).unwrap();
+            txn.commit().unwrap();
         }
         Ok((inode, inode_metadata))
     }
@@ -706,11 +720,8 @@ impl MetadataStorage {
         count: u32,
     ) -> Result<Option<Inode>, ErrorCode> {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let mut parents = self
-            .directory_parents
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         let inode_attrs = metadata
             .get_mut(&inode)
@@ -721,7 +732,11 @@ impl MetadataStorage {
             let is_directory = inode_attrs.kind == FileKind::Directory;
             metadata.remove(&inode);
             if is_directory {
-                parents.remove(&inode);
+                let mut table: Table<Inode, Inode> = db.open_table(PARENTS_TABLE_NAME).unwrap();
+                let mut txn = table.begin_write().unwrap();
+                txn.remove(&inode).unwrap();
+                txn.commit().unwrap();
+
                 if let Some(entries) = directories.remove(&inode) {
                     assert!(entries.is_empty(), "Deleted a non-empty directory inode");
                 }

@@ -203,6 +203,7 @@ dependencies = [
  "log",
  "protobuf",
  "rand",
+ "redb",
  "sha2",
  "slog",
  "slog-stdlog",
@@ -424,6 +425,15 @@ name = "memchr"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b16bd47d9e329435e309c58469fe0791c2d0d1ba96ec0954152a5ae2b04387dc"
+
+[[package]]
+name = "memmap2"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4647a11b578fead29cdbb34d4adef8dd3dc35b876c9c6d5240d83f205abfe96e"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "mio"
@@ -658,6 +668,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d51e9f596de227fda2ea6c84607f5558e196eeaf43c986b724ba4fb8fdf497e7"
 dependencies = [
  "rand_core",
+]
+
+[[package]]
+name = "redb"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fd6fba25c0e5db3bdbdf8c7048a46554ce0a48c9343f5785f08a3478cd6316c"
+dependencies = [
+ "memmap2",
+ "page_size",
 ]
 
 [[package]]
