@@ -228,7 +228,8 @@ else
     exit
 fi
 
-rm ${DATA_DIR}/data/rgroup_*/* || rm ${DATA_DIR2}/data/rgroup_*/* || rm ${DATA_DIR3}/data/rgroup_*/*
+# Corrupt the filesystem by deletina all the data, but not the metadata
+rm ${DATA_DIR}/data/rgroup_*/data/* || rm ${DATA_DIR2}/data/rgroup_*/data/* || rm ${DATA_DIR3}/data/rgroup_*/data/*
 if ! cargo run -- --server-ip-port 127.0.0.1:3300 --fsck > /dev/null 2>&1; then
     echo -e "$GREEN OK 11 $NC"
 else

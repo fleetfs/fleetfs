@@ -1,5 +1,6 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use log::info;
+use std::fs;
 
 use crate::base::{empty_response, node_id_from_address, FlatBufferWithResponse, ResultResponse};
 use crate::client::TcpPeerClient;
@@ -14,6 +15,7 @@ use crate::storage::ROOT_INODE;
 use futures::Future;
 use futures::FutureExt;
 use std::net::SocketAddr;
+use std::path::Path;
 
 pub fn remove_link_response(
     mut buffer: FlatBufferBuilder,
@@ -71,16 +73,24 @@ impl FileStorage {
         node_id: u64,
         raft_group: u16,
         num_raft_groups: u16,
-        data_dir: &str,
+        storage_dir: &Path,
         peers: &[SocketAddr],
     ) -> FileStorage {
         let peer_clients = peers
             .iter()
             .map(|peer| (node_id_from_address(peer), TcpPeerClient::new(*peer)))
             .collect();
+        let data_dir = storage_dir.join("data");
+        let metadata_dir = storage_dir.join("metadata");
+        fs::create_dir_all(&data_dir)
+            .expect(&format!("Failed to create data dir: {:?}", &data_dir));
+        fs::create_dir_all(&metadata_dir).expect(&format!(
+            "Failed to create metadata dir: {:?}",
+            &metadata_dir
+        ));
         FileStorage {
-            data_storage: DataStorage::new(node_id, data_dir, peer_clients),
-            metadata_storage: MetadataStorage::new(raft_group, num_raft_groups),
+            data_storage: DataStorage::new(node_id, data_dir.to_str().unwrap(), peer_clients),
+            metadata_storage: MetadataStorage::new(raft_group, num_raft_groups, &metadata_dir),
         }
     }
 
