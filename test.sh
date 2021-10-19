@@ -301,6 +301,15 @@ else
     exit
 fi
 
+mkdir -p ${DIR}/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z
+if rm -rf ${DIR}/a ; then
+    echo -e "$GREEN OK 16 $NC"
+else
+    echo -e "$RED FAILED on 16 recursive directory deletion $NC"
+    export TEST_EXIT_STATUS=1
+    exit
+fi
+
 kill $FUSE_PID
 wait $FUSE_PID
 
