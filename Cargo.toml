@@ -12,10 +12,10 @@ exclude = ["*.sh", "cloud_benchmark/"]
 futures = "0.3"
 futures-util = "0.3.8"
 tokio-util = { version = "0.6.0", features = ['codec'] }
-tokio = { version = "1.0", features = ['io-util', 'time', 'rt-multi-thread', 'net'] }
+tokio = { version = "1.12", features = ['io-util', 'time', 'rt-multi-thread', 'net'] }
 clap = "2"
 log = "0.4"
-env_logger = "0.8"
+env_logger = "0.9"
 slog-stdlog = "4.1"
 slog = "2.7" # slog is only used by the raft dependency
 fuser = { version = "0.9.1", features = ['abi-7-30'], default-features = false }
