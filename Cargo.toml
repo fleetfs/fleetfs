@@ -5,7 +5,8 @@ license = "Apache-2.0"
 repository = "https://github.com/fleetfs/fleetfs"
 version = "0.2.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
-edition = "2018"
+edition = "2021"
+rust-version = "1.56"
 exclude = ["*.sh", "cloud_benchmark/"]
 
 [dependencies]
@@ -28,7 +29,7 @@ sha2 = "0.9"
 walkdir = "2.3"
 # Use our forked version of raft
 raft = { version = "0.6", package = "fleetfs_raft" }
-protobuf = "2.24"
+protobuf = { version = "2.24", features = ['with-bytes'] }
 rand = "0.8"
 bytes = "1.0"
 
