@@ -8,7 +8,7 @@ use crate::base::check_access;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
-use redb::Table;
+use redb::{ReadOnlyTable, ReadableTable, Table};
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
@@ -146,9 +146,9 @@ impl MetadataStorage {
             redb::Database::open(&metadata_dir.join("metadata.redb"), 2 * 1024 * 1024 * 1024)
                 .unwrap()
         };
-        let mut table = db.open_table(PARENTS_TABLE_NAME).unwrap();
-        let mut txn = table.begin_write().unwrap();
-        txn.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
+        let txn = db.begin_write().unwrap();
+        let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+        table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
         txn.commit().unwrap();
 
         let mut metadata = HashMap::new();
@@ -291,9 +291,9 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
 
         if let Some(entries) = directories.get(&inode) {
-            let table: Table<Inode, Inode> = db.open_table(PARENTS_TABLE_NAME).unwrap();
-            let txn = table.read_transaction().unwrap();
-            let parent_inode = txn
+            let txn = db.begin_read().unwrap();
+            let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+            let parent_inode = table
                 .get(&inode)
                 .unwrap()
                 .ok_or(ErrorCode::InodeDoesNotExist)?
@@ -537,9 +537,9 @@ impl MetadataStorage {
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
-        let mut table = db.open_table(PARENTS_TABLE_NAME).unwrap();
-        let mut txn = table.begin_write().unwrap();
-        txn.insert(&inode, &new_parent).unwrap();
+        let txn = db.begin_write().unwrap();
+        let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+        table.insert(&inode, &new_parent).unwrap();
         txn.commit().unwrap();
 
         Ok(())
@@ -705,9 +705,9 @@ impl MetadataStorage {
 
         if kind == FileKind::Directory {
             directories.insert(inode, HashMap::new());
-            let mut table = db.open_table(PARENTS_TABLE_NAME).unwrap();
-            let mut txn = table.begin_write().unwrap();
-            txn.insert(&inode, &parent).unwrap();
+            let txn = db.begin_write().unwrap();
+            let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+            table.insert(&inode, &parent).unwrap();
             txn.commit().unwrap();
         }
         Ok((inode, inode_metadata))
@@ -732,9 +732,9 @@ impl MetadataStorage {
             let is_directory = inode_attrs.kind == FileKind::Directory;
             metadata.remove(&inode);
             if is_directory {
-                let mut table: Table<Inode, Inode> = db.open_table(PARENTS_TABLE_NAME).unwrap();
-                let mut txn = table.begin_write().unwrap();
-                txn.remove(&inode).unwrap();
+                let txn = db.begin_write().unwrap();
+                let mut table: Table<Inode, Inode> = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+                table.remove(&inode).unwrap();
                 txn.commit().unwrap();
 
                 if let Some(entries) = directories.remove(&inode) {
