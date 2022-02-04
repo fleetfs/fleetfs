@@ -130,6 +130,8 @@ pub struct MetadataStorage {
     directories: Mutex<HashMap<Inode, DirectoryDescriptor>>,
     metadata: Mutex<HashMap<Inode, InodeAttributes>>,
     storage: Mutex<redb::Database>,
+    // TODO: remove this once redb is stable & reliable
+    parent_verification: Mutex<HashMap<Inode, Inode>>,
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
@@ -150,6 +152,9 @@ impl MetadataStorage {
         let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
         table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
         txn.commit().unwrap();
+
+        let mut parents = HashMap::new();
+        parents.insert(ROOT_INODE, ROOT_INODE);
 
         let mut metadata = HashMap::new();
         metadata.insert(
@@ -179,6 +184,7 @@ impl MetadataStorage {
             metadata: Mutex::new(metadata),
             directories: Mutex::new(directories),
             storage: Mutex::new(db),
+            parent_verification: Mutex::new(parents),
             next_inode: AtomicU64::new(start_inode),
             num_raft_groups: num_raft_groups as u64,
         }
@@ -289,15 +295,22 @@ impl MetadataStorage {
     pub fn readdir(&self, inode: Inode) -> Result<Vec<(Inode, String, FileKind)>, ErrorCode> {
         let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let vdb = self
+            .parent_verification
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
 
         if let Some(entries) = directories.get(&inode) {
             let txn = db.begin_read().unwrap();
             let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE_NAME).unwrap();
-            let parent_inode = table
-                .get(&inode)
-                .unwrap()
-                .ok_or(ErrorCode::InodeDoesNotExist)?
-                .to_value();
+            let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
+                let parent_inode = table.get(&inode).unwrap().unwrap().to_value();
+                assert_eq!(*vparent_inode, parent_inode);
+                parent_inode
+            } else {
+                assert!(table.get(&inode).unwrap().is_none());
+                return Err(ErrorCode::InodeDoesNotExist);
+            };
 
             let mut result: Vec<(Inode, String, FileKind)> = entries
                 .iter()
@@ -536,11 +549,16 @@ impl MetadataStorage {
     pub fn update_parent(&self, inode: u64, new_parent: u64) -> Result<(), ErrorCode> {
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut vdb = self
+            .parent_verification
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
         let txn = db.begin_write().unwrap();
         let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
         table.insert(&inode, &new_parent).unwrap();
         txn.commit().unwrap();
+        vdb.insert(inode, new_parent);
 
         Ok(())
     }
@@ -678,6 +696,10 @@ impl MetadataStorage {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut vdb = self
+            .parent_verification
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
 
         let inode = self.allocate_inode();
         let size = if kind == FileKind::Directory {
@@ -709,6 +731,7 @@ impl MetadataStorage {
             let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
             table.insert(&inode, &parent).unwrap();
             txn.commit().unwrap();
+            vdb.insert(inode, parent);
         }
         Ok((inode, inode_metadata))
     }
@@ -722,6 +745,10 @@ impl MetadataStorage {
         let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut vdb = self
+            .parent_verification
+            .lock()
+            .map_err(|_| ErrorCode::Corrupted)?;
 
         let inode_attrs = metadata
             .get_mut(&inode)
@@ -736,6 +763,7 @@ impl MetadataStorage {
                 let mut table: Table<Inode, Inode> = txn.open_table(PARENTS_TABLE_NAME).unwrap();
                 table.remove(&inode).unwrap();
                 txn.commit().unwrap();
+                vdb.remove(&inode).unwrap();
 
                 if let Some(entries) = directories.remove(&inode) {
                     assert!(entries.is_empty(), "Deleted a non-empty directory inode");
