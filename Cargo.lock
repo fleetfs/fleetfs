@@ -423,9 +423,9 @@ checksum = "308cc39be01b73d0d18f82a0e7b2a3df85245f84af96fdddc5d202d27e47b86a"
 
 [[package]]
 name = "memmap2"
-version = "0.5.0"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4647a11b578fead29cdbb34d4adef8dd3dc35b876c9c6d5240d83f205abfe96e"
+checksum = "fe3179b85e1fd8b14447cbebadb75e45a1002f541b925f0bfec366d56a81c56d"
 dependencies = [
  "libc",
 ]
@@ -655,9 +655,9 @@ dependencies = [
 
 [[package]]
 name = "redb"
-version = "0.0.2"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a81135730794933d92725b522746d50b45df245396b1672d98a2e3ba3e583ed1"
+checksum = "203f19c79e67a9514966531c381db94b9f235989bd504613215cdc80ce30efaa"
 dependencies = [
  "libc",
  "memmap2",
