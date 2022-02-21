@@ -8,7 +8,7 @@ use crate::base::check_access;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
-use redb::{ReadOnlyTable, ReadableTable, Table};
+use redb::{ReadOnlyTable, ReadableTable, Table, TableDefinition};
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
@@ -16,7 +16,7 @@ pub const MAX_NAME_LENGTH: u32 = 255;
 pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024 * 1024;
 
 // Stores mapping of directory inodes to their parent
-const PARENTS_TABLE_NAME: &[u8] = b"parents";
+const PARENTS_TABLE: TableDefinition<u64, u64> = TableDefinition::new("parents");
 
 type Inode = u64;
 type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
@@ -145,11 +145,11 @@ impl MetadataStorage {
         directories.insert(ROOT_INODE, HashMap::new());
 
         let db = unsafe {
-            redb::Database::open(&metadata_dir.join("metadata.redb"), 2 * 1024 * 1024 * 1024)
+            redb::Database::create(&metadata_dir.join("metadata.redb"), 2 * 1024 * 1024 * 1024)
                 .unwrap()
         };
         let txn = db.begin_write().unwrap();
-        let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+        let mut table = txn.open_table(&PARENTS_TABLE).unwrap();
         table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
         txn.commit().unwrap();
 
@@ -302,9 +302,9 @@ impl MetadataStorage {
 
         if let Some(entries) = directories.get(&inode) {
             let txn = db.begin_read().unwrap();
-            let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+            let table: ReadOnlyTable<Inode, Inode> = txn.open_table(&PARENTS_TABLE).unwrap();
             let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
-                let parent_inode = table.get(&inode).unwrap().unwrap().to_value();
+                let parent_inode = table.get(&inode).unwrap().unwrap();
                 assert_eq!(*vparent_inode, parent_inode);
                 parent_inode
             } else {
@@ -555,7 +555,7 @@ impl MetadataStorage {
             .map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
         let txn = db.begin_write().unwrap();
-        let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+        let mut table = txn.open_table(&PARENTS_TABLE).unwrap();
         table.insert(&inode, &new_parent).unwrap();
         txn.commit().unwrap();
         vdb.insert(inode, new_parent);
@@ -728,7 +728,7 @@ impl MetadataStorage {
         if kind == FileKind::Directory {
             directories.insert(inode, HashMap::new());
             let txn = db.begin_write().unwrap();
-            let mut table = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+            let mut table = txn.open_table(&PARENTS_TABLE).unwrap();
             table.insert(&inode, &parent).unwrap();
             txn.commit().unwrap();
             vdb.insert(inode, parent);
@@ -760,7 +760,7 @@ impl MetadataStorage {
             metadata.remove(&inode);
             if is_directory {
                 let txn = db.begin_write().unwrap();
-                let mut table: Table<Inode, Inode> = txn.open_table(PARENTS_TABLE_NAME).unwrap();
+                let mut table: Table<Inode, Inode> = txn.open_table(&PARENTS_TABLE).unwrap();
                 table.remove(&inode).unwrap();
                 txn.commit().unwrap();
                 vdb.remove(&inode).unwrap();
