@@ -149,7 +149,7 @@ impl MetadataStorage {
                 .unwrap()
         };
         let txn = db.begin_write().unwrap();
-        let mut table = txn.open_table(&PARENTS_TABLE).unwrap();
+        let mut table = txn.open_table(PARENTS_TABLE).unwrap();
         table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
         txn.commit().unwrap();
 
@@ -302,7 +302,7 @@ impl MetadataStorage {
 
         if let Some(entries) = directories.get(&inode) {
             let txn = db.begin_read().unwrap();
-            let table: ReadOnlyTable<Inode, Inode> = txn.open_table(&PARENTS_TABLE).unwrap();
+            let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
             let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
                 let parent_inode = table.get(&inode).unwrap().unwrap();
                 assert_eq!(*vparent_inode, parent_inode);
@@ -555,7 +555,7 @@ impl MetadataStorage {
             .map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
         let txn = db.begin_write().unwrap();
-        let mut table = txn.open_table(&PARENTS_TABLE).unwrap();
+        let mut table = txn.open_table(PARENTS_TABLE).unwrap();
         table.insert(&inode, &new_parent).unwrap();
         txn.commit().unwrap();
         vdb.insert(inode, new_parent);
@@ -728,7 +728,7 @@ impl MetadataStorage {
         if kind == FileKind::Directory {
             directories.insert(inode, HashMap::new());
             let txn = db.begin_write().unwrap();
-            let mut table = txn.open_table(&PARENTS_TABLE).unwrap();
+            let mut table = txn.open_table(PARENTS_TABLE).unwrap();
             table.insert(&inode, &parent).unwrap();
             txn.commit().unwrap();
             vdb.insert(inode, parent);
@@ -760,7 +760,7 @@ impl MetadataStorage {
             metadata.remove(&inode);
             if is_directory {
                 let txn = db.begin_write().unwrap();
-                let mut table: Table<Inode, Inode> = txn.open_table(&PARENTS_TABLE).unwrap();
+                let mut table: Table<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
                 table.remove(&inode).unwrap();
                 txn.commit().unwrap();
                 vdb.remove(&inode).unwrap();
