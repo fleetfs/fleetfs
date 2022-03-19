@@ -8,7 +8,7 @@ use crate::base::check_access;
 use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
-use redb::{ReadOnlyTable, ReadableTable, Table, TableDefinition};
+use redb::{ReadOnlyTable, ReadableTable, TableDefinition};
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
@@ -149,8 +149,10 @@ impl MetadataStorage {
                 .unwrap()
         };
         let txn = db.begin_write().unwrap();
-        let mut table = txn.open_table(PARENTS_TABLE).unwrap();
-        table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
+        {
+            let mut table = txn.open_table(PARENTS_TABLE).unwrap();
+            table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
+        }
         txn.commit().unwrap();
 
         let mut parents = HashMap::new();
@@ -555,8 +557,10 @@ impl MetadataStorage {
             .map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(metadata.get(&inode).unwrap().kind, FileKind::Directory);
         let txn = db.begin_write().unwrap();
-        let mut table = txn.open_table(PARENTS_TABLE).unwrap();
-        table.insert(&inode, &new_parent).unwrap();
+        {
+            let mut table = txn.open_table(PARENTS_TABLE).unwrap();
+            table.insert(&inode, &new_parent).unwrap();
+        }
         txn.commit().unwrap();
         vdb.insert(inode, new_parent);
 
@@ -728,8 +732,10 @@ impl MetadataStorage {
         if kind == FileKind::Directory {
             directories.insert(inode, HashMap::new());
             let txn = db.begin_write().unwrap();
-            let mut table = txn.open_table(PARENTS_TABLE).unwrap();
-            table.insert(&inode, &parent).unwrap();
+            {
+                let mut table = txn.open_table(PARENTS_TABLE).unwrap();
+                table.insert(&inode, &parent).unwrap();
+            }
             txn.commit().unwrap();
             vdb.insert(inode, parent);
         }
@@ -760,8 +766,10 @@ impl MetadataStorage {
             metadata.remove(&inode);
             if is_directory {
                 let txn = db.begin_write().unwrap();
-                let mut table: Table<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
-                table.remove(&inode).unwrap();
+                {
+                    let mut table = txn.open_table(PARENTS_TABLE).unwrap();
+                    table.remove(&inode).unwrap();
+                }
                 txn.commit().unwrap();
                 vdb.remove(&inode).unwrap();
 
