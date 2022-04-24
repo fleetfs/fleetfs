@@ -1,8 +1,8 @@
 #![allow(clippy::needless_return)]
 
 use clap::crate_version;
-use clap::App;
 use clap::Arg;
+use clap::Command;
 
 use crate::client::NodeClient;
 use crate::fuse_adapter::FleetFUSE;
@@ -38,11 +38,11 @@ pub fn fuse_allow_other_enabled() -> io::Result<bool> {
 }
 
 fn main() -> Result<(), ErrorCode> {
-    let matches = App::new("FleetFS")
+    let matches = Command::new("FleetFS")
         .version(crate_version!())
         .author("Christopher Berner")
         .arg(
-            Arg::with_name("port")
+            Arg::new("port")
                 .long("port")
                 .value_name("PORT")
                 .default_value("3000")
@@ -50,7 +50,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("bind-ip")
+            Arg::new("bind-ip")
                 .long("bind-ip")
                 .value_name("BIND_IP")
                 .default_value("127.0.0.1")
@@ -58,7 +58,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("data-dir")
+            Arg::new("data-dir")
                 .long("data-dir")
                 .value_name("DIR")
                 .default_value("/tmp/fleetfs")
@@ -66,7 +66,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("peers")
+            Arg::new("peers")
                 .long("peers")
                 .value_name("PEERS")
                 .default_value("")
@@ -74,7 +74,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("num-peers")
+            Arg::new("num-peers")
                 .long("num-peers")
                 .value_name("NUM-PEERS")
                 .default_value("0")
@@ -83,7 +83,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("redundancy-level")
+            Arg::new("redundancy-level")
                 .long("redundancy-level")
                 .value_name("REDUNDANCY-LEVEL")
                 .requires("peers")
@@ -91,7 +91,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("server-ip-port")
+            Arg::new("server-ip-port")
                 .long("server-ip-port")
                 .value_name("IP_PORT")
                 .default_value("127.0.0.1:3000")
@@ -99,7 +99,7 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("mount-point")
+            Arg::new("mount-point")
                 .long("mount-point")
                 .value_name("MOUNT_POINT")
                 .default_value("")
@@ -107,25 +107,25 @@ fn main() -> Result<(), ErrorCode> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("direct-io")
+            Arg::new("direct-io")
                 .long("direct-io")
                 .requires("mount-point")
                 .help("Mount FUSE with direct IO"),
         )
         .arg(
-            Arg::with_name("fsck")
+            Arg::new("fsck")
                 .long("fsck")
                 .help("Run a filesystem check on the cluster"),
         )
         .arg(
-            Arg::with_name("get-leader")
+            Arg::new("get-leader")
                 .long("get-leader")
                 .help("Print the ID of the leader node"),
         )
         .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
+            Arg::new("v")
+                .short('v')
+                .multiple_occurrences(true)
                 .help("Sets the level of verbosity"),
         )
         .get_matches();
