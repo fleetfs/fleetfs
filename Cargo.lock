@@ -675,9 +675,9 @@ dependencies = [
 
 [[package]]
 name = "redb"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79552af4ac13f33ce002e7f765e633edd8f8b7ac767b1baa526d2b802a06fbf7"
+checksum = "73c1437f3eb7e869a081bc0eab0928662ec3fe49aadb7e58c079816ff15a5808"
 dependencies = [
  "libc",
 ]
@@ -940,9 +940,9 @@ dependencies = [
 
 [[package]]
 name = "thread_local"
-version = "1.1.3"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8018d24e04c95ac8790716a5987d0fec4f8b27249ffa0f7d33f1369bdfb88cbd"
+checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
 ]
