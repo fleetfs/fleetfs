@@ -1,3 +1,4 @@
+use crate::base::message_types::RkyvGenericResponse;
 use crate::base::LocalContext;
 use crate::base::{accessed_inode, distribution_requirement, raft_group, DistributionRequirement};
 use crate::base::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
@@ -522,12 +523,15 @@ async fn request_router_inner(
                 let rgroup = raft.lookup_by_raft_group(raft_group_leader_request.raft_group());
                 let leader = rgroup.get_leader().await?;
 
-                let mut response_builder = NodeIdResponseBuilder::new(&mut builder);
-                response_builder.add_node_id(leader);
+                let rkyv_response = RkyvGenericResponse::NodeId { id: leader };
+                let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+                let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+                let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+                response_builder.add_rkyv_data(flatbuffer_offset);
                 let response_offset = response_builder.finish().as_union_value();
                 return Ok(Partial((
                     builder,
-                    ResponseType::NodeIdResponse,
+                    ResponseType::RkyvResponse,
                     response_offset,
                 )));
             } else {

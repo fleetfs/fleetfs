@@ -1,3 +1,4 @@
+use crate::base::message_types::RkyvGenericResponse;
 use crate::base::{FlatBufferWithResponse, LengthPrefixedVec, ResultResponse};
 use crate::generated::*;
 use flatbuffers::FlatBufferBuilder;
@@ -58,11 +59,14 @@ pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> 
 }
 
 pub fn to_inode_response(mut builder: FlatBufferBuilder, inode: u64) -> ResultResponse {
-    let mut response_builder = InodeResponseBuilder::new(&mut builder);
-    response_builder.add_inode(inode);
+    let rkyv_response = RkyvGenericResponse::Inode { id: inode };
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
     let response_offset = response_builder.finish().as_union_value();
 
-    return Ok((builder, ResponseType::InodeResponse, response_offset));
+    return Ok((builder, ResponseType::RkyvResponse, response_offset));
 }
 
 pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultResponse {

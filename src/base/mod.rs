@@ -1,5 +1,6 @@
 mod length_prefixed_vec;
 mod local_context;
+pub mod message_types;
 mod message_utils;
 mod raft_utils;
 mod response_types;
