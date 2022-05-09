@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 use thread_local::ThreadLocal;
 
+use crate::base::message_types::{ArchivedRkyvGenericResponse, RkyvGenericResponse};
 use crate::base::{finalize_request, response_or_error};
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
@@ -199,11 +200,15 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let inode_response = response
-            .response_as_inode_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
 
-        return Ok(inode_response.inode());
+        inode_response
+            .as_inode_response()
+            .ok_or(ErrorCode::BadResponse)
     }
 
     pub fn create(
@@ -248,14 +253,24 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let info = response
-            .response_as_filesystem_information_response()
+        let rkyv_response = response
+            .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(StatFS {
-            block_size: info.block_size(),
-            max_name_length: info.max_name_length(),
-        });
+        let fs_info_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_response.rkyv_data()).unwrap();
+        if let ArchivedRkyvGenericResponse::FilesystemInformation {
+            block_size,
+            max_name_length,
+        } = fs_info_response
+        {
+            return Ok(StatFS {
+                block_size: block_size.into(),
+                max_name_length: max_name_length.into(),
+            });
+        } else {
+            return Err(ErrorCode::BadResponse);
+        }
     }
 
     pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {

@@ -30,6 +30,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::base::message_types::RkyvGenericResponse;
 use protobuf::Message as ProtobufMessage;
 
 // Compact storage when it reaches 10MB
@@ -42,10 +43,13 @@ pub async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
 }
 
 fn lock_response(mut buffer: FlatBufferBuilder, lock_id: u64) -> ResultResponse {
-    let mut response_builder = LockResponseBuilder::new(&mut buffer);
-    response_builder.add_lock_id(lock_id);
+    let rkyv_response = RkyvGenericResponse::Lock { lock_id };
+    let rkyv_bytes = rkyv::to_bytes::<_, 32>(&rkyv_response).unwrap();
+    let flatbuffer_offset = buffer.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut buffer);
+    response_builder.add_rkyv_data(flatbuffer_offset);
     let offset = response_builder.finish().as_union_value();
-    return Ok((buffer, ResponseType::LockResponse, offset));
+    return Ok((buffer, ResponseType::RkyvResponse, offset));
 }
 
 type PendingResponse = (

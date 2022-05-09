@@ -358,21 +358,9 @@ table LatestCommitResponse {
   index: ulong;
 }
 
-table InodeResponse {
-  inode: ulong;
-}
-
 table RemoveLinkResponse {
   inode: ulong;
   processing_complete: bool;
-}
-
-table LockResponse {
-  lock_id: ulong;
-}
-
-table NodeIdResponse {
-  node_id: ulong;
 }
 
 table HardlinkTransactionResponse {
@@ -394,15 +382,13 @@ table ChecksumResponse {
   checksums: [GroupChecksum] (required);
 }
 
-table FilesystemInformationResponse {
-  block_size: uint;
-  max_name_length: uint;
+table RkyvResponse {
+  rkyv_data: [ubyte] (required);
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, LatestCommitResponse, XattrsResponse, InodeResponse, HardlinkTransactionResponse,
-                     LockResponse, RemoveLinkResponse, ChecksumResponse, NodeIdResponse,
-                     FilesystemInformationResponse }
+                     WrittenResponse, LatestCommitResponse, XattrsResponse, HardlinkTransactionResponse,
+                     RemoveLinkResponse, ChecksumResponse, RkyvResponse }
 
 table GenericResponse {
   response: ResponseType;

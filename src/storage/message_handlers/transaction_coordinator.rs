@@ -1,3 +1,4 @@
+use crate::base::message_types::{ArchivedRkyvGenericResponse, RkyvGenericResponse};
 use crate::base::{
     check_access, empty_response, finalize_request_without_prefix, finalize_response,
     response_or_error, FlatBufferWithResponse,
@@ -170,11 +171,11 @@ async fn replace_link(
 
     let response_data = propose(parent, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::InodeResponse);
+    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
-    let inode = response.response_as_inode_response().unwrap().inode();
-
-    Ok(inode)
+    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
+    let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+    Ok(inode_response.as_inode_response().unwrap())
 }
 
 async fn remove_link(
@@ -239,11 +240,15 @@ async fn lock_inode(
 
     let response_data = propose(inode, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::LockResponse);
+    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
-    let lock_id = response.response_as_lock_response().unwrap().lock_id();
-
-    Ok(lock_id)
+    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
+    let lock_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+    if let ArchivedRkyvGenericResponse::Lock { lock_id } = lock_response {
+        return Ok(lock_id.into());
+    } else {
+        unreachable!();
+    }
 }
 
 async fn update_parent(
@@ -419,12 +424,15 @@ async fn lookup(
         finalize_response(&mut builder, response_type, response_offset);
         // Skip the first SIZE_UOFFSET bytes because that's the size prefix
         let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-        let inode = response
-            .response_as_inode_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
-            .inode();
+            .rkyv_data();
+        let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
 
-        return Ok(inode);
+        inode_response
+            .as_inode_response()
+            .ok_or(ErrorCode::BadResponse)
     } else {
         let mut builder = FlatBufferBuilder::new();
         let builder_name = builder.create_string(&name);
@@ -441,12 +449,15 @@ async fn lookup(
             .map_err(|_| ErrorCode::Uncategorized)?;
 
         let response = response_or_error(response_data.bytes())?;
-        let inode = response
-            .response_as_inode_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
-            .inode();
+            .rkyv_data();
+        let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
 
-        return Ok(inode);
+        inode_response
+            .as_inode_response()
+            .ok_or(ErrorCode::BadResponse)
     }
 }
 
