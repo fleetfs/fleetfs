@@ -17,6 +17,10 @@ pub enum RkyvGenericResponse {
     Inode {
         id: u64,
     },
+    LatestCommit {
+        term: u64,
+        index: u64,
+    },
 }
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
@@ -24,6 +28,14 @@ impl ArchivedRkyvGenericResponse {
     pub fn as_inode_response(&self) -> Option<u64> {
         if let ArchivedRkyvGenericResponse::Inode { id } = self {
             Some(id.into())
+        } else {
+            None
+        }
+    }
+
+    pub fn as_latest_commit_response(&self) -> Option<(u64, u64)> {
+        if let ArchivedRkyvGenericResponse::LatestCommit { term, index } = self {
+            Some((term.into(), index.into()))
         } else {
             None
         }
