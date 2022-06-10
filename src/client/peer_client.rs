@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
 
+use crate::base::message_types::RkyvGenericResponse;
 use crate::base::{finalize_request, response_or_error, FlatBufferWithResponse, LengthPrefixedVec};
 use crate::generated::*;
 use byteorder::{ByteOrder, LittleEndian};
@@ -193,11 +194,14 @@ impl PeerClient for TcpPeerClient {
         self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
             .map(|response| {
                 response.map(|data| {
-                    response_or_error(&data)
+                    let rkyv_response = response_or_error(&data)
                         .unwrap()
-                        .response_as_latest_commit_response()
-                        .unwrap()
-                        .index()
+                        .response_as_rkyv_response()
+                        .unwrap();
+                    let rkyv_data = rkyv_response.rkyv_data();
+                    let commit_response =
+                        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+                    commit_response.as_latest_commit_response().unwrap().1
                 })
             })
             .boxed()

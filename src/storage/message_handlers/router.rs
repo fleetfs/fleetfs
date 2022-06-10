@@ -505,12 +505,15 @@ async fn request_router_inner(
                 let index = raft
                     .lookup_by_raft_group(latest_commit_request.raft_group())
                     .get_latest_local_commit();
-                let mut response_builder = LatestCommitResponseBuilder::new(&mut builder);
-                response_builder.add_index(index);
+                let rkyv_response = RkyvGenericResponse::LatestCommit { term: 0, index };
+                let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+                let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+                let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+                response_builder.add_rkyv_data(flatbuffer_offset);
                 let response_offset = response_builder.finish().as_union_value();
                 return Ok(Partial((
                     builder,
-                    ResponseType::LatestCommitResponse,
+                    ResponseType::RkyvResponse,
                     response_offset,
                 )));
             } else {
