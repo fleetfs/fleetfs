@@ -12,6 +12,7 @@ use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
 use fuser::FileAttr;
+use rkyv::AlignedVec;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
@@ -204,7 +205,10 @@ impl NodeClient {
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
             .rkyv_data();
-        let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let inode_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
         inode_response
             .as_inode_response()
@@ -253,12 +257,15 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let rkyv_response = response
+        let rkyv_data = response
             .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?;
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
 
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
         let fs_info_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_response.rkyv_data()).unwrap();
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
         if let ArchivedRkyvGenericResponse::FilesystemInformation {
             block_size,
             max_name_length,
