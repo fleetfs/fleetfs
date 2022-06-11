@@ -70,8 +70,13 @@ pub fn to_inode_response(mut builder: FlatBufferBuilder, inode: u64) -> ResultRe
 }
 
 pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultResponse {
-    let mut response_builder = WrittenResponseBuilder::new(&mut builder);
-    response_builder.add_bytes_written(length);
+    let rkyv_response = RkyvGenericResponse::Written {
+        bytes_written: length,
+    };
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
     let offset = response_builder.finish().as_union_value();
-    return Ok((builder, ResponseType::WrittenResponse, offset));
+    return Ok((builder, ResponseType::RkyvResponse, offset));
 }
