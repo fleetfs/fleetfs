@@ -52,12 +52,16 @@ pub fn to_fast_read_response(
 }
 
 pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
-    let data_offset = builder.create_vector_direct(data);
-    let mut response_builder = ReadResponseBuilder::new(&mut builder);
-    response_builder.add_data(data_offset);
+    let rkyv_response = RkyvGenericResponse::Read {
+        data: data.to_vec(),
+    };
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
     let response_offset = response_builder.finish().as_union_value();
 
-    return Ok((builder, ResponseType::ReadResponse, response_offset));
+    return Ok((builder, ResponseType::RkyvResponse, response_offset));
 }
 
 pub fn to_inode_response(mut builder: FlatBufferBuilder, inode: u64) -> ResultResponse {

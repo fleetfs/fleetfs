@@ -309,10 +309,6 @@ table ErrorResponse {
   error_code: ErrorCode;
 }
 
-table ReadResponse {
-  data: [ubyte] (required);
-}
-
 table EmptyResponse {
 }
 
@@ -373,7 +369,7 @@ table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }
 
-union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
+union ResponseType { EmptyResponse, ErrorResponse, FileMetadataResponse, DirectoryListingResponse,
                      HardlinkTransactionResponse,
                      RemoveLinkResponse, ChecksumResponse, RkyvResponse }
 
