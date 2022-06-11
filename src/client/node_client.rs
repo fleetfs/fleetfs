@@ -313,10 +313,14 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let data = response
-            .response_as_read_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
-            .data();
+            .rkyv_data();
+        let data_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+        let data = data_response
+            .as_read_response()
+            .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(data.to_vec());
     }

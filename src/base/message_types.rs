@@ -23,6 +23,9 @@ pub enum RkyvGenericResponse {
     Xattrs {
         attrs: Vec<String>,
     },
+    Read {
+        data: Vec<u8>,
+    },
     LatestCommit {
         term: u64,
         index: u64,
@@ -31,6 +34,14 @@ pub enum RkyvGenericResponse {
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
 impl ArchivedRkyvGenericResponse {
+    pub fn as_read_response(&self) -> Option<&[u8]> {
+        if let ArchivedRkyvGenericResponse::Read { data } = self {
+            Some(data.as_slice())
+        } else {
+            None
+        }
+    }
+
     pub fn as_xattrs_response(&self) -> Option<Vec<&str>> {
         if let ArchivedRkyvGenericResponse::Xattrs { attrs } = self {
             Some(attrs.iter().map(|x| x.as_str()).collect())
