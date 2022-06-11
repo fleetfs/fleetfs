@@ -8,6 +8,7 @@ use crate::generated::*;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
 use rand::Rng;
+use rkyv::AlignedVec;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -174,7 +175,9 @@ async fn replace_link(
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
     let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-    let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+    rkyv_aligned.extend_from_slice(rkyv_data);
+    let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
     Ok(inode_response.as_inode_response().unwrap())
 }
 
@@ -243,7 +246,9 @@ async fn lock_inode(
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
     let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-    let lock_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+    rkyv_aligned.extend_from_slice(rkyv_data);
+    let lock_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
     if let ArchivedRkyvGenericResponse::Lock { lock_id } = lock_response {
         return Ok(lock_id.into());
     } else {
@@ -428,7 +433,10 @@ async fn lookup(
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
             .rkyv_data();
-        let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let inode_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
         inode_response
             .as_inode_response()
@@ -453,7 +461,10 @@ async fn lookup(
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
             .rkyv_data();
-        let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let inode_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
         inode_response
             .as_inode_response()

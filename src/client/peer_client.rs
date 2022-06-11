@@ -11,6 +11,7 @@ use futures::future::{ok, ready, BoxFuture, Either};
 use futures::FutureExt;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
+use rkyv::AlignedVec;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -199,8 +200,10 @@ impl PeerClient for TcpPeerClient {
                         .response_as_rkyv_response()
                         .unwrap();
                     let rkyv_data = rkyv_response.rkyv_data();
+                    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+                    rkyv_aligned.extend_from_slice(rkyv_data);
                     let commit_response =
-                        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+                        rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
                     commit_response.as_latest_commit_response().unwrap().1
                 })
             })
