@@ -20,6 +20,9 @@ pub enum RkyvGenericResponse {
     Written {
         bytes_written: u32,
     },
+    Xattrs {
+        attrs: Vec<String>,
+    },
     LatestCommit {
         term: u64,
         index: u64,
@@ -28,6 +31,14 @@ pub enum RkyvGenericResponse {
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
 impl ArchivedRkyvGenericResponse {
+    pub fn as_xattrs_response(&self) -> Option<Vec<&str>> {
+        if let ArchivedRkyvGenericResponse::Xattrs { attrs } = self {
+            Some(attrs.iter().map(|x| x.as_str()).collect())
+        } else {
+            None
+        }
+    }
+
     pub fn as_bytes_written_response(&self) -> Option<u32> {
         if let ArchivedRkyvGenericResponse::Written { bytes_written } = self {
             Some(bytes_written.into())

@@ -330,16 +330,20 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        let xattrs_response = response
-            .response_as_xattrs_response()
-            .ok_or(ErrorCode::BadResponse)?;
-        let xattrs = xattrs_response.xattrs();
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let xattrs_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
-        let mut attrs = vec![];
-        for i in 0..xattrs.len() {
-            let attr = xattrs.get(i);
-            attrs.push(attr.to_string());
-        }
+        let xattrs = xattrs_response
+            .as_xattrs_response()
+            .ok_or(ErrorCode::BadResponse)?;
+
+        let attrs = xattrs.iter().map(|x| x.to_string()).collect();
 
         return Ok(attrs);
     }

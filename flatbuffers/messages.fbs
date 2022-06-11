@@ -360,10 +360,6 @@ table HardlinkTransactionResponse {
   attr_response: FileMetadataResponse (required);
 }
 
-table XattrsResponse {
-  xattrs: [string] (required);
-}
-
 table GroupChecksum {
   raft_group: ushort;
   checksum: [ubyte] (required);
@@ -378,7 +374,7 @@ table RkyvResponse {
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     XattrsResponse, HardlinkTransactionResponse,
+                     HardlinkTransactionResponse,
                      RemoveLinkResponse, ChecksumResponse, RkyvResponse }
 
 table GenericResponse {

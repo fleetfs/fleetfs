@@ -23,13 +23,15 @@ pub fn to_xattrs_response<'a, T: AsRef<str>>(
     mut builder: FlatBufferBuilder<'a>,
     xattrs: &[T],
 ) -> ResultResponse<'a> {
-    let refs: Vec<&str> = xattrs.iter().map(AsRef::as_ref).collect();
-    let offset = builder.create_vector_of_strings(&refs);
-    let mut response_builder = XattrsResponseBuilder::new(&mut builder);
-    response_builder.add_xattrs(offset);
-    let response_offset = response_builder.finish().as_union_value();
-
-    return Ok((builder, ResponseType::XattrsResponse, response_offset));
+    let rkyv_response = RkyvGenericResponse::Xattrs {
+        attrs: xattrs.iter().map(|x| x.as_ref().to_string()).collect(),
+    };
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((builder, ResponseType::RkyvResponse, offset));
 }
 
 pub fn to_fast_read_response(
