@@ -17,6 +17,9 @@ pub enum RkyvGenericResponse {
     Inode {
         id: u64,
     },
+    Written {
+        bytes_written: u32,
+    },
     LatestCommit {
         term: u64,
         index: u64,
@@ -25,6 +28,14 @@ pub enum RkyvGenericResponse {
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
 impl ArchivedRkyvGenericResponse {
+    pub fn as_bytes_written_response(&self) -> Option<u32> {
+        if let ArchivedRkyvGenericResponse::Written { bytes_written } = self {
+            Some(bytes_written.into())
+        } else {
+            None
+        }
+    }
+
     pub fn as_inode_response(&self) -> Option<u64> {
         if let ArchivedRkyvGenericResponse::Inode { id } = self {
             Some(id.into())

@@ -671,10 +671,18 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        return Ok(response
-            .response_as_written_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
-            .bytes_written());
+            .rkyv_data();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let written_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+
+        written_response
+            .as_bytes_written_response()
+            .ok_or(ErrorCode::BadResponse)
     }
 
     pub fn fsync(&self, inode: u64) -> Result<(), ErrorCode> {

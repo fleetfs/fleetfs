@@ -331,10 +331,6 @@ table DirectoryListingResponse {
   entries: [DirectoryEntry] (required);
 }
 
-table WrittenResponse {
-  bytes_written: uint;
-}
-
 table FileMetadataResponse {
   inode: ulong;
   size_bytes: ulong;
@@ -382,7 +378,7 @@ table RkyvResponse {
 }
 
 union ResponseType { EmptyResponse, ErrorResponse, ReadResponse, FileMetadataResponse, DirectoryListingResponse,
-                     WrittenResponse, XattrsResponse, HardlinkTransactionResponse,
+                     XattrsResponse, HardlinkTransactionResponse,
                      RemoveLinkResponse, ChecksumResponse, RkyvResponse }
 
 table GenericResponse {
