@@ -1,5 +1,6 @@
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Archive, Debug, Deserialize, PartialEq, Serialize)]
 #[archive_attr(derive(CheckBytes))]
@@ -56,10 +57,24 @@ pub enum RkyvGenericResponse {
     },
     Empty,
     ErrorOccurred(ErrorCode),
+    // Mapping from raft group ids to their checksum
+    Checksums(HashMap<u16, Vec<u8>>),
 }
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
 impl ArchivedRkyvGenericResponse {
+    pub fn as_checksum_response(&self) -> Option<HashMap<u16, Vec<u8>>> {
+        if let ArchivedRkyvGenericResponse::Checksums(checksums) = self {
+            let mut result = HashMap::new();
+            for (key, value) in checksums.iter() {
+                result.insert(key.into(), value.as_slice().to_vec());
+            }
+            Some(result)
+        } else {
+            None
+        }
+    }
+
     pub fn as_error_response(&self) -> Option<ErrorCode> {
         if let ArchivedRkyvGenericResponse::ErrorOccurred(archived) = self {
             let error_code = match archived {

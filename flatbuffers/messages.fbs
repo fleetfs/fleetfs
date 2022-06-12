@@ -325,21 +325,11 @@ table HardlinkTransactionResponse {
   attr_response: FileMetadataResponse (required);
 }
 
-table GroupChecksum {
-  raft_group: ushort;
-  checksum: [ubyte] (required);
-}
-
-table ChecksumResponse {
-  checksums: [GroupChecksum] (required);
-}
-
 table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }
 
-union ResponseType { FileMetadataResponse, DirectoryListingResponse, HardlinkTransactionResponse,
-                     ChecksumResponse, RkyvResponse }
+union ResponseType { FileMetadataResponse, DirectoryListingResponse, HardlinkTransactionResponse, RkyvResponse }
 
 table GenericResponse {
   response: ResponseType;

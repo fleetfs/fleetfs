@@ -223,17 +223,18 @@ impl PeerClient for TcpPeerClient {
 
         self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
             .map(|maybe_response| {
-                let mut checksums = HashMap::new();
-                let response = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
-                let checksums_response = response_or_error(&response)?
-                    .response_as_checksum_response()
+                let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
+                let rkyv_response = response_or_error(&data)
+                    .unwrap()
+                    .response_as_rkyv_response()
                     .unwrap();
+                let rkyv_data = rkyv_response.rkyv_data();
+                let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+                rkyv_aligned.extend_from_slice(rkyv_data);
+                let checksum_response =
+                    rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+                let checksums = checksum_response.as_checksum_response().unwrap();
 
-                let entries = checksums_response.checksums();
-                for i in 0..entries.len() {
-                    let entry = entries.get(i);
-                    checksums.insert(entry.raft_group(), entry.checksum().to_vec());
-                }
                 Ok(checksums)
             })
             .boxed()
