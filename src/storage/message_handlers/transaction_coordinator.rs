@@ -283,7 +283,15 @@ async fn update_parent(
 
     let response_data = propose(inode, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::EmptyResponse);
+    let rkyv_data = response
+        .response_as_rkyv_response()
+        .ok_or(ErrorCode::BadResponse)
+        .unwrap()
+        .rkyv_data();
+    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+        .unwrap()
+        .as_empty_response()
+        .expect("expected Empty");
 
     Ok(())
 }
@@ -313,7 +321,15 @@ async fn update_metadata_changed_time(
 
     let response_data = propose(inode, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::EmptyResponse);
+    let rkyv_data = response
+        .response_as_rkyv_response()
+        .ok_or(ErrorCode::BadResponse)
+        .unwrap()
+        .rkyv_data();
+    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+        .unwrap()
+        .as_empty_response()
+        .expect("expected Empty");
 
     Ok(())
 }
@@ -335,7 +351,14 @@ async fn unlock_inode(
 
     let response_data = propose(inode, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::EmptyResponse);
+    let rkyv_data = response
+        .response_as_rkyv_response()
+        .ok_or(ErrorCode::BadResponse)?
+        .rkyv_data();
+    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+        .unwrap()
+        .as_empty_response()
+        .expect("expected Empty");
 
     Ok(())
 }
@@ -487,7 +510,15 @@ async fn decrement_inode(
         .await
         .expect("Leaked inode");
     let response = response_or_error(&response_data).expect("Leaked inode");
-    assert_eq!(response.response_type(), ResponseType::EmptyResponse);
+    let rkyv_data = response
+        .response_as_rkyv_response()
+        .ok_or(ErrorCode::BadResponse)
+        .unwrap()
+        .rkyv_data();
+    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+        .unwrap()
+        .as_empty_response()
+        .expect("expected Empty");
 }
 
 fn rename_check_access(

@@ -1,15 +1,21 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
+use crate::base::message_types::RkyvGenericResponse;
 use crate::base::ResultResponse;
 use crate::generated::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
-pub fn empty_response(mut buffer: FlatBufferBuilder) -> ResultResponse {
-    let response_builder = EmptyResponseBuilder::new(&mut buffer);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((buffer, ResponseType::EmptyResponse, offset));
+pub fn empty_response(mut builder: FlatBufferBuilder) -> ResultResponse {
+    let rkyv_response = RkyvGenericResponse::Empty;
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
+    let response_offset = response_builder.finish().as_union_value();
+
+    return Ok((builder, ResponseType::RkyvResponse, response_offset));
 }
 
 pub fn finalize_request_without_prefix(

@@ -309,9 +309,6 @@ table ErrorResponse {
   error_code: ErrorCode;
 }
 
-table EmptyResponse {
-}
-
 struct Timestamp {
   seconds: long;
   nanos: int;
@@ -369,7 +366,7 @@ table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }
 
-union ResponseType { EmptyResponse, ErrorResponse, FileMetadataResponse, DirectoryListingResponse,
+union ResponseType { ErrorResponse, FileMetadataResponse, DirectoryListingResponse,
                      HardlinkTransactionResponse,
                      RemoveLinkResponse, ChecksumResponse, RkyvResponse }
 

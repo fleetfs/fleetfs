@@ -30,10 +30,19 @@ pub enum RkyvGenericResponse {
         term: u64,
         index: u64,
     },
+    Empty,
 }
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
 impl ArchivedRkyvGenericResponse {
+    pub fn as_empty_response(&self) -> Option<()> {
+        if matches!(self, ArchivedRkyvGenericResponse::Empty) {
+            Some(())
+        } else {
+            None
+        }
+    }
+
     pub fn as_read_response(&self) -> Option<&[u8]> {
         if let ArchivedRkyvGenericResponse::Read { data } = self {
             Some(data.as_slice())
