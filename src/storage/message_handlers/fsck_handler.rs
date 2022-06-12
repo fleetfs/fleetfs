@@ -1,11 +1,11 @@
-use crate::base::message_types::ErrorCode;
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::LocalContext;
 use crate::base::{empty_response, FlatBufferResponse, ResultResponse};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::FlatBufferBuilder;
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,29 +52,18 @@ pub async fn checksum_request(
     raft: Arc<LocalRaftGroupManager>,
     mut builder: FlatBufferBuilder<'_>,
 ) -> ResultResponse<'_> {
-    let mut checksums = vec![];
+    let mut checksums = HashMap::new();
     for rgroup in raft.all_groups() {
         sync_with_leader(rgroup).await?;
 
         let checksum = rgroup.local_data_checksum()?;
-        let checksum_offset = builder.create_vector_direct(&checksum);
-        let group_checksum = GroupChecksum::create(
-            &mut builder,
-            &GroupChecksumArgs {
-                raft_group: rgroup.get_raft_group_id(),
-                checksum: Some(checksum_offset),
-            },
-        );
-        checksums.push(group_checksum);
+        checksums.insert(rgroup.get_raft_group_id(), checksum);
     }
-    builder.start_vector::<WIPOffset<GroupChecksum>>(checksums.len());
-    for &checksum in checksums.iter() {
-        builder.push(checksum);
-    }
-    let checksums_offset = builder.end_vector(checksums.len());
-    let mut response_builder = ChecksumResponseBuilder::new(&mut builder);
-    response_builder.add_checksums(checksums_offset);
-    let response_offset = response_builder.finish().as_union_value();
-
-    return Ok((builder, ResponseType::ChecksumResponse, response_offset));
+    let rkyv_response = RkyvGenericResponse::Checksums(checksums);
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((builder, ResponseType::RkyvResponse, offset));
 }
