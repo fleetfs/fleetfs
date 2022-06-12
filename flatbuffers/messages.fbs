@@ -319,11 +319,6 @@ table FileMetadataResponse {
   directory_entries: uint;
 }
 
-table RemoveLinkResponse {
-  inode: ulong;
-  processing_complete: bool;
-}
-
 table HardlinkTransactionResponse {
   last_modified_time: Timestamp (required);
   kind: FileKind;
@@ -344,7 +339,7 @@ table RkyvResponse {
 }
 
 union ResponseType { FileMetadataResponse, DirectoryListingResponse, HardlinkTransactionResponse,
-                     RemoveLinkResponse, ChecksumResponse, RkyvResponse }
+                     ChecksumResponse, RkyvResponse }
 
 table GenericResponse {
   response: ResponseType;

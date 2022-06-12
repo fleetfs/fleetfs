@@ -37,6 +37,10 @@ pub enum RkyvGenericResponse {
     Inode {
         id: u64,
     },
+    RemovedInode {
+        id: u64,
+        complete: bool,
+    },
     Written {
         bytes_written: u32,
     },

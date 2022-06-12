@@ -216,15 +216,17 @@ async fn remove_link(
 
     let response_data = propose(parent, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::RemoveLinkResponse);
+    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
-    let inode = response.response_as_remove_link_response().unwrap().inode();
-    let complete = response
-        .response_as_remove_link_response()
-        .unwrap()
-        .processing_complete();
-
-    Ok((inode, complete))
+    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
+    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+    rkyv_aligned.extend_from_slice(rkyv_data);
+    let removed_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+    if let ArchivedRkyvGenericResponse::RemovedInode { id, complete } = removed_response {
+        return Ok((id.into(), *complete));
+    } else {
+        unreachable!();
+    }
 }
 
 // TODO: should return some kind of guard object to prevent dropping the lock_id without unlocking it
