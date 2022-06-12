@@ -449,6 +449,15 @@ mod tests {
             unimplemented!()
         }
 
+        fn send_flatbuffer_unprefixed_and_receive_length_prefixed<
+            T: AsRef<[u8]> + Send + 'static,
+        >(
+            &self,
+            _data: T,
+        ) -> BoxFuture<'static, Result<LengthPrefixedVec, Error>> {
+            unimplemented!()
+        }
+
         fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
             &self,
             _data: T,

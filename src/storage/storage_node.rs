@@ -7,17 +7,18 @@ use tokio_util::codec::length_delimited;
 use log::{debug, error};
 
 use crate::base::node_id_from_address;
-use crate::generated::get_root_as_generic_request;
 use crate::storage::message_handlers::request_router;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::base::message_types::RkyvRequest;
 use crate::base::LocalContext;
 use crate::client::RemoteRaftGroups;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use futures_util::stream::StreamExt;
+use rkyv::AlignedVec;
 use tokio::io::AsyncWriteExt;
 
 fn spawn_connection_handler(
@@ -45,7 +46,9 @@ fn spawn_connection_handler(
                 },
             };
             builder.reset();
-            let request = get_root_as_generic_request(&frame);
+            let mut aligned = AlignedVec::with_capacity(frame.len());
+            aligned.extend_from_slice(&frame);
+            let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
             let response = request_router(
                 request,
                 raft.clone(),

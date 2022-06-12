@@ -73,8 +73,9 @@ impl RemoteRaftGroups {
                 finish_offset,
             );
 
-            let group_future = client
-                .send_unprefixed_and_receive_length_prefixed(builder.finished_data().to_vec());
+            let group_future = client.send_flatbuffer_unprefixed_and_receive_length_prefixed(
+                builder.finished_data().to_vec(),
+            );
 
             group_futures.push(group_future);
         }
@@ -98,7 +99,7 @@ impl RemoteRaftGroups {
             .get(&(raft_group_id as u16))
             .unwrap()
             // TODO: is accessing _tab.buf safe?
-            .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+            .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
     }
 
     pub fn propose_to_specific_group(
@@ -110,7 +111,7 @@ impl RemoteRaftGroups {
             .get(&raft_group)
             .unwrap()
             // TODO: is accessing _tab.buf safe?
-            .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+            .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
     }
 
     pub fn forward_request(
@@ -122,6 +123,6 @@ impl RemoteRaftGroups {
             .get(&(raft_group_id as u16))
             .unwrap()
             // TODO: is accessing _tab.buf safe?
-            .send_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+            .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
     }
 }

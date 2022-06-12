@@ -24,6 +24,12 @@ pub enum ErrorCode {
 
 #[derive(Archive, Deserialize, Serialize)]
 #[archive_attr(derive(CheckBytes))]
+pub enum RkyvRequest {
+    Flatbuffer(Vec<u8>),
+}
+
+#[derive(Archive, Deserialize, Serialize)]
+#[archive_attr(derive(CheckBytes))]
 pub enum RkyvGenericResponse {
     Lock {
         lock_id: u64,

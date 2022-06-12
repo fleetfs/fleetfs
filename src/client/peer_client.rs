@@ -4,8 +4,10 @@ use std::net::SocketAddr;
 use flatbuffers::FlatBufferBuilder;
 
 use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::{finalize_request, response_or_error, FlatBufferWithResponse, LengthPrefixedVec};
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse, RkyvRequest};
+use crate::base::{
+    finalize_request_without_prefix, response_or_error, FlatBufferWithResponse, LengthPrefixedVec,
+};
 use crate::generated::*;
 use byteorder::{ByteOrder, LittleEndian};
 use futures::future::{ok, ready, BoxFuture, Either};
@@ -26,6 +28,11 @@ pub trait PeerClient {
         &self,
         data: T,
     ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>>;
+
+    fn send_flatbuffer_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
+        &self,
+        data: T,
+    ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>>;
 
     fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
         &self,
@@ -71,6 +78,16 @@ async fn async_send_receive_length_prefixed<T: AsRef<[u8]> + Send>(
     TcpPeerClient::return_connection(pool, stream);
 
     Ok(buffer)
+}
+
+async fn async_flatbuffer_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]> + Send>(
+    stream: TcpStream,
+    data: T,
+    pool: Arc<Mutex<Vec<TcpStream>>>,
+) -> Result<LengthPrefixedVec, std::io::Error> {
+    let request = RkyvRequest::Flatbuffer(data.as_ref().to_vec());
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&request).unwrap();
+    async_send_unprefixed_receive_length_prefixed(stream, rkyv_bytes, pool).await
 }
 
 async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]> + Send>(
@@ -140,6 +157,22 @@ impl PeerClient for TcpPeerClient {
             .boxed()
     }
 
+    fn send_flatbuffer_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
+        &self,
+        data: T,
+    ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>> {
+        let pool = self.pool.clone();
+
+        self.connect()
+            .then(move |tcp_stream| match tcp_stream {
+                Ok(stream) => Either::Left(
+                    async_flatbuffer_send_unprefixed_receive_length_prefixed(stream, data, pool),
+                ),
+                Err(e) => Either::Right(ready(Err(e))),
+            })
+            .boxed()
+    }
+
     fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
         &self,
         data: T,
@@ -164,19 +197,21 @@ impl PeerClient for TcpPeerClient {
         request_builder.add_raft_group(raft_group);
         request_builder.add_message(data_offset);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::RaftRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::RaftRequest, finish_offset);
 
         let ip_and_port = self.server_ip_port;
-        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
-            .map(move |x| {
-                if let Err(io_error) = x {
-                    error!(
-                        "Error sending Raft message to {}: {}",
-                        ip_and_port, io_error
-                    );
-                }
-            })
-            .boxed()
+        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(
+            builder.finished_data().to_vec(),
+        )
+        .map(move |x| {
+            if let Err(io_error) = x {
+                error!(
+                    "Error sending Raft message to {}: {}",
+                    ip_and_port, io_error
+                );
+            }
+        })
+        .boxed()
     }
 
     fn get_latest_commit(
@@ -187,57 +222,61 @@ impl PeerClient for TcpPeerClient {
         let mut request_builder = LatestCommitRequestBuilder::new(&mut builder);
         request_builder.add_raft_group(raft_group);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(
+        finalize_request_without_prefix(
             &mut builder,
             RequestType::LatestCommitRequest,
             finish_offset,
         );
 
-        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
-            .map(|response| {
-                response.map(|data| {
-                    let rkyv_response = response_or_error(&data)
-                        .unwrap()
-                        .response_as_rkyv_response()
-                        .unwrap();
-                    let rkyv_data = rkyv_response.rkyv_data();
-                    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-                    rkyv_aligned.extend_from_slice(rkyv_data);
-                    let commit_response =
-                        rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-                    commit_response.as_latest_commit_response().unwrap().1
-                })
-            })
-            .boxed()
-    }
-
-    fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
-        let mut builder = FlatBufferBuilder::new();
-        let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(
-            &mut builder,
-            RequestType::FilesystemChecksumRequest,
-            finish_offset,
-        );
-
-        self.send_and_receive_length_prefixed(builder.finished_data().to_vec())
-            .map(|maybe_response| {
-                let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
-                let rkyv_response = response_or_error(&data)
+        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(
+            builder.finished_data().to_vec(),
+        )
+        .map(|response| {
+            response.map(|data| {
+                let rkyv_response = response_or_error(data.bytes())
                     .unwrap()
                     .response_as_rkyv_response()
                     .unwrap();
                 let rkyv_data = rkyv_response.rkyv_data();
                 let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
                 rkyv_aligned.extend_from_slice(rkyv_data);
-                let checksum_response =
+                let commit_response =
                     rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-                let checksums = checksum_response.as_checksum_response().unwrap();
-
-                Ok(checksums)
+                commit_response.as_latest_commit_response().unwrap().1
             })
-            .boxed()
+        })
+        .boxed()
+    }
+
+    fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
+        let mut builder = FlatBufferBuilder::new();
+        let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
+        let finish_offset = request_builder.finish().as_union_value();
+        finalize_request_without_prefix(
+            &mut builder,
+            RequestType::FilesystemChecksumRequest,
+            finish_offset,
+        );
+
+        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(
+            builder.finished_data().to_vec(),
+        )
+        .map(|maybe_response| {
+            let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
+            let rkyv_response = response_or_error(data.bytes())
+                .unwrap()
+                .response_as_rkyv_response()
+                .unwrap();
+            let rkyv_data = rkyv_response.rkyv_data();
+            let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+            rkyv_aligned.extend_from_slice(rkyv_data);
+            let checksum_response =
+                rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+            let checksums = checksum_response.as_checksum_response().unwrap();
+
+            Ok(checksums)
+        })
+        .boxed()
     }
 
     fn read_raw(
@@ -254,14 +293,18 @@ impl PeerClient for TcpPeerClient {
         request_builder.add_inode(inode);
         request_builder.add_required_commit(&required_commit);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ReadRawRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ReadRawRequest, finish_offset);
 
-        self.send_and_receive_length_prefixed(FlatBufferWithResponse::new(builder))
-            .map(|response| {
-                let mut response = response?;
-                decode_fast_read_response_inplace(&mut response).unwrap();
-                Ok(response)
-            })
-            .boxed()
+        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(FlatBufferWithResponse::new(
+            builder,
+        ))
+        .map(|response| {
+            let response = response?;
+            // TODO: this copy is inefficient
+            let mut response = response.bytes().to_vec();
+            decode_fast_read_response_inplace(&mut response).unwrap();
+            Ok(response)
+        })
+        .boxed()
     }
 }
