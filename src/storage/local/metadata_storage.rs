@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use crate::base::check_access;
-use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
+use crate::base::message_types::ErrorCode;
+use crate::generated::{FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
 use redb::{ReadOnlyTable, ReadableTable, TableDefinition};

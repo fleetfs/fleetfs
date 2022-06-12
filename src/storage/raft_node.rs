@@ -30,7 +30,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::base::message_types::RkyvGenericResponse;
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use protobuf::Message as ProtobufMessage;
 
 // Compact storage when it reaches 10MB

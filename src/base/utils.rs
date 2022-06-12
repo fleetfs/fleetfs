@@ -3,6 +3,8 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 use crate::base::message_types::RkyvGenericResponse;
 use crate::base::ResultResponse;
 use crate::generated::*;
+use crate::ErrorCode;
+use rkyv::AlignedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
@@ -68,9 +70,16 @@ pub fn finalize_response(
 
 pub fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
     let response = flatbuffers::get_root::<GenericResponse>(buffer);
-    if response.response_type() == ResponseType::ErrorResponse {
-        let error = response.response_as_error_response().unwrap();
-        return Err(error.error_code());
+    if response.response_type() == ResponseType::RkyvResponse {
+        let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        if let Some(error_code) = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned)
+            .unwrap()
+            .as_error_response()
+        {
+            return Err(error_code);
+        }
     }
     return Ok(response);
 }

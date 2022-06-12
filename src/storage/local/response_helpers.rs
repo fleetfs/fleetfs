@@ -1,5 +1,5 @@
-use crate::base::message_types::RkyvGenericResponse;
-use crate::base::{FlatBufferWithResponse, LengthPrefixedVec, ResultResponse};
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
+use crate::base::ResultResponse;
 use crate::generated::*;
 use flatbuffers::FlatBufferBuilder;
 use std::io::ErrorKind;
@@ -32,23 +32,6 @@ pub fn to_xattrs_response<'a, T: AsRef<str>>(
     response_builder.add_rkyv_data(flatbuffer_offset);
     let offset = response_builder.finish().as_union_value();
     return Ok((builder, ResponseType::RkyvResponse, offset));
-}
-
-pub fn to_fast_read_response(
-    builder: FlatBufferBuilder,
-    response: Result<LengthPrefixedVec, ErrorCode>,
-) -> FlatBufferWithResponse {
-    match response {
-        Ok(mut data) => {
-            data.push(ErrorCode::DefaultValueNotAnError as u8);
-            FlatBufferWithResponse::with_separate_response(builder, data)
-        }
-        Err(error_code) => {
-            let mut data = LengthPrefixedVec::zeros(0);
-            data.push(error_code as u8);
-            FlatBufferWithResponse::with_separate_response(builder, data)
-        }
-    }
 }
 
 pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {

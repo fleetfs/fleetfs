@@ -286,29 +286,6 @@ table DecrementInodeRequest {
 
 root_type GenericRequest;
 
-enum ErrorCode: byte {
-  DefaultValueNotAnError = 0,
-  DoesNotExist,
-  InodeDoesNotExist,
-  FileTooLarge,
-  AccessDenied,
-  OperationNotPermitted,
-  AlreadyExists,
-  NameTooLong,
-  NotEmpty,
-  MissingXattrKey,
-  BadResponse,
-  BadRequest,
-  Corrupted,
-  RaftFailure,
-  InvalidXattrNamespace,
-  Uncategorized
-}
-
-table ErrorResponse {
-  error_code: ErrorCode;
-}
-
 struct Timestamp {
   seconds: long;
   nanos: int;
@@ -366,8 +343,7 @@ table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }
 
-union ResponseType { ErrorResponse, FileMetadataResponse, DirectoryListingResponse,
-                     HardlinkTransactionResponse,
+union ResponseType { FileMetadataResponse, DirectoryListingResponse, HardlinkTransactionResponse,
                      RemoveLinkResponse, ChecksumResponse, RkyvResponse }
 
 table GenericResponse {

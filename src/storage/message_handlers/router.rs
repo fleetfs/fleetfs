@@ -1,4 +1,4 @@
-use crate::base::message_types::RkyvGenericResponse;
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::LocalContext;
 use crate::base::{accessed_inode, distribution_requirement, raft_group, DistributionRequirement};
 use crate::base::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
@@ -20,6 +20,20 @@ use std::sync::Arc;
 enum FullOrPartialResponse {
     Full(FlatBufferWithResponse<'static>),
     Partial(FlatBufferResponse<'static>),
+}
+
+pub fn to_error_response(
+    mut builder: FlatBufferBuilder,
+    error_code: ErrorCode,
+) -> FlatBufferBuilder {
+    let rkyv_response = RkyvGenericResponse::ErrorOccurred(error_code);
+    let rkyv_bytes = rkyv::to_bytes::<_, 8>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
+    let offset = response_builder.finish().as_union_value();
+    finalize_response(&mut builder, ResponseType::RkyvResponse, offset);
+    return builder;
 }
 
 async fn request_router_inner(
@@ -584,14 +598,10 @@ async fn forward_request(
     if let Ok(response) = rafts.forward_request(request).await {
         FlatBufferWithResponse::with_separate_response(builder, response)
     } else {
-        let mut builder = FlatBufferBuilder::new();
-        let args = ErrorResponseArgs {
-            error_code: ErrorCode::Uncategorized,
-        };
-        let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-        finalize_response(&mut builder, ResponseType::ErrorResponse, response_offset);
-
-        FlatBufferWithResponse::new(builder)
+        FlatBufferWithResponse::new(to_error_response(
+            FlatBufferBuilder::new(),
+            ErrorCode::Uncategorized,
+        ))
     }
 }
 
@@ -615,11 +625,10 @@ pub async fn request_router<'a>(
             }
         },
         Err(error_code) => {
-            let mut builder = FlatBufferBuilder::new();
-            let args = ErrorResponseArgs { error_code };
-            let response_offset = ErrorResponse::create(&mut builder, &args).as_union_value();
-            finalize_response(&mut builder, ResponseType::ErrorResponse, response_offset);
-            return FlatBufferWithResponse::new(builder);
+            return FlatBufferWithResponse::new(to_error_response(
+                FlatBufferBuilder::new(),
+                error_code,
+            ));
         }
     };
 }

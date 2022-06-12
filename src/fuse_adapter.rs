@@ -11,7 +11,8 @@ use log::warn;
 
 use crate::base::check_access;
 use crate::client::NodeClient;
-use crate::generated::{ErrorCode, FileKind, Timestamp, UserContext};
+use crate::generated::{FileKind, Timestamp, UserContext};
+use crate::ErrorCode;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
@@ -111,7 +112,6 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
         ErrorCode::MissingXattrKey => libc::ENODATA,
         ErrorCode::AlreadyExists => libc::EEXIST,
         ErrorCode::InvalidXattrNamespace => libc::ENOTSUP,
-        ErrorCode::DefaultValueNotAnError => unreachable!(),
     }
 }
 

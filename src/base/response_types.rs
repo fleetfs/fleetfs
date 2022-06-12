@@ -1,5 +1,6 @@
 use crate::base::LengthPrefixedVec;
-use crate::generated::{ErrorCode, ResponseType};
+use crate::generated::ResponseType;
+use crate::ErrorCode;
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 pub type ResultResponse<'a> = Result<FlatBufferResponse<'a>, ErrorCode>;
