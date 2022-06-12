@@ -1,4 +1,4 @@
-use crate::base::message_types::{ArchivedRkyvGenericResponse, RkyvGenericResponse};
+use crate::base::message_types::{ArchivedRkyvGenericResponse, ErrorCode, RkyvGenericResponse};
 use crate::base::{
     check_access, empty_response, finalize_request_without_prefix, finalize_response,
     response_or_error, FlatBufferWithResponse,

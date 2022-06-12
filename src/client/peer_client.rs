@@ -3,7 +3,8 @@ use std::net::SocketAddr;
 
 use flatbuffers::FlatBufferBuilder;
 
-use crate::base::message_types::RkyvGenericResponse;
+use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::{finalize_request, response_or_error, FlatBufferWithResponse, LengthPrefixedVec};
 use crate::generated::*;
 use byteorder::{ByteOrder, LittleEndian};
@@ -257,12 +258,7 @@ impl PeerClient for TcpPeerClient {
         self.send_and_receive_length_prefixed(FlatBufferWithResponse::new(builder))
             .map(|response| {
                 let mut response = response?;
-                let length = response.len();
-                assert_eq!(
-                    ErrorCode::DefaultValueNotAnError as u8,
-                    response[length - 1]
-                );
-                response.pop();
+                decode_fast_read_response_inplace(&mut response).unwrap();
                 Ok(response)
             })
             .boxed()

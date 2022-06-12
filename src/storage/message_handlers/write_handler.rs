@@ -1,3 +1,4 @@
+use crate::base::message_types::ErrorCode;
 use crate::base::FlatBufferResponse;
 use crate::generated::*;
 use crate::storage::local::FileStorage;

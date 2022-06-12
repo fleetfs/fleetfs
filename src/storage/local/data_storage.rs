@@ -1,9 +1,10 @@
 use futures::Future;
 use futures::FutureExt;
 
+use crate::base::message_types::ErrorCode;
 use crate::base::LengthPrefixedVec;
 use crate::client::PeerClient;
-use crate::generated::{CommitId, ErrorCode};
+use crate::generated::CommitId;
 use crate::storage::local::response_helpers::into_error_code;
 use crate::storage::ROOT_INODE;
 use futures::future::{err, join_all, Either};
@@ -307,6 +308,7 @@ mod tests {
     use crate::storage::local::data_storage::{
         stores_index, to_global_index, to_local_index_ceiling, DataStorage, BLOCK_SIZE,
     };
+    use crate::ErrorCode;
     use futures::future::{ready, BoxFuture};
     use futures_util::future::FutureExt;
     use raft::eraftpb::Message;

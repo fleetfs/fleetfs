@@ -1,3 +1,4 @@
+pub mod fast_data_protocol;
 mod length_prefixed_vec;
 mod local_context;
 pub mod message_types;

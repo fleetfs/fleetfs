@@ -1,6 +1,26 @@
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
 
+#[derive(Archive, Debug, Deserialize, PartialEq, Serialize)]
+#[archive_attr(derive(CheckBytes))]
+pub enum ErrorCode {
+    DoesNotExist,
+    InodeDoesNotExist,
+    FileTooLarge,
+    AccessDenied,
+    OperationNotPermitted,
+    AlreadyExists,
+    NameTooLong,
+    NotEmpty,
+    MissingXattrKey,
+    BadResponse,
+    BadRequest,
+    Corrupted,
+    RaftFailure,
+    InvalidXattrNamespace,
+    Uncategorized,
+}
+
 #[derive(Archive, Deserialize, Serialize)]
 #[archive_attr(derive(CheckBytes))]
 pub enum RkyvGenericResponse {
@@ -31,10 +51,36 @@ pub enum RkyvGenericResponse {
         index: u64,
     },
     Empty,
+    ErrorOccurred(ErrorCode),
 }
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
 impl ArchivedRkyvGenericResponse {
+    pub fn as_error_response(&self) -> Option<ErrorCode> {
+        if let ArchivedRkyvGenericResponse::ErrorOccurred(archived) = self {
+            let error_code = match archived {
+                ArchivedErrorCode::DoesNotExist => ErrorCode::DoesNotExist,
+                ArchivedErrorCode::InodeDoesNotExist => ErrorCode::InodeDoesNotExist,
+                ArchivedErrorCode::FileTooLarge => ErrorCode::FileTooLarge,
+                ArchivedErrorCode::AccessDenied => ErrorCode::AccessDenied,
+                ArchivedErrorCode::OperationNotPermitted => ErrorCode::OperationNotPermitted,
+                ArchivedErrorCode::AlreadyExists => ErrorCode::AlreadyExists,
+                ArchivedErrorCode::NameTooLong => ErrorCode::NameTooLong,
+                ArchivedErrorCode::NotEmpty => ErrorCode::NotEmpty,
+                ArchivedErrorCode::MissingXattrKey => ErrorCode::MissingXattrKey,
+                ArchivedErrorCode::BadResponse => ErrorCode::BadResponse,
+                ArchivedErrorCode::BadRequest => ErrorCode::BadRequest,
+                ArchivedErrorCode::Corrupted => ErrorCode::Corrupted,
+                ArchivedErrorCode::RaftFailure => ErrorCode::RaftFailure,
+                ArchivedErrorCode::InvalidXattrNamespace => ErrorCode::InvalidXattrNamespace,
+                ArchivedErrorCode::Uncategorized => ErrorCode::Uncategorized,
+            };
+            Some(error_code)
+        } else {
+            None
+        }
+    }
+
     pub fn as_empty_response(&self) -> Option<()> {
         if matches!(self, ArchivedRkyvGenericResponse::Empty) {
             Some(())

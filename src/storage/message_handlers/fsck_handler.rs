@@ -1,3 +1,4 @@
+use crate::base::message_types::ErrorCode;
 use crate::base::LocalContext;
 use crate::base::{empty_response, FlatBufferResponse, ResultResponse};
 use crate::client::{PeerClient, TcpPeerClient};
