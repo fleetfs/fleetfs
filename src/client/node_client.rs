@@ -135,8 +135,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -154,8 +159,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
@@ -372,8 +382,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
@@ -396,8 +411,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
@@ -427,8 +447,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -449,8 +474,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -484,8 +514,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -541,8 +576,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -660,8 +700,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -702,8 +747,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -721,8 +771,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
@@ -740,8 +795,13 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(builder.finished_data(), &mut buffer)?;
-        response
-            .response_as_empty_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_empty_response()
             .ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());

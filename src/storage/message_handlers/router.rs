@@ -551,13 +551,8 @@ async fn request_router_inner(
                 .await
                 .map_err(|_| ErrorCode::Uncategorized)?;
 
-            let response_builder = EmptyResponseBuilder::new(&mut builder);
-            let response_offset = response_builder.finish().as_union_value();
-            return Ok(Partial((
-                builder,
-                ResponseType::EmptyResponse,
-                response_offset,
-            )));
+            let empty_result = empty_response(builder).unwrap();
+            return Ok(Partial(empty_result));
         }
         RequestType::NONE => unreachable!(),
     }
