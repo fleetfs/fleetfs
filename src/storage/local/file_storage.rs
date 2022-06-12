@@ -10,25 +10,14 @@ use crate::generated::*;
 use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
 use crate::storage::local::metadata_storage::{InodeAttributes, MetadataStorage, MAX_NAME_LENGTH};
 use crate::storage::local::response_helpers::{
-    into_error_code, to_inode_response, to_read_response, to_write_response, to_xattrs_response,
+    into_error_code, remove_link_response, to_inode_response, to_read_response, to_write_response,
+    to_xattrs_response,
 };
 use crate::storage::ROOT_INODE;
 use futures::Future;
 use futures::FutureExt;
 use std::net::SocketAddr;
 use std::path::Path;
-
-pub fn remove_link_response(
-    mut buffer: FlatBufferBuilder,
-    inode: u64,
-    processed: bool,
-) -> ResultResponse {
-    let mut response_builder = RemoveLinkResponseBuilder::new(&mut buffer);
-    response_builder.add_inode(inode);
-    response_builder.add_processing_complete(processed);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((buffer, ResponseType::RemoveLinkResponse, offset));
-}
 
 fn build_fileattr_response<'a>(
     builder: &mut FlatBufferBuilder<'a>,
