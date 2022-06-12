@@ -16,6 +16,6 @@ pub use message_utils::{
 pub use raft_utils::node_contains_raft_group;
 pub use response_types::{FlatBufferResponse, FlatBufferWithResponse, ResultResponse};
 pub use utils::{
-    check_access, empty_response, finalize_request, finalize_request_without_prefix,
-    finalize_response, finalize_response_without_prefix, node_id_from_address, response_or_error,
+    check_access, empty_response, finalize_request_without_prefix, finalize_response,
+    finalize_response_without_prefix, node_id_from_address, response_or_error,
 };

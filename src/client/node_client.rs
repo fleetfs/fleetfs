@@ -6,12 +6,17 @@ use flatbuffers::FlatBufferBuilder;
 use thread_local::ThreadLocal;
 
 use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
-use crate::base::message_types::{ArchivedRkyvGenericResponse, ErrorCode, RkyvGenericResponse};
-use crate::base::{finalize_request, response_or_error};
+use crate::base::message_types::{
+    ArchivedRkyvGenericResponse, ErrorCode, RkyvGenericResponse, RkyvRequest,
+};
+use crate::base::{finalize_request_without_prefix, response_or_error};
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
+use byteorder::{ByteOrder, LittleEndian};
 use fuser::FileAttr;
+use rkyv::ser::serializers::AllocSerializer;
+use rkyv::ser::Serializer;
 use rkyv::AlignedVec;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
@@ -90,15 +95,40 @@ impl NodeClient {
             .borrow_mut();
     }
 
-    fn send_receive_raw<'b>(
+    fn send_flatbuffer_receive_raw<'b>(
         &self,
         request: &[u8],
         buffer: &'b mut Vec<u8>,
     ) -> Result<&'b mut Vec<u8>, ErrorCode> {
+        let request = RkyvRequest::Flatbuffer(request.as_ref().to_vec());
+        let mut serializer = AllocSerializer::<64>::default();
+        serializer.pad(4).unwrap();
+        serializer.serialize_value(&request).unwrap();
+        let mut request_buffer = serializer.into_serializer().into_inner();
+        let len = (request_buffer.len() - 4) as u32;
+        LittleEndian::write_u32(request_buffer.as_mut(), len);
         self.tcp_client
-            .send_and_receive_length_prefixed(request, buffer.as_mut())
+            .send_and_receive_length_prefixed(&request_buffer, buffer.as_mut())
             .map_err(|_| ErrorCode::Uncategorized)?;
         Ok(buffer)
+    }
+
+    fn send_flatbuffer<'b>(
+        &self,
+        request: &[u8],
+        buffer: &'b mut Vec<u8>,
+    ) -> Result<GenericResponse<'b>, ErrorCode> {
+        let request = RkyvRequest::Flatbuffer(request.as_ref().to_vec());
+        let mut serializer = AllocSerializer::<64>::default();
+        serializer.pad(4).unwrap();
+        serializer.serialize_value(&request).unwrap();
+        let mut request_buffer = serializer.into_serializer().into_inner();
+        let len = (request_buffer.len() - 4) as u32;
+        LittleEndian::write_u32(request_buffer.as_mut(), len);
+        self.tcp_client
+            .send_and_receive_length_prefixed(&request_buffer, buffer.as_mut())
+            .map_err(|_| ErrorCode::Uncategorized)?;
+        return response_or_error(buffer);
     }
 
     fn send<'b>(
@@ -116,14 +146,14 @@ impl NodeClient {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemReadyRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(
+        finalize_request_without_prefix(
             &mut builder,
             RequestType::FilesystemReadyRequest,
             finish_offset,
         );
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -140,14 +170,14 @@ impl NodeClient {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemCheckRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(
+        finalize_request_without_prefix(
             &mut builder,
             RequestType::FilesystemCheckRequest,
             finish_offset,
         );
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -177,10 +207,10 @@ impl NodeClient {
         request_builder.add_gid(gid);
         request_builder.add_mode(mode);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::MkdirRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::MkdirRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let metadata = response
             .response_as_file_metadata_response()
             .ok_or(ErrorCode::BadResponse)?;
@@ -196,10 +226,10 @@ impl NodeClient {
         request_builder.add_name(builder_name);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::LookupRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::LookupRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -233,10 +263,10 @@ impl NodeClient {
         request_builder.add_mode(mode);
         request_builder.add_kind(kind);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::CreateRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::CreateRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let metadata = response
             .response_as_file_metadata_response()
             .ok_or(ErrorCode::BadResponse)?;
@@ -248,14 +278,14 @@ impl NodeClient {
         let mut builder = self.get_or_create_builder();
         let request_builder = FilesystemInformationRequestBuilder::new(&mut builder);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(
+        finalize_request_without_prefix(
             &mut builder,
             RequestType::FilesystemInformationRequest,
             finish_offset,
         );
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -284,10 +314,10 @@ impl NodeClient {
         let mut request_builder = GetattrRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::GetattrRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::GetattrRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let metadata = response
             .response_as_file_metadata_response()
             .ok_or(ErrorCode::BadResponse)?;
@@ -308,10 +338,10 @@ impl NodeClient {
         request_builder.add_key(builder_key);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::GetXattrRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::GetXattrRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -329,10 +359,14 @@ impl NodeClient {
         let mut request_builder = ListXattrsRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ListXattrsRequest, finish_offset);
+        finalize_request_without_prefix(
+            &mut builder,
+            RequestType::ListXattrsRequest,
+            finish_offset,
+        );
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -367,10 +401,10 @@ impl NodeClient {
         request_builder.add_value(builder_value);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::SetXattrRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::SetXattrRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -396,10 +430,14 @@ impl NodeClient {
         request_builder.add_key(builder_key);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::RemoveXattrRequest, finish_offset);
+        finalize_request_without_prefix(
+            &mut builder,
+            RequestType::RemoveXattrRequest,
+            finish_offset,
+        );
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -432,10 +470,10 @@ impl NodeClient {
         }
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::UtimensRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::UtimensRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -459,10 +497,10 @@ impl NodeClient {
         request_builder.add_mode(mode);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ChmodRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ChmodRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -499,10 +537,10 @@ impl NodeClient {
         }
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ChownRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ChownRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -532,10 +570,10 @@ impl NodeClient {
         request_builder.add_new_name(builder_new_name);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::HardlinkRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::HardlinkRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let metadata = response
             .response_as_file_metadata_response()
             .ok_or(ErrorCode::BadResponse)?;
@@ -561,10 +599,10 @@ impl NodeClient {
         request_builder.add_new_name(builder_new_name);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::RenameRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::RenameRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -588,10 +626,10 @@ impl NodeClient {
         // instead we should be using a special readlink message
         request_builder.add_read_size(999_999);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ReadRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_receive_raw(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer_receive_raw(builder.finished_data(), &mut buffer)?;
         decode_fast_read_response_inplace(response).map(Clone::clone)
     }
 
@@ -610,10 +648,10 @@ impl NodeClient {
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ReadRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        match self.send_receive_raw(builder.finished_data(), &mut buffer) {
+        match self.send_flatbuffer_receive_raw(builder.finished_data(), &mut buffer) {
             Ok(response) => match decode_fast_read_response_inplace(response) {
                 Ok(data) => {
                     callback(Ok(data));
@@ -640,10 +678,10 @@ impl NodeClient {
         request_builder.add_offset(offset);
         request_builder.add_read_size(size);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ReadRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ReadRequest, finish_offset);
 
         let mut buffer = Vec::with_capacity((size + 1) as usize);
-        self.send_receive_raw(builder.finished_data(), &mut buffer)?;
+        self.send_flatbuffer_receive_raw(builder.finished_data(), &mut buffer)?;
         decode_fast_read_response_inplace(&mut buffer)?;
 
         Ok(buffer)
@@ -654,10 +692,10 @@ impl NodeClient {
         let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::ReaddirRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::ReaddirRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
 
         let mut result = vec![];
         let listing_response = response
@@ -685,10 +723,10 @@ impl NodeClient {
         request_builder.add_new_length(length);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::TruncateRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::TruncateRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -709,10 +747,10 @@ impl NodeClient {
         request_builder.add_offset(offset);
         request_builder.add_data(data_offset);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::WriteRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::WriteRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -732,10 +770,10 @@ impl NodeClient {
         let mut request_builder = FsyncRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::FsyncRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::FsyncRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -756,10 +794,10 @@ impl NodeClient {
         request_builder.add_name(builder_name);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::UnlinkRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::UnlinkRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -780,10 +818,10 @@ impl NodeClient {
         request_builder.add_name(builder_name);
         request_builder.add_context(&context);
         let finish_offset = request_builder.finish().as_union_value();
-        finalize_request(&mut builder, RequestType::RmdirRequest, finish_offset);
+        finalize_request_without_prefix(&mut builder, RequestType::RmdirRequest, finish_offset);
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send(builder.finished_data(), &mut buffer)?;
+        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?

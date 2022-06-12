@@ -1,3 +1,4 @@
+use crate::base::message_types::ArchivedRkyvRequest;
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::LocalContext;
 use crate::base::{accessed_inode, distribution_requirement, raft_group, DistributionRequirement};
@@ -605,7 +606,30 @@ async fn forward_request(
     }
 }
 
-pub async fn request_router<'a>(
+pub async fn request_router(
+    request: &ArchivedRkyvRequest,
+    raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
+    context: LocalContext,
+    builder: FlatBufferBuilder<'static>,
+) -> FlatBufferWithResponse<'static> {
+    match request {
+        ArchivedRkyvRequest::Flatbuffer(flatbuffer) => {
+            let request = get_root_as_generic_request(flatbuffer);
+            let response = flatbuffer_request_router(
+                request,
+                raft.clone(),
+                remote_rafts.clone(),
+                context.clone(),
+                builder,
+            )
+            .await;
+            response
+        }
+    }
+}
+
+async fn flatbuffer_request_router<'a>(
     request: GenericRequest<'a>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,

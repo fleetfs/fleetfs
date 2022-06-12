@@ -44,18 +44,6 @@ pub fn finalize_response_without_prefix(
     builder.finish(finish_offset, None);
 }
 
-pub fn finalize_request(
-    builder: &mut FlatBufferBuilder,
-    request_type: RequestType,
-    finish_offset: WIPOffset<UnionWIPOffset>,
-) {
-    let mut generic_request_builder = GenericRequestBuilder::new(builder);
-    generic_request_builder.add_request_type(request_type);
-    generic_request_builder.add_request(finish_offset);
-    let finish_offset = generic_request_builder.finish();
-    builder.finish_size_prefixed(finish_offset, None);
-}
-
 pub fn finalize_response(
     builder: &mut FlatBufferBuilder,
     response_type: ResponseType,
