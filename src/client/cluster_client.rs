@@ -1,4 +1,5 @@
 use crate::base::accessed_inode;
+use crate::base::message_types::{ArchivedRkyvRequest, RkyvRequest};
 use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
 use crate::base::{finalize_request_without_prefix, LengthPrefixedVec};
@@ -6,6 +7,7 @@ use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use flatbuffers::FlatBufferBuilder;
 use futures_util::future::FutureExt;
+use rkyv::Deserialize;
 use std::collections::HashMap;
 use std::future::Future;
 
@@ -114,7 +116,7 @@ impl RemoteRaftGroups {
             .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
     }
 
-    pub fn forward_request(
+    pub fn forward_flatbuffer_request(
         &self,
         request: &GenericRequest<'_>,
     ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
@@ -124,5 +126,21 @@ impl RemoteRaftGroups {
             .unwrap()
             // TODO: is accessing _tab.buf safe?
             .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+    }
+
+    pub fn forward_request(
+        &self,
+        request: &ArchivedRkyvRequest,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        let raft_group_id = request.meta_info().inode.unwrap() % self.total_raft_groups as u64;
+
+        // TODO: avoid this deserializing and re-serializing. Unfortunately, I can't figure out
+        // how to get the underlying bytes out of the archived type
+        let deserialized: RkyvRequest = request.deserialize(&mut rkyv::Infallible).unwrap();
+        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&deserialized).unwrap();
+        self.groups
+            .get(&(raft_group_id as u16))
+            .unwrap()
+            .send_unprefixed_and_receive_length_prefixed(rkyv_bytes)
     }
 }

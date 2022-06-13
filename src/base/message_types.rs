@@ -1,3 +1,4 @@
+use crate::base::{AccessType, DistributionRequirement, RequestMetaInfo};
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -25,6 +26,7 @@ pub enum ErrorCode {
 #[derive(Archive, Deserialize, Serialize)]
 #[archive_attr(derive(CheckBytes))]
 pub enum RkyvRequest {
+    FilesystemReady,
     Flatbuffer(Vec<u8>),
 }
 
@@ -65,6 +67,21 @@ pub enum RkyvGenericResponse {
     ErrorOccurred(ErrorCode),
     // Mapping from raft group ids to their checksum
     Checksums(HashMap<u16, Vec<u8>>),
+}
+
+impl ArchivedRkyvRequest {
+    pub fn meta_info(&self) -> RequestMetaInfo {
+        match self {
+            ArchivedRkyvRequest::FilesystemReady => RequestMetaInfo {
+                raft_group: None,
+                inode: None,
+                lock_id: None,
+                access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::Any,
+            },
+            ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
+        }
+    }
 }
 
 // Add some helper methods to the generated rkyv type for RkyvGenericResponse
