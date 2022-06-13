@@ -1,8 +1,8 @@
 use crate::base::message_types::ArchivedRkyvRequest;
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::LocalContext;
-use crate::base::{accessed_inode, distribution_requirement, raft_group, DistributionRequirement};
+use crate::base::DistributionRequirement;
 use crate::base::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
+use crate::base::{flatbuffer_request_meta_info, LocalContext, RequestMetaInfo};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};
@@ -556,47 +556,49 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::FilesystemReadyRequest => {
-            for node in raft.all_groups() {
-                node.get_leader().await?;
-            }
-            // Ensure that all other nodes are ready too
-            remote_rafts
-                .wait_for_ready()
-                .await
-                .map_err(|_| ErrorCode::Uncategorized)?;
-
-            let empty_result = empty_response(builder).unwrap();
-            return Ok(Partial(empty_result));
-        }
         RequestType::NONE => unreachable!(),
     }
 }
 
 // Determines whether the request can be handled by the local node, or whether it needs to be
 // forwarded to a different raft group
-fn can_handle_locally(request: &GenericRequest<'_>, local_rafts: &LocalRaftGroupManager) -> bool {
-    match distribution_requirement(request) {
+fn can_handle_locally(request_meta: RequestMetaInfo, local_rafts: &LocalRaftGroupManager) -> bool {
+    match request_meta.distribution_requirement {
         DistributionRequirement::Any => true,
         DistributionRequirement::TransactionCoordinator => true,
         // TODO: check that this message was sent to the right node. At the moment, we assume the client handled that
         DistributionRequirement::Node => true,
         DistributionRequirement::RaftGroup => {
-            if let Some(group) = raft_group(request) {
+            if let Some(group) = request_meta.raft_group {
                 local_rafts.has_raft_group(group)
             } else {
-                local_rafts.inode_stored_locally(accessed_inode(request).unwrap())
+                local_rafts.inode_stored_locally(request_meta.inode.unwrap())
             }
         }
     }
 }
 
 async fn forward_request(
-    request: &GenericRequest<'_>,
+    request: &ArchivedRkyvRequest,
     builder: FlatBufferBuilder<'static>,
     rafts: Arc<RemoteRaftGroups>,
 ) -> FlatBufferWithResponse<'static> {
     if let Ok(response) = rafts.forward_request(request).await {
+        FlatBufferWithResponse::with_separate_response(builder, response)
+    } else {
+        FlatBufferWithResponse::new(to_error_response(
+            FlatBufferBuilder::new(),
+            ErrorCode::Uncategorized,
+        ))
+    }
+}
+
+async fn forward_flatbuffer_request(
+    request: &GenericRequest<'_>,
+    builder: FlatBufferBuilder<'static>,
+    rafts: Arc<RemoteRaftGroups>,
+) -> FlatBufferWithResponse<'static> {
+    if let Ok(response) = rafts.forward_flatbuffer_request(request).await {
         FlatBufferWithResponse::with_separate_response(builder, response)
     } else {
         FlatBufferWithResponse::new(to_error_response(
@@ -626,6 +628,57 @@ pub async fn request_router(
             .await;
             response
         }
+        _ => rkyv_request_router(request, raft, remote_rafts, context, builder).await,
+    }
+}
+
+async fn rkyv_request_router<'a>(
+    request: &ArchivedRkyvRequest,
+    raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
+    context: LocalContext,
+    mut builder: FlatBufferBuilder<'static>,
+) -> FlatBufferWithResponse<'static> {
+    if !can_handle_locally(request.meta_info(), &raft) {
+        return forward_request(request, builder, remote_rafts.clone()).await;
+    }
+
+    match rkyv_request_router_inner(request, raft, remote_rafts, context).await {
+        Ok(rkyv_response) => {
+            let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+            let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+            let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+            response_builder.add_rkyv_data(flatbuffer_offset);
+            let offset = response_builder.finish().as_union_value();
+            finalize_response(&mut builder, ResponseType::RkyvResponse, offset);
+            FlatBufferWithResponse::new(builder)
+        }
+        Err(error_code) => {
+            FlatBufferWithResponse::new(to_error_response(FlatBufferBuilder::new(), error_code))
+        }
+    }
+}
+
+async fn rkyv_request_router_inner(
+    request: &ArchivedRkyvRequest,
+    raft: Arc<LocalRaftGroupManager>,
+    remote_rafts: Arc<RemoteRaftGroups>,
+    _context: LocalContext,
+) -> Result<RkyvGenericResponse, ErrorCode> {
+    match request {
+        ArchivedRkyvRequest::FilesystemReady => {
+            for node in raft.all_groups() {
+                node.get_leader().await?;
+            }
+            // Ensure that all other nodes are ready too
+            remote_rafts
+                .wait_for_ready()
+                .await
+                .map_err(|_| ErrorCode::Uncategorized)?;
+
+            Ok(RkyvGenericResponse::Empty)
+        }
+        ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
     }
 }
 
@@ -636,8 +689,8 @@ async fn flatbuffer_request_router<'a>(
     context: LocalContext,
     builder: FlatBufferBuilder<'static>,
 ) -> FlatBufferWithResponse<'static> {
-    if !can_handle_locally(&request, &raft) {
-        return forward_request(&request, builder, remote_rafts.clone()).await;
+    if !can_handle_locally(flatbuffer_request_meta_info(&request), &raft) {
+        return forward_flatbuffer_request(&request, builder, remote_rafts.clone()).await;
     }
 
     match request_router_inner(request, raft, remote_rafts, context, builder).await {

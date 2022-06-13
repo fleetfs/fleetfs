@@ -119,6 +119,15 @@ impl NodeClient {
         buffer: &'b mut Vec<u8>,
     ) -> Result<GenericResponse<'b>, ErrorCode> {
         let request = RkyvRequest::Flatbuffer(request.as_ref().to_vec());
+        self.send(request, buffer)
+    }
+
+    fn send<'b>(
+        &self,
+        request: RkyvRequest,
+        buffer: &'b mut Vec<u8>,
+    ) -> Result<GenericResponse<'b>, ErrorCode> {
+        // TODO: reuse these serializers to reduce allocations, like get_or_create_builder()
         let mut serializer = AllocSerializer::<64>::default();
         serializer.pad(4).unwrap();
         serializer.serialize_value(&request).unwrap();
@@ -131,29 +140,9 @@ impl NodeClient {
         return response_or_error(buffer);
     }
 
-    fn send<'b>(
-        &self,
-        request: &[u8],
-        buffer: &'b mut Vec<u8>,
-    ) -> Result<GenericResponse<'b>, ErrorCode> {
-        self.tcp_client
-            .send_and_receive_length_prefixed(request, buffer.as_mut())
-            .map_err(|_| ErrorCode::Uncategorized)?;
-        return response_or_error(buffer);
-    }
-
     pub fn filesystem_ready(&self) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let request_builder = FilesystemReadyRequestBuilder::new(&mut builder);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::FilesystemReadyRequest,
-            finish_offset,
-        );
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(RkyvRequest::FilesystemReady, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?

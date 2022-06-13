@@ -421,7 +421,7 @@ async fn getattrs(
         finalize_request_without_prefix(&mut builder, RequestType::GetattrRequest, finish_offset);
         let request = get_root_as_generic_request(builder.finished_data());
         let response_data = remote_rafts
-            .forward_request(&request)
+            .forward_flatbuffer_request(&request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
@@ -477,7 +477,7 @@ async fn lookup(
         finalize_request_without_prefix(&mut builder, RequestType::LookupRequest, finish_offset);
         let request = get_root_as_generic_request(builder.finished_data());
         let response_data = remote_rafts
-            .forward_request(&request)
+            .forward_flatbuffer_request(&request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 

@@ -1,11 +1,11 @@
 use crate::generated::*;
 
-struct RequestMetaInfo {
-    raft_group: Option<u16>,
-    inode: Option<u64>, // Some if the request accesses a single inode (i.e. None for Rename)
-    lock_id: Option<u64>,
-    access_type: AccessType, // Used to determine locks to acquire
-    distribution_requirement: DistributionRequirement,
+pub struct RequestMetaInfo {
+    pub raft_group: Option<u16>,
+    pub inode: Option<u64>, // Some if the request accesses a single inode (i.e. None for Rename)
+    pub lock_id: Option<u64>,
+    pub access_type: AccessType, // Used to determine locks to acquire
+    pub distribution_requirement: DistributionRequirement,
 }
 
 pub enum AccessType {
@@ -25,15 +25,8 @@ pub enum DistributionRequirement {
     Node,                   // Must be processed by a specific node
 }
 
-fn request_meta_info(request: &GenericRequest<'_>) -> RequestMetaInfo {
+pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMetaInfo {
     match request.request_type() {
-        RequestType::FilesystemReadyRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: None,
-            lock_id: None,
-            access_type: AccessType::NoAccess,
-            distribution_requirement: DistributionRequirement::Any,
-        },
         RequestType::FilesystemCheckRequest => RequestMetaInfo {
             raft_group: None,
             inode: None,
@@ -365,21 +358,21 @@ fn request_meta_info(request: &GenericRequest<'_>) -> RequestMetaInfo {
 
 // Locks held by the request
 pub fn request_locks(request: &GenericRequest<'_>) -> Option<u64> {
-    request_meta_info(request).lock_id
+    flatbuffer_request_meta_info(request).lock_id
 }
 
 pub fn accessed_inode(request: &GenericRequest<'_>) -> Option<u64> {
-    request_meta_info(request).inode
+    flatbuffer_request_meta_info(request).inode
 }
 
 pub fn raft_group(request: &GenericRequest) -> Option<u16> {
-    request_meta_info(request).raft_group
+    flatbuffer_request_meta_info(request).raft_group
 }
 
 pub fn access_type(request: &GenericRequest) -> AccessType {
-    request_meta_info(request).access_type
+    flatbuffer_request_meta_info(request).access_type
 }
 
 pub fn distribution_requirement(request: &GenericRequest) -> DistributionRequirement {
-    request_meta_info(request).distribution_requirement
+    flatbuffer_request_meta_info(request).distribution_requirement
 }

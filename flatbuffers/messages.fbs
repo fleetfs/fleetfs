@@ -3,7 +3,7 @@ namespace generated;
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
-                   LatestCommitRequest, FilesystemReadyRequest, RmdirRequest, ChownRequest, CreateRequest,
+                   LatestCommitRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
                    FilesystemInformationRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
@@ -43,9 +43,6 @@ table RaftGroupLeaderRequest {
 }
 
 table FilesystemInformationRequest {
-}
-
-table FilesystemReadyRequest {
 }
 
 table FilesystemChecksumRequest {
