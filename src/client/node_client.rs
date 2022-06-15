@@ -335,18 +335,8 @@ impl NodeClient {
     }
 
     pub fn listxattr(&self, inode: u64) -> Result<Vec<String>, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ListXattrsRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::ListXattrsRequest,
-            finish_offset,
-        );
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(RkyvRequest::ListXattrs { inode }, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
