@@ -102,13 +102,14 @@ impl NodeClient {
     ) -> Result<&'b mut Vec<u8>, ErrorCode> {
         let request = RkyvRequest::Flatbuffer(request.as_ref().to_vec());
         let mut serializer = AllocSerializer::<64>::default();
-        serializer.pad(4).unwrap();
         serializer.serialize_value(&request).unwrap();
-        let mut request_buffer = serializer.into_serializer().into_inner();
-        let len = (request_buffer.len() - 4) as u32;
-        LittleEndian::write_u32(request_buffer.as_mut(), len);
+        let request_buffer = serializer.into_serializer().into_inner();
+        let mut send_buffer = vec![0; request_buffer.len() + 4];
+        LittleEndian::write_u32(&mut send_buffer, request_buffer.len() as u32);
+        // TODO: optimize out this copy
+        send_buffer[4..].copy_from_slice(&request_buffer);
         self.tcp_client
-            .send_and_receive_length_prefixed(&request_buffer, buffer.as_mut())
+            .send_and_receive_length_prefixed(&send_buffer, buffer.as_mut())
             .map_err(|_| ErrorCode::Uncategorized)?;
         Ok(buffer)
     }
@@ -129,13 +130,14 @@ impl NodeClient {
     ) -> Result<GenericResponse<'b>, ErrorCode> {
         // TODO: reuse these serializers to reduce allocations, like get_or_create_builder()
         let mut serializer = AllocSerializer::<64>::default();
-        serializer.pad(4).unwrap();
         serializer.serialize_value(&request).unwrap();
-        let mut request_buffer = serializer.into_serializer().into_inner();
-        let len = (request_buffer.len() - 4) as u32;
-        LittleEndian::write_u32(request_buffer.as_mut(), len);
+        let request_buffer = serializer.into_serializer().into_inner();
+        let mut send_buffer = vec![0; request_buffer.len() + 4];
+        LittleEndian::write_u32(&mut send_buffer, request_buffer.len() as u32);
+        // TODO: optimize out this copy
+        send_buffer[4..].copy_from_slice(&request_buffer);
         self.tcp_client
-            .send_and_receive_length_prefixed(&request_buffer, buffer.as_mut())
+            .send_and_receive_length_prefixed(&send_buffer, buffer.as_mut())
             .map_err(|_| ErrorCode::Uncategorized)?;
         return response_or_error(buffer);
     }
