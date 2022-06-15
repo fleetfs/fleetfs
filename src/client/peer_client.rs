@@ -134,6 +134,25 @@ impl TcpPeerClient {
         }
     }
 
+    fn send(
+        &self,
+        request: RkyvRequest,
+    ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>> {
+        let pool = self.pool.clone();
+
+        self.connect()
+            .then(move |tcp_stream| match tcp_stream {
+                Ok(stream) => {
+                    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&request).unwrap();
+                    Either::Left(async_send_unprefixed_receive_length_prefixed(
+                        stream, rkyv_bytes, pool,
+                    ))
+                }
+                Err(e) => Either::Right(ready(Err(e))),
+            })
+            .boxed()
+    }
+
     fn return_connection(pool: Arc<Mutex<Vec<TcpStream>>>, connection: TcpStream) {
         let mut locked = pool.lock().unwrap();
         if locked.len() < POOL_SIZE {
@@ -249,34 +268,23 @@ impl PeerClient for TcpPeerClient {
     }
 
     fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
-        let mut builder = FlatBufferBuilder::new();
-        let request_builder = FilesystemChecksumRequestBuilder::new(&mut builder);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::FilesystemChecksumRequest,
-            finish_offset,
-        );
+        self.send(RkyvRequest::FilesystemChecksum)
+            .map(|maybe_response| {
+                let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
+                let rkyv_response = response_or_error(data.bytes())
+                    .unwrap()
+                    .response_as_rkyv_response()
+                    .unwrap();
+                let rkyv_data = rkyv_response.rkyv_data();
+                let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+                rkyv_aligned.extend_from_slice(rkyv_data);
+                let checksum_response =
+                    rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+                let checksums = checksum_response.as_checksum_response().unwrap();
 
-        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(
-            builder.finished_data().to_vec(),
-        )
-        .map(|maybe_response| {
-            let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
-            let rkyv_response = response_or_error(data.bytes())
-                .unwrap()
-                .response_as_rkyv_response()
-                .unwrap();
-            let rkyv_data = rkyv_response.rkyv_data();
-            let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-            rkyv_aligned.extend_from_slice(rkyv_data);
-            let checksum_response =
-                rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-            let checksums = checksum_response.as_checksum_response().unwrap();
-
-            Ok(checksums)
-        })
-        .boxed()
+                Ok(checksums)
+            })
+            .boxed()
     }
 
     fn read_raw(
