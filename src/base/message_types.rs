@@ -28,6 +28,7 @@ pub enum ErrorCode {
 pub enum RkyvRequest {
     FilesystemReady,
     FilesystemInformation,
+    ListXattrs { inode: u64 },
     Flatbuffer(Vec<u8>),
 }
 
@@ -86,6 +87,13 @@ impl ArchivedRkyvRequest {
                 lock_id: None,
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::Any,
+            },
+            ArchivedRkyvRequest::ListXattrs { inode } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::ReadMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
             },
             ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
         }

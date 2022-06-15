@@ -11,7 +11,6 @@ use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
 use crate::storage::local::metadata_storage::{InodeAttributes, MetadataStorage, MAX_NAME_LENGTH};
 use crate::storage::local::response_helpers::{
     into_error_code, remove_link_response, to_inode_response, to_read_response, to_write_response,
-    to_xattrs_response,
 };
 use crate::storage::ROOT_INODE;
 use futures::Future;
@@ -356,13 +355,10 @@ impl FileStorage {
         return to_read_response(builder, &attr);
     }
 
-    pub fn list_xattrs<'a>(
-        &self,
-        inode: u64,
-        builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
-        let attrs = self.metadata_storage.list_xattrs(inode)?;
-        return to_xattrs_response(builder, &attrs);
+    pub fn list_xattrs(&self, inode: u64) -> Result<RkyvGenericResponse, ErrorCode> {
+        Ok(RkyvGenericResponse::Xattrs {
+            attrs: self.metadata_storage.list_xattrs(inode)?,
+        })
     }
 
     pub fn set_xattr<'a>(

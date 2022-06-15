@@ -36,21 +36,6 @@ pub fn remove_link_response(
     return Ok((builder, ResponseType::RkyvResponse, offset));
 }
 
-pub fn to_xattrs_response<'a, T: AsRef<str>>(
-    mut builder: FlatBufferBuilder<'a>,
-    xattrs: &[T],
-) -> ResultResponse<'a> {
-    let rkyv_response = RkyvGenericResponse::Xattrs {
-        attrs: xattrs.iter().map(|x| x.as_ref().to_string()).collect(),
-    };
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((builder, ResponseType::RkyvResponse, offset));
-}
-
 pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
     let rkyv_response = RkyvGenericResponse::Read {
         data: data.to_vec(),

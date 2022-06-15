@@ -4,7 +4,7 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, RmdirRequest, ChownRequest, CreateRequest,
-                   FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
+                   FsyncRequest, GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    LockRequest, UnlockRequest,
@@ -45,10 +45,6 @@ table FilesystemChecksumRequest {
 }
 
 table FilesystemCheckRequest {
-}
-
-table ListXattrsRequest {
-  inode: ulong;
 }
 
 table GetXattrRequest {

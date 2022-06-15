@@ -293,13 +293,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::ReadMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::ListXattrsRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_list_xattrs_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::ReadMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::ReaddirRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_readdir_request().unwrap().inode()),
