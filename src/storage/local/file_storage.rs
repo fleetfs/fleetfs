@@ -96,17 +96,11 @@ impl FileStorage {
             .map_err(|_| ErrorCode::Uncategorized)
     }
 
-    pub fn statfs<'a>(&self, mut builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {
-        let rkyv_response = RkyvGenericResponse::FilesystemInformation {
+    pub fn statfs(&self) -> RkyvGenericResponse {
+        RkyvGenericResponse::FilesystemInformation {
             block_size: BLOCK_SIZE as u32,
             max_name_length: MAX_NAME_LENGTH,
-        };
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-        let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-        let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-        response_builder.add_rkyv_data(flatbuffer_offset);
-        let offset = response_builder.finish().as_union_value();
-        return Ok((builder, ResponseType::RkyvResponse, offset));
+        }
     }
 
     pub fn lookup<'a>(

@@ -53,22 +53,6 @@ async fn request_router_inner(
         RequestType::FilesystemChecksumRequest => {
             return checksum_request(raft.clone(), builder).await.map(Partial);
         }
-        RequestType::FilesystemInformationRequest => {
-            if request
-                .request_as_filesystem_information_request()
-                .is_some()
-            {
-                return raft
-                    .all_groups()
-                    .next()
-                    .unwrap()
-                    .file_storage()
-                    .statfs(builder)
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::ReadRequest => {
             if let Some(read_request) = request.request_as_read_request() {
                 let inode = read_request.inode();
@@ -677,6 +661,9 @@ async fn rkyv_request_router_inner(
                 .map_err(|_| ErrorCode::Uncategorized)?;
 
             Ok(RkyvGenericResponse::Empty)
+        }
+        ArchivedRkyvRequest::FilesystemInformation => {
+            Ok(raft.all_groups().next().unwrap().file_storage().statfs())
         }
         ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
     }
