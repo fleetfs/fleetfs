@@ -1,10 +1,8 @@
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::LocalContext;
-use crate::base::{empty_response, FlatBufferResponse};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
-use flatbuffers::FlatBufferBuilder;
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,8 +10,7 @@ use std::sync::Arc;
 pub async fn fsck(
     context: LocalContext,
     raft: Arc<LocalRaftGroupManager>,
-    builder: FlatBufferBuilder<'_>,
-) -> Result<FlatBufferResponse<'_>, ErrorCode> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     let mut local_checksums = HashMap::new();
     for rgroup in raft.all_groups() {
         sync_with_leader(rgroup).await?;
@@ -42,7 +39,7 @@ pub async fn fsck(
                 }
             }
 
-            return empty_response(builder);
+            return Ok(RkyvGenericResponse::Empty);
         })
         .await
 }

@@ -27,13 +27,6 @@ pub enum DistributionRequirement {
 
 pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMetaInfo {
     match request.request_type() {
-        RequestType::FilesystemCheckRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: None,
-            lock_id: None,
-            access_type: AccessType::NoAccess,
-            distribution_requirement: DistributionRequirement::Any,
-        },
         RequestType::ReadRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_read_request().unwrap().inode()),
