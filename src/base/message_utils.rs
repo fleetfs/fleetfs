@@ -34,13 +34,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::NoAccess,
             distribution_requirement: DistributionRequirement::Any,
         },
-        RequestType::FilesystemChecksumRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: None,
-            lock_id: None,
-            access_type: AccessType::NoAccess,
-            distribution_requirement: DistributionRequirement::Node,
-        },
         RequestType::ReadRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_read_request().unwrap().inode()),

@@ -50,9 +50,6 @@ async fn request_router_inner(
                 .await
                 .map(Partial);
         }
-        RequestType::FilesystemChecksumRequest => {
-            return checksum_request(raft.clone(), builder).await.map(Partial);
-        }
         RequestType::ReadRequest => {
             if let Some(read_request) = request.request_as_read_request() {
                 let inode = read_request.inode();
@@ -652,6 +649,7 @@ async fn rkyv_request_router_inner(
         ArchivedRkyvRequest::FilesystemInformation => {
             Ok(raft.all_groups().next().unwrap().file_storage().statfs())
         }
+        ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
         ArchivedRkyvRequest::ListXattrs { inode } => {
             let inode: u64 = inode.into();
             sync_with_leader(raft.lookup_by_inode(inode)).await?;

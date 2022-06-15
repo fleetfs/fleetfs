@@ -1,8 +1,7 @@
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::LocalContext;
-use crate::base::{empty_response, FlatBufferResponse, ResultResponse};
+use crate::base::{empty_response, FlatBufferResponse};
 use crate::client::{PeerClient, TcpPeerClient};
-use crate::generated::*;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
 use flatbuffers::FlatBufferBuilder;
@@ -50,8 +49,7 @@ pub async fn fsck(
 
 pub async fn checksum_request(
     raft: Arc<LocalRaftGroupManager>,
-    mut builder: FlatBufferBuilder<'_>,
-) -> ResultResponse<'_> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     let mut checksums = HashMap::new();
     for rgroup in raft.all_groups() {
         sync_with_leader(rgroup).await?;
@@ -59,11 +57,5 @@ pub async fn checksum_request(
         let checksum = rgroup.local_data_checksum()?;
         checksums.insert(rgroup.get_raft_group_id(), checksum);
     }
-    let rkyv_response = RkyvGenericResponse::Checksums(checksums);
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((builder, ResponseType::RkyvResponse, offset));
+    return Ok(RkyvGenericResponse::Checksums(checksums));
 }
