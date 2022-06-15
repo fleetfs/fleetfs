@@ -222,7 +222,6 @@ pub fn commit_write<'a, 'b>(
         RequestType::RaftGroupLeaderRequest => unreachable!(),
         RequestType::FilesystemCheckRequest => unreachable!(),
         RequestType::FilesystemChecksumRequest => unreachable!(),
-        RequestType::FilesystemInformationRequest => unreachable!(),
         RequestType::LookupRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),

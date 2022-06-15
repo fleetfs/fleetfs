@@ -5,7 +5,6 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    WriteRequest, FilesystemChecksumRequest, FilesystemCheckRequest, RaftRequest,
                    LatestCommitRequest, RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, ListXattrsRequest, SetXattrRequest, RemoveXattrRequest,
-                   FilesystemInformationRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    LockRequest, UnlockRequest,
@@ -40,9 +39,6 @@ table LatestCommitRequest {
 
 table RaftGroupLeaderRequest {
   raft_group: ushort;
-}
-
-table FilesystemInformationRequest {
 }
 
 table FilesystemChecksumRequest {

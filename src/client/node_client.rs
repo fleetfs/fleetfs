@@ -264,17 +264,8 @@ impl NodeClient {
     }
 
     pub fn statfs(&self) -> Result<StatFS, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let request_builder = FilesystemInformationRequestBuilder::new(&mut builder);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::FilesystemInformationRequest,
-            finish_offset,
-        );
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(RkyvRequest::FilesystemInformation, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?

@@ -27,6 +27,7 @@ pub enum ErrorCode {
 #[archive_attr(derive(CheckBytes))]
 pub enum RkyvRequest {
     FilesystemReady,
+    FilesystemInformation,
     Flatbuffer(Vec<u8>),
 }
 
@@ -73,6 +74,13 @@ impl ArchivedRkyvRequest {
     pub fn meta_info(&self) -> RequestMetaInfo {
         match self {
             ArchivedRkyvRequest::FilesystemReady => RequestMetaInfo {
+                raft_group: None,
+                inode: None,
+                lock_id: None,
+                access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::Any,
+            },
+            ArchivedRkyvRequest::FilesystemInformation => RequestMetaInfo {
                 raft_group: None,
                 inode: None,
                 lock_id: None,
