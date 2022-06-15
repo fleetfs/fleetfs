@@ -158,17 +158,8 @@ impl NodeClient {
     }
 
     pub fn fsck(&self) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let request_builder = FilesystemCheckRequestBuilder::new(&mut builder);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::FilesystemCheckRequest,
-            finish_offset,
-        );
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(RkyvRequest::FilesystemCheck, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?

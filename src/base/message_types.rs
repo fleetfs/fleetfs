@@ -29,6 +29,7 @@ pub enum RkyvRequest {
     FilesystemReady,
     FilesystemInformation,
     FilesystemChecksum,
+    FilesystemCheck,
     ListXattrs { inode: u64 },
     Flatbuffer(Vec<u8>),
 }
@@ -83,6 +84,13 @@ impl ArchivedRkyvRequest {
                 distribution_requirement: DistributionRequirement::Any,
             },
             ArchivedRkyvRequest::FilesystemInformation => RequestMetaInfo {
+                raft_group: None,
+                inode: None,
+                lock_id: None,
+                access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::Any,
+            },
+            ArchivedRkyvRequest::FilesystemCheck => RequestMetaInfo {
                 raft_group: None,
                 inode: None,
                 lock_id: None,

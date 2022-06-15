@@ -41,15 +41,10 @@ async fn request_router_inner(
     request: GenericRequest<'_>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-    context: LocalContext,
+    _context: LocalContext,
     mut builder: FlatBufferBuilder<'static>,
 ) -> Result<FullOrPartialResponse, ErrorCode> {
     match request.request_type() {
-        RequestType::FilesystemCheckRequest => {
-            return fsck(context.clone(), raft.clone(), builder)
-                .await
-                .map(Partial);
-        }
         RequestType::ReadRequest => {
             if let Some(read_request) = request.request_as_read_request() {
                 let inode = read_request.inode();
@@ -631,7 +626,7 @@ async fn rkyv_request_router_inner(
     request: &ArchivedRkyvRequest,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-    _context: LocalContext,
+    context: LocalContext,
 ) -> Result<RkyvGenericResponse, ErrorCode> {
     match request {
         ArchivedRkyvRequest::FilesystemReady => {
@@ -649,6 +644,7 @@ async fn rkyv_request_router_inner(
         ArchivedRkyvRequest::FilesystemInformation => {
             Ok(raft.all_groups().next().unwrap().file_storage().statfs())
         }
+        ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
         ArchivedRkyvRequest::ListXattrs { inode } => {
             let inode: u64 = inode.into();
