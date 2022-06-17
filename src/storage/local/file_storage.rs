@@ -262,8 +262,7 @@ impl FileStorage {
         let attrs_offset = build_fileattr_response(&mut builder, attributes, directory_size);
 
         let mut response_builder = HardlinkTransactionResponseBuilder::new(&mut builder);
-        response_builder.add_last_modified_time(&rollback.0);
-        response_builder.add_kind(rollback.1);
+        response_builder.add_rollback_last_modified_time(&rollback);
         response_builder.add_attr_response(attrs_offset);
 
         let offset = response_builder.finish().as_union_value();

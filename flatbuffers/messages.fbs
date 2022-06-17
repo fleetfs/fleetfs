@@ -274,8 +274,7 @@ table FileMetadataResponse {
 }
 
 table HardlinkTransactionResponse {
-  last_modified_time: Timestamp (required);
-  kind: FileKind;
+  rollback_last_modified_time: Timestamp (required);
   attr_response: FileMetadataResponse (required);
 }
 
