@@ -1,14 +1,18 @@
-use crate::base::message_types::{ArchivedRkyvGenericResponse, ErrorCode, RkyvGenericResponse};
+use crate::base::message_types::{
+    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, RkyvGenericResponse, RkyvRequest,
+    Timestamp,
+};
 use crate::base::{
     check_access, empty_response, finalize_request_without_prefix, finalize_response,
-    response_or_error, FlatBufferWithResponse,
+    response_or_error, u8_to_file_kind, FlatBufferWithResponse,
 };
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
+use crate::storage::message_handlers::router::rkyv_response_to_fb;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
 use rand::Rng;
-use rkyv::AlignedVec;
+use rkyv::{AlignedVec, Deserialize};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -34,9 +38,10 @@ fn hardlink_rollback_request<'a>(
     last_modified: Timestamp,
     builder: &'a mut FlatBufferBuilder,
 ) -> GenericRequest<'a> {
+    let fb_timestamp = FlatbufferTimestamp::new(last_modified.seconds, last_modified.nanos);
     let mut request_builder = HardlinkRollbackRequestBuilder::new(builder);
     request_builder.add_inode(inode);
-    request_builder.add_last_modified_time(&last_modified);
+    request_builder.add_last_modified_time(&fb_timestamp);
     let finish_offset = request_builder.finish().as_union_value();
     // Don't need length prefix, since we're not serializing over network
     finalize_request_without_prefix(builder, RequestType::HardlinkRollbackRequest, finish_offset);
@@ -124,10 +129,9 @@ async fn propose(
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<Vec<u8>, ErrorCode> {
     if raft.inode_stored_locally(inode) {
-        let (mut builder, response_type, response_offset) = raft
-            .lookup_by_inode(inode)
-            .propose(request, FlatBufferBuilder::new())
-            .await?;
+        let rkyv_response = raft.lookup_by_inode(inode).propose(request).await?;
+        let (mut builder, response_type, response_offset) =
+            rkyv_response_to_fb(FlatBufferBuilder::new(), rkyv_response)?;
         finalize_response(&mut builder, response_type, response_offset);
         // Skip the first SIZE_UOFFSET bytes because that's the size prefix
         response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
@@ -377,15 +381,15 @@ struct FileOrDirAttrs {
 }
 
 impl FileOrDirAttrs {
-    fn new(response: &FileMetadataResponse<'_>) -> FileOrDirAttrs {
+    fn new(response: &EntryMetadata) -> FileOrDirAttrs {
         FileOrDirAttrs {
-            inode: response.inode(),
-            kind: response.kind(),
-            mode: response.mode(),
-            hardlinks: response.hard_links(),
-            uid: response.user_id(),
-            gid: response.group_id(),
-            directory_entries: response.directory_entries(),
+            inode: response.inode,
+            kind: u8_to_file_kind(response.kind),
+            mode: response.mode,
+            hardlinks: response.hard_links,
+            uid: response.user_id,
+            gid: response.group_id,
+            directory_entries: response.directory_entries.unwrap_or_default(),
         }
     }
 }
@@ -401,36 +405,36 @@ async fn getattrs(
         let latest_commit = rgroup.get_latest_commit_from_leader().await?;
         rgroup.sync(latest_commit).await?;
 
-        let (mut builder, response_type, response_offset) = raft
-            .lookup_by_inode(inode)
-            .file_storage()
-            .getattr(inode, FlatBufferBuilder::new())?;
-        finalize_response(&mut builder, response_type, response_offset);
-        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
-        let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-        let metadata = response
-            .response_as_file_metadata_response()
-            .ok_or(ErrorCode::BadResponse)?;
-
-        return Ok(FileOrDirAttrs::new(&metadata));
+        let response = raft.lookup_by_inode(inode).file_storage().getattr(inode)?;
+        match response {
+            RkyvGenericResponse::EntryMetadata(metadata) => Ok(FileOrDirAttrs::new(&metadata)),
+            _ => Err(ErrorCode::BadResponse),
+        }
     } else {
-        let mut builder = FlatBufferBuilder::new();
-        let mut request_builder = GetattrRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::GetattrRequest, finish_offset);
-        let request = get_root_as_generic_request(builder.finished_data());
+        let rkyv_request = RkyvRequest::GetAttr { inode };
+        // TODO: this seems wasteful
+        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_request).unwrap();
+        let archived_request = rkyv::check_archived_root::<RkyvRequest>(&rkyv_bytes).unwrap();
+
         let response_data = remote_rafts
-            .forward_flatbuffer_request(&request)
+            .forward_request(archived_request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
         let response = response_or_error(response_data.bytes())?;
-        let metadata = response
-            .response_as_file_metadata_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let attr_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+        let metadata = attr_response
+            .as_attr_response()
             .ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(FileOrDirAttrs::new(&metadata));
+        Ok(FileOrDirAttrs::new(&metadata))
     }
 }
 
@@ -447,25 +451,15 @@ async fn lookup(
         let latest_commit = rgroup.get_latest_commit_from_leader().await?;
         rgroup.sync(latest_commit).await?;
 
-        let (mut builder, response_type, response_offset) = raft
+        let inode_response = raft
             .lookup_by_inode(parent)
             .file_storage()
-            .lookup(parent, &name, context, FlatBufferBuilder::new())?;
-        finalize_response(&mut builder, response_type, response_offset);
-        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
-        let response = response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let inode_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+            .lookup(parent, &name, context)?;
 
-        inode_response
-            .as_inode_response()
-            .ok_or(ErrorCode::BadResponse)
+        match inode_response {
+            RkyvGenericResponse::Inode { id } => Ok(id),
+            _ => Err(ErrorCode::BadResponse),
+        }
     } else {
         let mut builder = FlatBufferBuilder::new();
         let builder_name = builder.create_string(&name);
@@ -935,20 +929,19 @@ pub async fn create_transaction<'a>(
         )
         .await
         .map_err(|_| ErrorCode::Uncategorized)?;
-    let created_inode_response = response_or_error(create_response_data.bytes())?;
-    assert_eq!(
-        created_inode_response.response_type(),
-        ResponseType::FileMetadataResponse
-    );
+    let response = response_or_error(create_response_data.bytes())?;
+    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
+    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
+    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+    rkyv_aligned.extend_from_slice(rkyv_data);
+    let created_inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned)
+        .unwrap()
+        .as_attr_response()
+        .ok_or(ErrorCode::BadResponse)
+        .unwrap();
 
-    let inode = created_inode_response
-        .response_as_file_metadata_response()
-        .unwrap()
-        .inode();
-    let link_count = created_inode_response
-        .response_as_file_metadata_response()
-        .unwrap()
-        .hard_links();
+    let inode = created_inode_response.inode;
+    let link_count = created_inode_response.hard_links;
 
     // Second create the link
     let mut link_request_builder = FlatBufferBuilder::new();
@@ -999,16 +992,22 @@ pub async fn hardlink_transaction<'a, 'b>(
         hardlink_increment_request(hardlink_request.inode(), &mut internal_request_builder);
 
     let response_data = propose(hardlink_request.inode(), increment, &raft, &remote_rafts).await?;
-    let increment_response = response_or_error(&response_data)?;
-    assert_eq!(
-        increment_response.response_type(),
-        ResponseType::HardlinkTransactionResponse
-    );
-    let transaction_response = increment_response
-        .response_as_hardlink_transaction_response()
-        .unwrap();
-    let rollback_last_modified = *transaction_response.rollback_last_modified_time();
-    let inode_kind = transaction_response.attr_response().kind();
+    let response = response_or_error(&response_data)?;
+    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
+    let rkyv_data = response
+        .response_as_rkyv_response()
+        .ok_or(ErrorCode::BadResponse)
+        .unwrap()
+        .rkyv_data();
+    let rkyv_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
+    let (rollback, attrs) = match rkyv_response {
+        ArchivedRkyvGenericResponse::HardlinkTransaction {
+            rollback_last_modified,
+            attrs,
+        } => (rollback_last_modified, attrs),
+        _ => return Err(ErrorCode::BadResponse),
+    };
+    let inode_kind = u8_to_file_kind(attrs.kind);
 
     // Second create the new link
     let mut internal_request_builder = FlatBufferBuilder::new();
@@ -1036,7 +1035,7 @@ pub async fn hardlink_transaction<'a, 'b>(
                 let mut internal_request_builder = FlatBufferBuilder::new();
                 let rollback = hardlink_rollback_request(
                     hardlink_request.inode(),
-                    rollback_last_modified,
+                    rollback.into(),
                     &mut internal_request_builder,
                 );
                 // TODO: if this fails the filesystem is corrupted ;( since the link count
@@ -1047,23 +1046,15 @@ pub async fn hardlink_transaction<'a, 'b>(
             }
 
             // This is the response back to the client
-            let mut response_builder = FileMetadataResponseBuilder::new(&mut builder);
-            let attrs = transaction_response.attr_response();
-            response_builder.add_inode(attrs.inode());
-            response_builder.add_size_bytes(attrs.size_bytes());
-            response_builder.add_size_blocks(attrs.size_blocks());
-            response_builder.add_last_access_time(attrs.last_access_time());
-            response_builder.add_last_modified_time(attrs.last_modified_time());
-            response_builder.add_last_metadata_modified_time(attrs.last_metadata_modified_time());
-            response_builder.add_kind(attrs.kind());
-            response_builder.add_mode(attrs.mode());
-            response_builder.add_hard_links(attrs.hard_links());
-            response_builder.add_user_id(attrs.user_id());
-            response_builder.add_group_id(attrs.group_id());
-            response_builder.add_device_id(attrs.device_id());
+            let entry: EntryMetadata = attrs.deserialize(&mut rkyv::Infallible).unwrap();
 
+            let rkyv_bytes =
+                rkyv::to_bytes::<_, 64>(&RkyvGenericResponse::EntryMetadata(entry)).unwrap();
+            let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+            let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+            response_builder.add_rkyv_data(flatbuffer_offset);
             let offset = response_builder.finish().as_union_value();
-            finalize_response(&mut builder, ResponseType::FileMetadataResponse, offset);
+            finalize_response(&mut builder, ResponseType::RkyvResponse, offset);
             return Ok(FlatBufferWithResponse::new(builder));
         }
         Err(error_code) => {
@@ -1071,7 +1062,7 @@ pub async fn hardlink_transaction<'a, 'b>(
             let mut internal_request_builder = FlatBufferBuilder::new();
             let rollback = hardlink_rollback_request(
                 hardlink_request.inode(),
-                rollback_last_modified,
+                rollback.into(),
                 &mut internal_request_builder,
             );
             // TODO: if this fails the filesystem is corrupted ;( since the link count

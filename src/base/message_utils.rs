@@ -1,3 +1,4 @@
+use crate::base::message_types::Timestamp;
 use crate::generated::*;
 
 pub struct RequestMetaInfo {
@@ -23,6 +24,13 @@ pub enum DistributionRequirement {
     TransactionCoordinator, // Any node can process this message by acting as a transcation coordinator
     RaftGroup,              // Must be processed by a specific rgroup
     Node,                   // Must be processed by a specific node
+}
+
+pub fn fb_into_timestamp(fb_timestamp: &FlatbufferTimestamp) -> Timestamp {
+    Timestamp {
+        seconds: fb_timestamp.seconds(),
+        nanos: fb_timestamp.nanos(),
+    }
 }
 
 // TODO: remove this
@@ -295,13 +303,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
         RequestType::GetXattrRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_get_xattr_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::ReadMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::GetattrRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_getattr_request().unwrap().inode()),
             lock_id: None,
             access_type: AccessType::ReadMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,

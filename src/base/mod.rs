@@ -10,7 +10,7 @@ mod utils;
 pub use length_prefixed_vec::LengthPrefixedVec;
 pub use local_context::LocalContext;
 pub use message_utils::{
-    access_type, accessed_inode, distribution_requirement, file_kind_to_u8,
+    access_type, accessed_inode, distribution_requirement, fb_into_timestamp, file_kind_to_u8,
     flatbuffer_request_meta_info, raft_group, request_locks, u8_to_file_kind, AccessType,
     DistributionRequirement, RequestMetaInfo,
 };

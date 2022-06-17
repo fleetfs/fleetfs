@@ -1,7 +1,4 @@
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::ResultResponse;
-use crate::generated::*;
-use flatbuffers::FlatBufferBuilder;
+use crate::base::message_types::ErrorCode;
 use std::io::ErrorKind;
 
 pub fn into_error_code(error: std::io::Error) -> ErrorCode {
@@ -17,57 +14,4 @@ pub fn into_error_code(error: std::io::Error) -> ErrorCode {
         }
         _ => ErrorCode::Uncategorized,
     }
-}
-
-pub fn remove_link_response(
-    mut builder: FlatBufferBuilder,
-    inode: u64,
-    processed: bool,
-) -> ResultResponse {
-    let rkyv_response = RkyvGenericResponse::RemovedInode {
-        id: inode,
-        complete: processed,
-    };
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((builder, ResponseType::RkyvResponse, offset));
-}
-
-pub fn to_read_response<'a>(mut builder: FlatBufferBuilder<'a>, data: &[u8]) -> ResultResponse<'a> {
-    let rkyv_response = RkyvGenericResponse::Read {
-        data: data.to_vec(),
-    };
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let response_offset = response_builder.finish().as_union_value();
-
-    return Ok((builder, ResponseType::RkyvResponse, response_offset));
-}
-
-pub fn to_inode_response(mut builder: FlatBufferBuilder, inode: u64) -> ResultResponse {
-    let rkyv_response = RkyvGenericResponse::Inode { id: inode };
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let response_offset = response_builder.finish().as_union_value();
-
-    return Ok((builder, ResponseType::RkyvResponse, response_offset));
-}
-
-pub fn to_write_response(mut builder: FlatBufferBuilder, length: u32) -> ResultResponse {
-    let rkyv_response = RkyvGenericResponse::Written {
-        bytes_written: length,
-    };
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((builder, ResponseType::RkyvResponse, offset));
 }
