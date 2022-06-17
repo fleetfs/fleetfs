@@ -210,18 +210,11 @@ impl PeerClient for TcpPeerClient {
 
     fn send_raft_message(&self, raft_group: u16, message: Message) -> BoxFuture<'static, ()> {
         let serialized_message = message.write_to_bytes().unwrap();
-        let mut builder = FlatBufferBuilder::new();
-        let data_offset = builder.create_vector_direct(&serialized_message);
-        let mut request_builder = RaftRequestBuilder::new(&mut builder);
-        request_builder.add_raft_group(raft_group);
-        request_builder.add_message(data_offset);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::RaftRequest, finish_offset);
-
         let ip_and_port = self.server_ip_port;
-        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(
-            builder.finished_data().to_vec(),
-        )
+        self.send(RkyvRequest::RaftMessage {
+            raft_group,
+            data: serialized_message,
+        })
         .map(move |x| {
             if let Err(io_error) = x {
                 error!(

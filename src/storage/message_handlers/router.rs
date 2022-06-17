@@ -1,7 +1,7 @@
 use crate::base::message_types::ArchivedRkyvRequest;
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::DistributionRequirement;
-use crate::base::{empty_response, finalize_response, FlatBufferResponse, FlatBufferWithResponse};
+use crate::base::{finalize_response, FlatBufferResponse, FlatBufferWithResponse};
 use crate::base::{flatbuffer_request_meta_info, LocalContext, RequestMetaInfo};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
@@ -464,20 +464,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::RaftRequest => {
-            if let Some(raft_request) = request.request_as_raft_request() {
-                let mut deserialized_message = Message::new();
-                deserialized_message
-                    .merge_from_bytes(raft_request.message())
-                    .unwrap();
-                raft.lookup_by_raft_group(raft_request.raft_group())
-                    .apply_messages(&[deserialized_message])
-                    .unwrap();
-                return empty_response(builder).map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::NONE => unreachable!(),
     }
 }
@@ -623,6 +609,14 @@ async fn rkyv_request_router_inner(
             let leader = rgroup.get_leader().await?;
 
             Ok(RkyvGenericResponse::NodeId { id: leader })
+        }
+        ArchivedRkyvRequest::RaftMessage { raft_group, data } => {
+            let mut deserialized_message = Message::new();
+            deserialized_message.merge_from_bytes(data).unwrap();
+            raft.lookup_by_raft_group(raft_group.into())
+                .apply_messages(&[deserialized_message])
+                .unwrap();
+            Ok(RkyvGenericResponse::Empty)
         }
         ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
     }
