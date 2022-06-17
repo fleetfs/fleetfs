@@ -1,11 +1,10 @@
 use crate::base::accessed_inode;
 use crate::base::message_types::{ArchivedRkyvRequest, RkyvRequest};
 use crate::base::node_contains_raft_group;
+use crate::base::LengthPrefixedVec;
 use crate::base::LocalContext;
-use crate::base::{finalize_request_without_prefix, LengthPrefixedVec};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
-use flatbuffers::FlatBufferBuilder;
 use futures_util::future::FutureExt;
 use rkyv::Deserialize;
 use std::collections::HashMap;
@@ -64,21 +63,7 @@ impl RemoteRaftGroups {
     pub fn wait_for_ready(&self) -> impl Future<Output = Result<(), std::io::Error>> {
         let mut group_futures = vec![];
         for (group, client) in self.groups.iter() {
-            let mut builder = FlatBufferBuilder::new();
-            let mut request_builder = RaftGroupLeaderRequestBuilder::new(&mut builder);
-            request_builder.add_raft_group(*group);
-            let finish_offset = request_builder.finish().as_union_value();
-            // Don't need length prefix, since we're not serializing over network
-            finalize_request_without_prefix(
-                &mut builder,
-                RequestType::RaftGroupLeaderRequest,
-                finish_offset,
-            );
-
-            let group_future = client.send_flatbuffer_unprefixed_and_receive_length_prefixed(
-                builder.finished_data().to_vec(),
-            );
-
+            let group_future = client.send(RkyvRequest::RaftGroupLeader { raft_group: *group });
             group_futures.push(group_future);
         }
 
