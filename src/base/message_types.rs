@@ -30,11 +30,20 @@ pub enum RkyvRequest {
     FilesystemInformation,
     FilesystemChecksum,
     FilesystemCheck,
+    ListDir { inode: u64 },
     ListXattrs { inode: u64 },
     LatestCommit { raft_group: u16 },
     RaftGroupLeader { raft_group: u16 },
     RaftMessage { raft_group: u16, data: Vec<u8> },
     Flatbuffer(Vec<u8>),
+}
+
+#[derive(Archive, Deserialize, Serialize)]
+#[archive_attr(derive(CheckBytes))]
+pub struct DirectoryEntry {
+    pub inode: u64,
+    pub name: String,
+    pub kind: u8,
 }
 
 #[derive(Archive, Deserialize, Serialize)]
@@ -70,6 +79,7 @@ pub enum RkyvGenericResponse {
         term: u64,
         index: u64,
     },
+    DirectoryListing(Vec<DirectoryEntry>),
     Empty,
     ErrorOccurred(ErrorCode),
     // Mapping from raft group ids to their checksum
@@ -89,13 +99,15 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::Any,
             },
-            ArchivedRkyvRequest::ListXattrs { inode } => RequestMetaInfo {
-                raft_group: None,
-                inode: Some(inode.into()),
-                lock_id: None,
-                access_type: AccessType::ReadMetadata,
-                distribution_requirement: DistributionRequirement::RaftGroup,
-            },
+            ArchivedRkyvRequest::ListXattrs { inode } | ArchivedRkyvRequest::ListDir { inode } => {
+                RequestMetaInfo {
+                    raft_group: None,
+                    inode: Some(inode.into()),
+                    lock_id: None,
+                    access_type: AccessType::ReadMetadata,
+                    distribution_requirement: DistributionRequirement::RaftGroup,
+                }
+            }
             ArchivedRkyvRequest::LatestCommit { raft_group }
             | ArchivedRkyvRequest::RaftGroupLeader { raft_group }
             | ArchivedRkyvRequest::RaftMessage { raft_group, .. } => RequestMetaInfo {
@@ -117,6 +129,22 @@ impl ArchivedRkyvGenericResponse {
             let mut result = HashMap::new();
             for (key, value) in checksums.iter() {
                 result.insert(key.into(), value.as_slice().to_vec());
+            }
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_directory_listing_response(&self) -> Option<Vec<DirectoryEntry>> {
+        if let ArchivedRkyvGenericResponse::DirectoryListing(entries) = self {
+            let mut result = vec![];
+            for entry in entries.iter() {
+                result.push(DirectoryEntry {
+                    inode: entry.inode.into(),
+                    name: entry.name.to_string(),
+                    kind: entry.kind,
+                });
             }
             Some(result)
         } else {

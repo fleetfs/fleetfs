@@ -9,7 +9,7 @@ use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
 use crate::base::message_types::{
     ArchivedRkyvGenericResponse, ErrorCode, RkyvGenericResponse, RkyvRequest,
 };
-use crate::base::{finalize_request_without_prefix, response_or_error};
+use crate::base::{finalize_request_without_prefix, response_or_error, u8_to_file_kind};
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
@@ -651,26 +651,23 @@ impl NodeClient {
     }
 
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuser::FileType)>, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ReaddirRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::ReaddirRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(RkyvRequest::ListDir { inode }, &mut buffer)?;
 
         let mut result = vec![];
-        let listing_response = response
-            .response_as_directory_listing_response()
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        let entries = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_directory_listing_response()
             .ok_or(ErrorCode::BadResponse)?;
-        let entries = listing_response.entries();
-        for i in 0..entries.len() {
-            let entry = entries.get(i);
+        for entry in entries {
             result.push((
-                entry.inode(),
-                OsString::from(entry.name()),
-                to_fuse_file_type(entry.kind()),
+                entry.inode,
+                OsString::from(entry.name),
+                to_fuse_file_type(u8_to_file_kind(entry.kind)),
             ));
         }
 

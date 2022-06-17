@@ -438,19 +438,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::ReaddirRequest => {
-            if let Some(readdir_request) = request.request_as_readdir_request() {
-                let inode = readdir_request.inode();
-                sync_with_leader(raft.lookup_by_inode(inode)).await?;
-                return raft
-                    .lookup_by_inode(inode)
-                    .file_storage()
-                    .readdir(inode, builder)
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::GetattrRequest => {
             if let Some(getattr_request) = request.request_as_getattr_request() {
                 let inode = getattr_request.inode();
@@ -591,6 +578,11 @@ async fn rkyv_request_router_inner(
         }
         ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
+        ArchivedRkyvRequest::ListDir { inode } => {
+            let inode = inode.into();
+            sync_with_leader(raft.lookup_by_inode(inode)).await?;
+            raft.lookup_by_inode(inode).file_storage().readdir(inode)
+        }
         ArchivedRkyvRequest::ListXattrs { inode } => {
             let inode: u64 = inode.into();
             sync_with_leader(raft.lookup_by_inode(inode)).await?;
