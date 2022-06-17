@@ -300,18 +300,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::NoAccess,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::LatestCommitRequest => RequestMetaInfo {
-            raft_group: Some(
-                request
-                    .request_as_latest_commit_request()
-                    .unwrap()
-                    .raft_group(),
-            ),
-            inode: None,
-            lock_id: None,
-            access_type: AccessType::NoAccess,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::RaftGroupLeaderRequest => RequestMetaInfo {
             raft_group: Some(
                 request

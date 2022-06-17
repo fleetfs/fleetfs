@@ -3,7 +3,7 @@ namespace generated;
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest, RaftRequest,
-                   LatestCommitRequest, RmdirRequest, ChownRequest, CreateRequest,
+                   RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
@@ -31,10 +31,6 @@ table GenericRequest {
 table RaftRequest {
   raft_group: ushort;
   message: [ubyte] (required);
-}
-
-table LatestCommitRequest {
-  raft_group: ushort;
 }
 
 table RaftGroupLeaderRequest {

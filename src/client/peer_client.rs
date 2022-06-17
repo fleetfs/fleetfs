@@ -237,34 +237,22 @@ impl PeerClient for TcpPeerClient {
         &self,
         raft_group: u16,
     ) -> BoxFuture<'static, Result<u64, std::io::Error>> {
-        let mut builder = FlatBufferBuilder::new();
-        let mut request_builder = LatestCommitRequestBuilder::new(&mut builder);
-        request_builder.add_raft_group(raft_group);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::LatestCommitRequest,
-            finish_offset,
-        );
-
-        self.send_flatbuffer_unprefixed_and_receive_length_prefixed(
-            builder.finished_data().to_vec(),
-        )
-        .map(|response| {
-            response.map(|data| {
-                let rkyv_response = response_or_error(data.bytes())
-                    .unwrap()
-                    .response_as_rkyv_response()
-                    .unwrap();
-                let rkyv_data = rkyv_response.rkyv_data();
-                let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-                rkyv_aligned.extend_from_slice(rkyv_data);
-                let commit_response =
-                    rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-                commit_response.as_latest_commit_response().unwrap().1
+        self.send(RkyvRequest::LatestCommit { raft_group })
+            .map(|response| {
+                response.map(|data| {
+                    let rkyv_response = response_or_error(data.bytes())
+                        .unwrap()
+                        .response_as_rkyv_response()
+                        .unwrap();
+                    let rkyv_data = rkyv_response.rkyv_data();
+                    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+                    rkyv_aligned.extend_from_slice(rkyv_data);
+                    let commit_response =
+                        rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+                    commit_response.as_latest_commit_response().unwrap().1
+                })
             })
-        })
-        .boxed()
+            .boxed()
     }
 
     fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {

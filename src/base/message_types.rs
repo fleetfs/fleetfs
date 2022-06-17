@@ -31,6 +31,7 @@ pub enum RkyvRequest {
     FilesystemChecksum,
     FilesystemCheck,
     ListXattrs { inode: u64 },
+    LatestCommit { raft_group: u16 },
     Flatbuffer(Vec<u8>),
 }
 
@@ -109,6 +110,13 @@ impl ArchivedRkyvRequest {
                 inode: Some(inode.into()),
                 lock_id: None,
                 access_type: AccessType::ReadMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::LatestCommit { raft_group } => RequestMetaInfo {
+                raft_group: Some(raft_group.into()),
+                inode: None,
+                lock_id: None,
+                access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
             ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
