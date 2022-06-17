@@ -219,7 +219,6 @@ pub fn commit_write<'a, 'b>(
         RequestType::MkdirRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
         }
-        RequestType::RaftGroupLeaderRequest => unreachable!(),
         RequestType::LookupRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),

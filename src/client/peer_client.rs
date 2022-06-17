@@ -134,7 +134,7 @@ impl TcpPeerClient {
         }
     }
 
-    fn send(
+    pub fn send(
         &self,
         request: RkyvRequest,
     ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>> {

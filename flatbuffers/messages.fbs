@@ -8,8 +8,7 @@ union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, Re
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    LockRequest, UnlockRequest,
-                   RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest,
-                   RaftGroupLeaderRequest}
+                   RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest}
 
 enum FileKind: ubyte {
   DefaultValueNotAType,
@@ -31,10 +30,6 @@ table GenericRequest {
 table RaftRequest {
   raft_group: ushort;
   message: [ubyte] (required);
-}
-
-table RaftGroupLeaderRequest {
-  raft_group: ushort;
 }
 
 table GetXattrRequest {
