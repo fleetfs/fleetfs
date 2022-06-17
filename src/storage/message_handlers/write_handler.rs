@@ -227,7 +227,6 @@ pub fn commit_write<'a, 'b>(
         RequestType::GetattrRequest => unreachable!(),
         RequestType::GetXattrRequest => unreachable!(),
         RequestType::RaftRequest => unreachable!(),
-        RequestType::LatestCommitRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 }
