@@ -222,7 +222,6 @@ pub fn commit_write<'a, 'b>(
         RequestType::LookupRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),
-        RequestType::ReaddirRequest => unreachable!(),
         RequestType::GetattrRequest => unreachable!(),
         RequestType::GetXattrRequest => unreachable!(),
         RequestType::NONE => unreachable!(),

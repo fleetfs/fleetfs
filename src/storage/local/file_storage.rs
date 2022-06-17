@@ -3,8 +3,10 @@ use log::info;
 use std::fs;
 
 use crate::base::fast_data_protocol::to_fast_read_response;
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::{empty_response, node_id_from_address, FlatBufferWithResponse, ResultResponse};
+use crate::base::message_types::{DirectoryEntry, ErrorCode, RkyvGenericResponse};
+use crate::base::{
+    empty_response, file_kind_to_u8, node_id_from_address, FlatBufferWithResponse, ResultResponse,
+};
 use crate::client::TcpPeerClient;
 use crate::generated::*;
 use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
@@ -131,34 +133,17 @@ impl FileStorage {
         return empty_response(builder);
     }
 
-    pub fn readdir<'a>(
-        &self,
-        inode: u64,
-        mut builder: FlatBufferBuilder<'a>,
-    ) -> ResultResponse<'a> {
+    pub fn readdir(&self, inode: u64) -> Result<RkyvGenericResponse, ErrorCode> {
         let mut entries = vec![];
         for (inode, filename, file_type) in self.metadata_storage.readdir(inode)? {
-            let name = builder.create_string(&filename);
-            let directory_entry = DirectoryEntry::create(
-                &mut builder,
-                &DirectoryEntryArgs {
-                    inode,
-                    name: Some(name),
-                    kind: file_type,
-                },
-            );
-            entries.push(directory_entry);
+            entries.push(DirectoryEntry {
+                inode,
+                name: filename,
+                kind: file_kind_to_u8(file_type),
+            });
         }
-        builder.start_vector::<WIPOffset<DirectoryEntry>>(entries.len());
-        for &directory_entry in entries.iter() {
-            builder.push(directory_entry);
-        }
-        let entries = builder.end_vector(entries.len());
-        let mut response_builder = DirectoryListingResponseBuilder::new(&mut builder);
-        response_builder.add_entries(entries);
 
-        let offset = response_builder.finish().as_union_value();
-        return Ok((builder, ResponseType::DirectoryListingResponse, offset));
+        Ok(RkyvGenericResponse::DirectoryListing(entries))
     }
 
     pub fn getattr<'a>(&self, inode: u64, builder: FlatBufferBuilder<'a>) -> ResultResponse<'a> {

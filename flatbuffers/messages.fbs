@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
+union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest,
                    RmdirRequest, ChownRequest, CreateRequest,
@@ -102,10 +102,6 @@ table TruncateRequest {
   inode: ulong;
   new_length: ulong;
   context: UserContext (required);
-}
-
-table ReaddirRequest {
-  inode: ulong;
 }
 
 struct OptionalUInt {
@@ -259,16 +255,6 @@ struct Timestamp {
   nanos: int;
 }
 
-table DirectoryEntry {
-  inode: ulong;
-  name: string (required);
-  kind: FileKind;
-}
-
-table DirectoryListingResponse {
-  entries: [DirectoryEntry] (required);
-}
-
 table FileMetadataResponse {
   inode: ulong;
   size_bytes: ulong;
@@ -297,7 +283,7 @@ table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }
 
-union ResponseType { FileMetadataResponse, DirectoryListingResponse, HardlinkTransactionResponse, RkyvResponse }
+union ResponseType { FileMetadataResponse, HardlinkTransactionResponse, RkyvResponse }
 
 table GenericResponse {
   response: ResponseType;

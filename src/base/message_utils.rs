@@ -25,6 +25,26 @@ pub enum DistributionRequirement {
     Node,                   // Must be processed by a specific node
 }
 
+// TODO: remove this
+pub fn file_kind_to_u8(kind: FileKind) -> u8 {
+    match kind {
+        FileKind::DefaultValueNotAType => 0,
+        FileKind::File => 1,
+        FileKind::Directory => 2,
+        FileKind::Symlink => 3,
+    }
+}
+
+pub fn u8_to_file_kind(value: u8) -> FileKind {
+    match value {
+        0 => FileKind::DefaultValueNotAType,
+        1 => FileKind::File,
+        2 => FileKind::Directory,
+        3 => FileKind::Symlink,
+        _ => unreachable!(),
+    }
+}
+
 pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMetaInfo {
     match request.request_type() {
         RequestType::ReadRequest => RequestMetaInfo {
@@ -275,13 +295,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
         RequestType::GetXattrRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_get_xattr_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::ReadMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::ReaddirRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_readdir_request().unwrap().inode()),
             lock_id: None,
             access_type: AccessType::ReadMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
