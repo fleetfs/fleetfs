@@ -1007,8 +1007,8 @@ pub async fn hardlink_transaction<'a, 'b>(
     let transaction_response = increment_response
         .response_as_hardlink_transaction_response()
         .unwrap();
-    let last_modified = *transaction_response.last_modified_time();
-    let inode_kind = transaction_response.kind();
+    let rollback_last_modified = *transaction_response.rollback_last_modified_time();
+    let inode_kind = transaction_response.attr_response().kind();
 
     // Second create the new link
     let mut internal_request_builder = FlatBufferBuilder::new();
@@ -1036,7 +1036,7 @@ pub async fn hardlink_transaction<'a, 'b>(
                 let mut internal_request_builder = FlatBufferBuilder::new();
                 let rollback = hardlink_rollback_request(
                     hardlink_request.inode(),
-                    last_modified,
+                    rollback_last_modified,
                     &mut internal_request_builder,
                 );
                 // TODO: if this fails the filesystem is corrupted ;( since the link count
@@ -1071,7 +1071,7 @@ pub async fn hardlink_transaction<'a, 'b>(
             let mut internal_request_builder = FlatBufferBuilder::new();
             let rollback = hardlink_rollback_request(
                 hardlink_request.inode(),
-                last_modified,
+                rollback_last_modified,
                 &mut internal_request_builder,
             );
             // TODO: if this fails the filesystem is corrupted ;( since the link count

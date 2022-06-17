@@ -446,19 +446,16 @@ impl MetadataStorage {
         Ok(())
     }
 
-    pub fn hardlink_stage0_link_increment(
-        &self,
-        inode: Inode,
-    ) -> Result<(Timestamp, FileKind), ErrorCode> {
+    pub fn hardlink_stage0_link_increment(&self, inode: Inode) -> Result<Timestamp, ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         inode_attrs.hardlinks += 1;
-        let changed = inode_attrs.last_metadata_changed;
+        let old = inode_attrs.last_metadata_changed;
         inode_attrs.last_metadata_changed = now();
 
-        Ok((changed, inode_attrs.kind))
+        Ok(old)
     }
 
     pub fn create_link(
