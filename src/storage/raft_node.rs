@@ -6,15 +6,14 @@ use raft::{Config, Error, ProgressTracker, RawNode, StateRole, StorageError};
 use std::sync::Mutex;
 
 use crate::base::node_contains_raft_group;
+use crate::base::node_id_from_address;
 use crate::base::LocalContext;
 use crate::base::{access_type, accessed_inode, request_locks};
-use crate::base::{empty_response, node_id_from_address, FlatBufferResponse, ResultResponse};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use crate::storage::local::FileStorage;
 use crate::storage::lock_table::LockTable;
 use crate::storage::message_handlers::commit_write;
-use flatbuffers::FlatBufferBuilder;
 use futures::channel::oneshot;
 use futures::channel::oneshot::Sender;
 use futures::future::{ready, Either};
@@ -42,20 +41,7 @@ pub async fn sync_with_leader(raft: &RaftNode) -> Result<(), ErrorCode> {
     raft.sync(latest_commit).await
 }
 
-fn lock_response(mut buffer: FlatBufferBuilder, lock_id: u64) -> ResultResponse {
-    let rkyv_response = RkyvGenericResponse::Lock { lock_id };
-    let rkyv_bytes = rkyv::to_bytes::<_, 32>(&rkyv_response).unwrap();
-    let flatbuffer_offset = buffer.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut buffer);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((buffer, ResponseType::RkyvResponse, offset));
-}
-
-type PendingResponse = (
-    FlatBufferBuilder<'static>,
-    Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
-);
+type PendingResponse = Sender<Result<RkyvGenericResponse, ErrorCode>>;
 
 fn latest_applied_on_all_followers(node_id: u64, progress: &ProgressTracker) -> u64 {
     progress
@@ -311,22 +297,28 @@ impl RaftNode {
                 match request.request_type() {
                     RequestType::LockRequest => {
                         let lock_id = lock_table.lock(inode);
-                        if let Some((builder, sender)) = pending_response {
-                            sender.send(lock_response(builder, lock_id)).ok().unwrap();
+                        if let Some(sender) = pending_response {
+                            sender
+                                .send(Ok(RkyvGenericResponse::Lock { lock_id }))
+                                .ok()
+                                .unwrap();
                         }
                     }
                     RequestType::UnlockRequest => {
                         let held_lock_id = request.request_as_unlock_request().unwrap().lock_id();
                         let (mut requests, new_lock_id) = lock_table.unlock(inode, held_lock_id);
-                        if let Some((builder, sender)) = pending_response {
-                            sender.send(empty_response(builder)).ok().unwrap();
+                        if let Some(sender) = pending_response {
+                            sender.send(Ok(RkyvGenericResponse::Empty)).ok().unwrap();
                         }
                         if let Some(id) = new_lock_id {
                             let (lock_request_data, pending) = requests.pop().unwrap();
                             let lock_request = get_root_as_generic_request(&lock_request_data);
                             assert_eq!(lock_request.request_type(), RequestType::LockRequest);
-                            if let Some((builder, sender)) = pending {
-                                sender.send(lock_response(builder, id)).ok().unwrap();
+                            if let Some(sender) = pending {
+                                sender
+                                    .send(Ok(RkyvGenericResponse::Lock { lock_id: id }))
+                                    .ok()
+                                    .unwrap();
                             }
                         }
                         to_process.extend(requests);
@@ -371,8 +363,8 @@ impl RaftNode {
 
             for (data, pending_response) in to_process {
                 let request = get_root_as_generic_request(&data);
-                if let Some((builder, sender)) = pending_response {
-                    match commit_write(request, &self.file_storage, builder) {
+                if let Some(sender) = pending_response {
+                    match commit_write(request, &self.file_storage) {
                         Ok(response) => sender.send(Ok(response)).ok().unwrap(),
                         // TODO: handle this somehow. If not all nodes failed, then the filesystem
                         // is probably corrupted, since some will have applied the write, but not all
@@ -402,9 +394,7 @@ impl RaftNode {
                 } else {
                     // Replicas won't have a pending response to reply to, since the node
                     // that submitted the proposal will reply to the client.
-                    let builder = FlatBufferBuilder::new();
-                    // TODO: pass None for builder to avoid this useless allocation
-                    if let Err(error_code) = commit_write(request, &self.file_storage, builder) {
+                    if let Err(error_code) = commit_write(request, &self.file_storage) {
                         // TODO: handle this somehow. If not all nodes failed, then the filesystem
                         // is probably corrupted, since some will have applied the write, but not all.
                         // There should only be a few types of messages that can fail here. truncate is one,
@@ -565,14 +555,13 @@ impl RaftNode {
     pub fn propose(
         &self,
         request: GenericRequest,
-        builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Output = Result<FlatBufferResponse<'static>, ErrorCode>> {
+    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
         let uuid: u128 = rand::thread_rng().gen();
 
         let (sender, receiver) = oneshot::channel();
         {
             let mut pending_responses = self.pending_responses.lock().unwrap();
-            pending_responses.insert(uuid, (builder, sender));
+            pending_responses.insert(uuid, sender);
         }
         // TODO: is accessing _tab.buf safe?
         self._propose(uuid, request._tab.buf.to_vec());

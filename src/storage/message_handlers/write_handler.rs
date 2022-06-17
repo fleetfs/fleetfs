@@ -1,20 +1,18 @@
-use crate::base::message_types::ErrorCode;
-use crate::base::FlatBufferResponse;
+use crate::base::fb_into_timestamp;
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::generated::*;
 use crate::storage::local::FileStorage;
-use flatbuffers::FlatBufferBuilder;
 
-pub fn commit_write<'a, 'b>(
-    request: GenericRequest<'a>,
+pub fn commit_write(
+    request: GenericRequest,
     file_storage: &FileStorage,
-    builder: FlatBufferBuilder<'b>,
-) -> Result<FlatBufferResponse<'b>, ErrorCode> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     match request.request_type() {
         RequestType::HardlinkIncrementRequest => {
             let hardlink_increment_request = request
                 .request_as_hardlink_increment_request()
                 .ok_or(ErrorCode::BadRequest)?;
-            file_storage.hardlink_stage0_link_increment(hardlink_increment_request.inode(), builder)
+            file_storage.hardlink_stage0_link_increment(hardlink_increment_request.inode())
         }
         RequestType::HardlinkRollbackRequest => {
             let hardlink_rollback_request = request
@@ -22,8 +20,7 @@ pub fn commit_write<'a, 'b>(
                 .ok_or(ErrorCode::BadRequest)?;
             file_storage.hardlink_rollback(
                 hardlink_rollback_request.inode(),
-                *hardlink_rollback_request.last_modified_time(),
-                builder,
+                fb_into_timestamp(hardlink_rollback_request.last_modified_time()),
             )
         }
         RequestType::CreateInodeRequest => {
@@ -36,7 +33,6 @@ pub fn commit_write<'a, 'b>(
                 create_inode_request.gid(),
                 create_inode_request.mode(),
                 create_inode_request.kind(),
-                builder,
             )
         }
         RequestType::CreateLinkRequest => {
@@ -49,7 +45,6 @@ pub fn commit_write<'a, 'b>(
                 create_link_request.name(),
                 *create_link_request.context(),
                 create_link_request.kind(),
-                builder,
             )
         }
         RequestType::ReplaceLinkRequest => {
@@ -62,7 +57,6 @@ pub fn commit_write<'a, 'b>(
                 replace_link_request.new_inode(),
                 replace_link_request.kind(),
                 *replace_link_request.context(),
-                builder,
             )
         }
         RequestType::UpdateParentRequest => {
@@ -72,14 +66,13 @@ pub fn commit_write<'a, 'b>(
             file_storage.update_parent(
                 update_parent_request.inode(),
                 update_parent_request.new_parent(),
-                builder,
             )
         }
         RequestType::UpdateMetadataChangedTimeRequest => {
             let update_request = request
                 .request_as_update_metadata_changed_time_request()
                 .ok_or(ErrorCode::BadRequest)?;
-            file_storage.update_metadata_changed_time(update_request.inode(), builder)
+            file_storage.update_metadata_changed_time(update_request.inode())
         }
         RequestType::DecrementInodeRequest => {
             let decrement_inode_request = request
@@ -88,7 +81,6 @@ pub fn commit_write<'a, 'b>(
             file_storage.decrement_inode_link_count(
                 decrement_inode_request.inode(),
                 decrement_inode_request.decrement_count(),
-                builder,
             )
         }
         RequestType::RemoveLinkRequest => {
@@ -106,7 +98,6 @@ pub fn commit_write<'a, 'b>(
                 remove_link_request.name(),
                 link_inode_and_uid,
                 *remove_link_request.context(),
-                builder,
             )
         }
         RequestType::LockRequest => {
@@ -129,7 +120,6 @@ pub fn commit_write<'a, 'b>(
                 chmod_request.inode(),
                 chmod_request.mode(),
                 *chmod_request.context(),
-                builder,
             )
         }
         RequestType::ChownRequest => {
@@ -141,7 +131,6 @@ pub fn commit_write<'a, 'b>(
                 chown_request.uid().map(OptionalUInt::value),
                 chown_request.gid().map(OptionalUInt::value),
                 *chown_request.context(),
-                builder,
             )
         }
         RequestType::TruncateRequest => {
@@ -152,14 +141,13 @@ pub fn commit_write<'a, 'b>(
                 truncate_request.inode(),
                 truncate_request.new_length(),
                 *truncate_request.context(),
-                builder,
             )
         }
         RequestType::FsyncRequest => {
             let fsync_request = request
                 .request_as_fsync_request()
                 .ok_or(ErrorCode::BadRequest)?;
-            file_storage.fsync(fsync_request.inode(), builder)
+            file_storage.fsync(fsync_request.inode())
         }
         RequestType::CreateRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
@@ -173,7 +161,6 @@ pub fn commit_write<'a, 'b>(
                 set_xattr_request.key(),
                 set_xattr_request.value(),
                 *set_xattr_request.context(),
-                builder,
             )
         }
         RequestType::RemoveXattrRequest => {
@@ -184,7 +171,6 @@ pub fn commit_write<'a, 'b>(
                 remove_xattr_request.inode(),
                 remove_xattr_request.key(),
                 *remove_xattr_request.context(),
-                builder,
             )
         }
         RequestType::UnlinkRequest => {
@@ -201,7 +187,6 @@ pub fn commit_write<'a, 'b>(
                 write_request.inode(),
                 write_request.offset(),
                 write_request.data(),
-                builder,
             )
         }
         RequestType::UtimensRequest => {
@@ -210,10 +195,9 @@ pub fn commit_write<'a, 'b>(
                 .ok_or(ErrorCode::BadRequest)?;
             file_storage.utimens(
                 utimens_request.inode(),
-                utimens_request.atime(),
-                utimens_request.mtime(),
+                utimens_request.atime().map(fb_into_timestamp),
+                utimens_request.mtime().map(fb_into_timestamp),
                 *utimens_request.context(),
-                builder,
             )
         }
         RequestType::MkdirRequest => {
@@ -222,7 +206,6 @@ pub fn commit_write<'a, 'b>(
         RequestType::LookupRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),
-        RequestType::GetattrRequest => unreachable!(),
         RequestType::GetXattrRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }

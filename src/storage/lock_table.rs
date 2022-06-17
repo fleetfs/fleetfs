@@ -1,8 +1,6 @@
-use crate::base::message_types::ErrorCode;
+use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::AccessType;
-use crate::base::FlatBufferResponse;
 use crate::generated::*;
-use flatbuffers::FlatBufferBuilder;
 use futures::channel::oneshot::Sender;
 use std::collections::HashMap;
 
@@ -11,10 +9,7 @@ pub enum FileLockType {
     ExclusiveMetadataWriteConcurrentReadsAllowed,
 }
 
-type PendingResponse = (
-    FlatBufferBuilder<'static>,
-    Sender<Result<FlatBufferResponse<'static>, ErrorCode>>,
-);
+type PendingResponse = Sender<Result<RkyvGenericResponse, ErrorCode>>;
 
 type PendingRequest = (Vec<u8>, Option<PendingResponse>);
 

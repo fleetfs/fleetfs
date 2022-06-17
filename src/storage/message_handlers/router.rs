@@ -1,8 +1,8 @@
 use crate::base::message_types::ArchivedRkyvRequest;
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::DistributionRequirement;
-use crate::base::{finalize_response, FlatBufferResponse, FlatBufferWithResponse};
+use crate::base::{finalize_response, FlatBufferWithResponse};
 use crate::base::{flatbuffer_request_meta_info, LocalContext, RequestMetaInfo};
+use crate::base::{DistributionRequirement, ResultResponse};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};
@@ -20,7 +20,19 @@ use std::sync::Arc;
 
 enum FullOrPartialResponse {
     Full(FlatBufferWithResponse<'static>),
-    Partial(FlatBufferResponse<'static>),
+    Partial(RkyvGenericResponse),
+}
+
+pub fn rkyv_response_to_fb(
+    mut builder: FlatBufferBuilder,
+    rkyv_response: RkyvGenericResponse,
+) -> ResultResponse {
+    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
+    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
+    response_builder.add_rkyv_data(flatbuffer_offset);
+    let offset = response_builder.finish().as_union_value();
+    return Ok((builder, ResponseType::RkyvResponse, offset));
 }
 
 pub fn to_error_response(
@@ -92,7 +104,7 @@ async fn request_router_inner(
             if let Some(set_xattr_request) = request.request_as_set_xattr_request() {
                 return raft
                     .lookup_by_inode(set_xattr_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -103,7 +115,7 @@ async fn request_router_inner(
             if let Some(remove_xattr_request) = request.request_as_remove_xattr_request() {
                 return raft
                     .lookup_by_inode(remove_xattr_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -146,7 +158,7 @@ async fn request_router_inner(
             if let Some(write_request) = request.request_as_write_request() {
                 return raft
                     .lookup_by_inode(write_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -157,7 +169,7 @@ async fn request_router_inner(
             if let Some(utimens_request) = request.request_as_utimens_request() {
                 return raft
                     .lookup_by_inode(utimens_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -168,7 +180,7 @@ async fn request_router_inner(
             if let Some(chmod_request) = request.request_as_chmod_request() {
                 return raft
                     .lookup_by_inode(chmod_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -179,7 +191,7 @@ async fn request_router_inner(
             if let Some(chown_request) = request.request_as_chown_request() {
                 return raft
                     .lookup_by_inode(chown_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -190,7 +202,7 @@ async fn request_router_inner(
             if let Some(truncate_request) = request.request_as_truncate_request() {
                 return raft
                     .lookup_by_inode(truncate_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -201,7 +213,7 @@ async fn request_router_inner(
             if let Some(fsync_request) = request.request_as_fsync_request() {
                 return raft
                     .lookup_by_inode(fsync_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -250,7 +262,7 @@ async fn request_router_inner(
             if let Some(lock_request) = request.request_as_lock_request() {
                 return raft
                     .lookup_by_inode(lock_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -261,7 +273,7 @@ async fn request_router_inner(
             if let Some(unlock_request) = request.request_as_unlock_request() {
                 return raft
                     .lookup_by_inode(unlock_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -273,7 +285,7 @@ async fn request_router_inner(
             if let Some(increment_request) = request.request_as_hardlink_increment_request() {
                 return raft
                     .lookup_by_inode(increment_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -285,7 +297,7 @@ async fn request_router_inner(
             if let Some(rollback_request) = request.request_as_hardlink_rollback_request() {
                 return raft
                     .lookup_by_inode(rollback_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -297,7 +309,7 @@ async fn request_router_inner(
             if let Some(create_inode_request) = request.request_as_create_inode_request() {
                 return raft
                     .lookup_by_raft_group(create_inode_request.raft_group())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -309,7 +321,7 @@ async fn request_router_inner(
             if let Some(decrement_request) = request.request_as_decrement_inode_request() {
                 return raft
                     .lookup_by_inode(decrement_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -321,7 +333,7 @@ async fn request_router_inner(
             if let Some(remove_request) = request.request_as_remove_link_request() {
                 return raft
                     .lookup_by_inode(remove_request.parent())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -333,7 +345,7 @@ async fn request_router_inner(
             if let Some(replace_request) = request.request_as_replace_link_request() {
                 return raft
                     .lookup_by_inode(replace_request.parent())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -345,7 +357,7 @@ async fn request_router_inner(
             if let Some(update_request) = request.request_as_update_parent_request() {
                 return raft
                     .lookup_by_inode(update_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -358,7 +370,7 @@ async fn request_router_inner(
             {
                 return raft
                     .lookup_by_inode(update_request.inode())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -370,7 +382,7 @@ async fn request_router_inner(
             if let Some(create_link_request) = request.request_as_create_link_request() {
                 return raft
                     .lookup_by_inode(create_link_request.parent())
-                    .propose(request, builder)
+                    .propose(request)
                     .await
                     .map(Partial);
             } else {
@@ -415,11 +427,10 @@ async fn request_router_inner(
                 let name = lookup_request.name().to_string();
                 let user_context = *lookup_request.context();
                 sync_with_leader(raft.lookup_by_inode(parent)).await?;
-                return raft
-                    .lookup_by_inode(parent)
+                raft.lookup_by_inode(parent)
                     .file_storage()
-                    .lookup(parent, &name, user_context, builder)
-                    .map(Partial);
+                    .lookup(parent, &name, user_context)
+                    .map(Partial)
             } else {
                 return Err(ErrorCode::BadRequest);
             }
@@ -429,24 +440,10 @@ async fn request_router_inner(
                 let inode = get_xattr_request.inode();
                 let key = get_xattr_request.key().to_string();
                 sync_with_leader(raft.lookup_by_inode(inode)).await?;
-                return raft
-                    .lookup_by_inode(inode)
+                raft.lookup_by_inode(inode)
                     .file_storage()
-                    .get_xattr(inode, &key, *get_xattr_request.context(), builder)
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::GetattrRequest => {
-            if let Some(getattr_request) = request.request_as_getattr_request() {
-                let inode = getattr_request.inode();
-                sync_with_leader(raft.lookup_by_inode(inode)).await?;
-                return raft
-                    .lookup_by_inode(inode)
-                    .file_storage()
-                    .getattr(inode, builder)
-                    .map(Partial);
+                    .get_xattr(inode, &key, *get_xattr_request.context())
+                    .map(Partial)
             } else {
                 return Err(ErrorCode::BadRequest);
             }
@@ -578,6 +575,11 @@ async fn rkyv_request_router_inner(
         }
         ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
+        ArchivedRkyvRequest::GetAttr { inode } => {
+            let inode = inode.into();
+            sync_with_leader(raft.lookup_by_inode(inode)).await?;
+            raft.lookup_by_inode(inode).file_storage().getattr(inode)
+        }
         ArchivedRkyvRequest::ListDir { inode } => {
             let inode = inode.into();
             sync_with_leader(raft.lookup_by_inode(inode)).await?;
@@ -628,7 +630,9 @@ async fn flatbuffer_request_router<'a>(
     match request_router_inner(request, raft, remote_rafts, context, builder).await {
         Ok(response) => match response {
             Full(full_response) => return full_response,
-            Partial((mut builder, response_type, response_offset)) => {
+            Partial(response) => {
+                let (mut builder, response_type, response_offset) =
+                    rkyv_response_to_fb(FlatBufferBuilder::new(), response).unwrap();
                 finalize_response(&mut builder, response_type, response_offset);
                 return FlatBufferWithResponse::new(builder);
             }

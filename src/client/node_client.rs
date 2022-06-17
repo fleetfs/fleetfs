@@ -7,7 +7,8 @@ use thread_local::ThreadLocal;
 
 use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
 use crate::base::message_types::{
-    ArchivedRkyvGenericResponse, ErrorCode, RkyvGenericResponse, RkyvRequest,
+    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, RkyvGenericResponse, RkyvRequest,
+    Timestamp,
 };
 use crate::base::{finalize_request_without_prefix, response_or_error, u8_to_file_kind};
 use crate::client::tcp_client::TcpClient;
@@ -18,8 +19,7 @@ use fuser::FileAttr;
 use rkyv::ser::serializers::AllocSerializer;
 use rkyv::ser::Serializer;
 use rkyv::AlignedVec;
-use std::ops::Add;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 fn to_fuse_file_type(file_type: FileKind) -> fuser::FileType {
     match file_type {
@@ -35,32 +35,23 @@ pub struct StatFS {
     pub max_name_length: u32,
 }
 
-fn metadata_to_fuse_fileattr(metadata: &FileMetadataResponse) -> FileAttr {
+fn metadata_to_fuse_fileattr(metadata: &EntryMetadata) -> FileAttr {
     FileAttr {
-        ino: metadata.inode(),
-        size: metadata.size_bytes(),
-        blocks: metadata.size_blocks(),
-        atime: SystemTime::UNIX_EPOCH.add(Duration::new(
-            metadata.last_access_time().seconds() as u64,
-            metadata.last_access_time().nanos() as u32,
-        )),
-        mtime: SystemTime::UNIX_EPOCH.add(Duration::new(
-            metadata.last_modified_time().seconds() as u64,
-            metadata.last_modified_time().nanos() as u32,
-        )),
-        ctime: SystemTime::UNIX_EPOCH.add(Duration::new(
-            metadata.last_metadata_modified_time().seconds() as u64,
-            metadata.last_metadata_modified_time().nanos() as u32,
-        )),
+        ino: metadata.inode,
+        size: metadata.size_bytes,
+        blocks: metadata.size_blocks,
+        atime: metadata.last_access_time.into(),
+        mtime: metadata.last_modified_time.into(),
+        ctime: metadata.last_metadata_modified_time.into(),
         crtime: SystemTime::UNIX_EPOCH,
-        kind: to_fuse_file_type(metadata.kind()),
-        perm: metadata.mode(),
-        nlink: metadata.hard_links(),
-        uid: metadata.user_id(),
-        gid: metadata.group_id(),
-        rdev: metadata.device_id(),
+        kind: to_fuse_file_type(u8_to_file_kind(metadata.kind)),
+        perm: metadata.mode,
+        nlink: metadata.hard_links,
+        uid: metadata.user_id,
+        gid: metadata.group_id,
+        rdev: metadata.device_id,
         flags: 0,
-        blksize: metadata.block_size(),
+        blksize: metadata.block_size,
     }
 }
 
@@ -193,11 +184,19 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
-        let metadata = response
-            .response_as_file_metadata_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
 
-        return Ok(metadata_to_fuse_fileattr(&metadata));
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let attr_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+
+        return Ok(metadata_to_fuse_fileattr(
+            &attr_response.as_attr_response().unwrap(),
+        ));
     }
 
     pub fn lookup(&self, parent: u64, name: &str, context: UserContext) -> Result<u64, ErrorCode> {
@@ -249,11 +248,19 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
-        let metadata = response
-            .response_as_file_metadata_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
 
-        return Ok(metadata_to_fuse_fileattr(&metadata));
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let attr_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+
+        return Ok(metadata_to_fuse_fileattr(
+            &attr_response.as_attr_response().unwrap(),
+        ));
     }
 
     pub fn statfs(&self) -> Result<StatFS, ErrorCode> {
@@ -283,19 +290,21 @@ impl NodeClient {
     }
 
     pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = GetattrRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::GetattrRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
-        let metadata = response
-            .response_as_file_metadata_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let response = self.send(RkyvRequest::GetAttr { inode }, &mut buffer)?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
 
-        return Ok(metadata_to_fuse_fileattr(&metadata));
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let attr_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+
+        return Ok(metadata_to_fuse_fileattr(
+            &attr_response.as_attr_response().unwrap(),
+        ));
     }
 
     pub fn getxattr(
@@ -425,10 +434,12 @@ impl NodeClient {
         let mut builder = self.get_or_create_builder();
         let mut request_builder = UtimensRequestBuilder::new(&mut builder);
         request_builder.add_inode(inode);
-        if let Some(ref atime) = atime {
+        let fb_atime = atime.map(|x| FlatbufferTimestamp::new(x.seconds, x.nanos));
+        if let Some(ref atime) = fb_atime {
             request_builder.add_atime(atime);
         }
-        if let Some(ref mtime) = mtime {
+        let fb_mtime = mtime.map(|x| FlatbufferTimestamp::new(x.seconds, x.nanos));
+        if let Some(ref mtime) = fb_mtime {
             request_builder.add_mtime(mtime);
         }
         request_builder.add_context(&context);
@@ -537,11 +548,19 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
-        let metadata = response
-            .response_as_file_metadata_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
 
-        return Ok(metadata_to_fuse_fileattr(&metadata));
+        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
+        rkyv_aligned.extend_from_slice(rkyv_data);
+        let attr_response =
+            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
+
+        return Ok(metadata_to_fuse_fileattr(
+            &attr_response.as_attr_response().unwrap(),
+        ));
     }
 
     pub fn rename(

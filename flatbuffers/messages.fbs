@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, RenameRequest,
+union RequestType {ReadRequest, ReadRawRequest, MkdirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest,
                    RmdirRequest, ChownRequest, CreateRequest,
@@ -127,8 +127,8 @@ table ChmodRequest {
 
 table UtimensRequest {
   inode: ulong;
-  atime: Timestamp;
-  mtime: Timestamp;
+  atime: FlatbufferTimestamp;
+  mtime: FlatbufferTimestamp;
   context: UserContext (required);
 }
 
@@ -157,7 +157,7 @@ table HardlinkIncrementRequest {
 // Used internally to rollback hardlink transactions
 table HardlinkRollbackRequest {
   inode: ulong;
-  last_modified_time: Timestamp (required);
+  last_modified_time: FlatbufferTimestamp (required);
 }
 
 table RenameRequest {
@@ -250,39 +250,16 @@ table DecrementInodeRequest {
 
 root_type GenericRequest;
 
-struct Timestamp {
+struct FlatbufferTimestamp {
   seconds: long;
   nanos: int;
-}
-
-table FileMetadataResponse {
-  inode: ulong;
-  size_bytes: ulong;
-  size_blocks: ulong;
-  last_access_time: Timestamp (required);
-  last_modified_time: Timestamp (required);
-  last_metadata_modified_time: Timestamp (required);
-  kind: FileKind;
-  mode: ushort;
-  hard_links: uint;
-  user_id: uint;
-  group_id: uint;
-  device_id: uint;
-  block_size: uint;
-  // The number of directory entries in the directory. Only meaningful if kind == Directory
-  directory_entries: uint;
-}
-
-table HardlinkTransactionResponse {
-  rollback_last_modified_time: Timestamp (required);
-  attr_response: FileMetadataResponse (required);
 }
 
 table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }
 
-union ResponseType { FileMetadataResponse, HardlinkTransactionResponse, RkyvResponse }
+union ResponseType { RkyvResponse }
 
 table GenericResponse {
   response: ResponseType;

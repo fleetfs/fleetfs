@@ -2,6 +2,8 @@ use crate::base::{AccessType, DistributionRequirement, RequestMetaInfo};
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ops::Add;
+use std::time::{Duration, SystemTime};
 
 #[derive(Archive, Debug, Deserialize, PartialEq, Serialize)]
 #[archive_attr(derive(CheckBytes))]
@@ -30,6 +32,7 @@ pub enum RkyvRequest {
     FilesystemInformation,
     FilesystemChecksum,
     FilesystemCheck,
+    GetAttr { inode: u64 },
     ListDir { inode: u64 },
     ListXattrs { inode: u64 },
     LatestCommit { raft_group: u16 },
@@ -44,6 +47,63 @@ pub struct DirectoryEntry {
     pub inode: u64,
     pub name: String,
     pub kind: u8,
+}
+
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy)]
+#[archive_attr(derive(CheckBytes))]
+pub struct Timestamp {
+    pub seconds: i64,
+    pub nanos: i32,
+}
+
+impl Timestamp {
+    pub fn new(seconds: i64, nanos: i32) -> Self {
+        Self { seconds, nanos }
+    }
+}
+
+impl Into<SystemTime> for Timestamp {
+    fn into(self) -> SystemTime {
+        SystemTime::UNIX_EPOCH.add(Duration::new(self.seconds as u64, self.nanos as u32))
+    }
+}
+
+impl Into<Timestamp> for ArchivedTimestamp {
+    fn into(self) -> Timestamp {
+        Timestamp {
+            seconds: self.seconds.into(),
+            nanos: self.nanos.into(),
+        }
+    }
+}
+
+impl Into<Timestamp> for &ArchivedTimestamp {
+    fn into(self) -> Timestamp {
+        Timestamp {
+            seconds: self.seconds.into(),
+            nanos: self.nanos.into(),
+        }
+    }
+}
+
+#[derive(Archive, Deserialize, Serialize)]
+#[archive_attr(derive(CheckBytes))]
+pub struct EntryMetadata {
+    pub inode: u64,
+    pub size_bytes: u64,
+    pub size_blocks: u64,
+    pub last_access_time: Timestamp,
+    pub last_modified_time: Timestamp,
+    pub last_metadata_modified_time: Timestamp,
+    pub kind: u8,
+    pub mode: u16,
+    pub hard_links: u32,
+    pub user_id: u32,
+    pub group_id: u32,
+    pub device_id: u32,
+    pub block_size: u32,
+    // The number of directory entries in the directory. Only available if kind == Directory
+    pub directory_entries: Option<u32>,
 }
 
 #[derive(Archive, Deserialize, Serialize)]
@@ -80,6 +140,11 @@ pub enum RkyvGenericResponse {
         index: u64,
     },
     DirectoryListing(Vec<DirectoryEntry>),
+    EntryMetadata(EntryMetadata),
+    HardlinkTransaction {
+        rollback_last_modified: Timestamp,
+        attrs: EntryMetadata,
+    },
     Empty,
     ErrorOccurred(ErrorCode),
     // Mapping from raft group ids to their checksum
@@ -99,15 +164,15 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::Any,
             },
-            ArchivedRkyvRequest::ListXattrs { inode } | ArchivedRkyvRequest::ListDir { inode } => {
-                RequestMetaInfo {
-                    raft_group: None,
-                    inode: Some(inode.into()),
-                    lock_id: None,
-                    access_type: AccessType::ReadMetadata,
-                    distribution_requirement: DistributionRequirement::RaftGroup,
-                }
-            }
+            ArchivedRkyvRequest::ListXattrs { inode }
+            | ArchivedRkyvRequest::ListDir { inode }
+            | ArchivedRkyvRequest::GetAttr { inode } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::ReadMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
             ArchivedRkyvRequest::LatestCommit { raft_group }
             | ArchivedRkyvRequest::RaftGroupLeader { raft_group }
             | ArchivedRkyvRequest::RaftMessage { raft_group, .. } => RequestMetaInfo {
@@ -131,6 +196,15 @@ impl ArchivedRkyvGenericResponse {
                 result.insert(key.into(), value.as_slice().to_vec());
             }
             Some(result)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_attr_response(&self) -> Option<EntryMetadata> {
+        if let ArchivedRkyvGenericResponse::EntryMetadata(attr) = self {
+            let entry: EntryMetadata = attr.deserialize(&mut rkyv::Infallible).unwrap();
+            Some(entry)
         } else {
             None
         }

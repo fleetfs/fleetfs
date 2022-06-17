@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use crate::base::check_access;
-use crate::base::message_types::ErrorCode;
-use crate::generated::{FileKind, Timestamp, UserContext};
+use crate::base::message_types::{ErrorCode, Timestamp};
+use crate::generated::{FileKind, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
 use redb::{ReadOnlyTable, ReadableTable, TableDefinition};
@@ -331,8 +331,8 @@ impl MetadataStorage {
     pub fn utimens(
         &self,
         inode: Inode,
-        atime: Option<&Timestamp>,
-        mtime: Option<&Timestamp>,
+        atime: Option<Timestamp>,
+        mtime: Option<Timestamp>,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
@@ -342,8 +342,8 @@ impl MetadataStorage {
         // http://man7.org/linux/man-pages/man2/utimensat.2.html
         if inode_attrs.uid != context.uid()
             && context.uid() != 0
-            && (!atime.map_or(false, |x| x.nanos() == libc::UTIME_NOW as i32)
-                || !mtime.map_or(false, |x| x.nanos() == libc::UTIME_NOW as i32))
+            && (!atime.map_or(false, |x| x.nanos == libc::UTIME_NOW as i32)
+                || !mtime.map_or(false, |x| x.nanos == libc::UTIME_NOW as i32))
         {
             return Err(ErrorCode::OperationNotPermitted);
         }
@@ -363,19 +363,19 @@ impl MetadataStorage {
 
         if let Some(inode_metadata) = metadata.get_mut(&inode) {
             if let Some(atime) = atime {
-                if atime.nanos() == libc::UTIME_NOW as i32 {
+                if atime.nanos == libc::UTIME_NOW as i32 {
                     // TODO: this should be set during proposal. Currently each node set its own timestamp
                     inode_metadata.last_accessed = now();
                 } else {
-                    inode_metadata.last_accessed = *atime;
+                    inode_metadata.last_accessed = atime;
                 }
             }
             if let Some(mtime) = mtime {
-                if mtime.nanos() == libc::UTIME_NOW as i32 {
+                if mtime.nanos == libc::UTIME_NOW as i32 {
                     // TODO: this should be set during proposal. Currently each node set its own timestamp
                     inode_metadata.last_modified = now();
                 } else {
-                    inode_metadata.last_modified = *mtime;
+                    inode_metadata.last_modified = mtime;
                 }
             }
 
@@ -783,7 +783,10 @@ impl MetadataStorage {
         Ok(None)
     }
 
-    pub fn get_attributes(&self, inode: Inode) -> Result<(InodeAttributes, u32), ErrorCode> {
+    pub fn get_attributes(
+        &self,
+        inode: Inode,
+    ) -> Result<(InodeAttributes, Option<u32>), ErrorCode> {
         // TODO: find a way to avoid this clone()
         let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
@@ -791,10 +794,7 @@ impl MetadataStorage {
             .get(&inode)
             .cloned()
             .ok_or(ErrorCode::DoesNotExist)?;
-        let directory_size = directories
-            .get(&inode)
-            .map(|entries| entries.len() as u32)
-            .unwrap_or(0);
+        let directory_size = directories.get(&inode).map(|entries| entries.len() as u32);
 
         Ok((attributes, directory_size))
     }
