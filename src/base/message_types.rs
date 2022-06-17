@@ -79,33 +79,15 @@ pub enum RkyvGenericResponse {
 impl ArchivedRkyvRequest {
     pub fn meta_info(&self) -> RequestMetaInfo {
         match self {
-            ArchivedRkyvRequest::FilesystemReady => RequestMetaInfo {
+            ArchivedRkyvRequest::FilesystemReady
+            | ArchivedRkyvRequest::FilesystemInformation
+            | ArchivedRkyvRequest::FilesystemCheck
+            | ArchivedRkyvRequest::FilesystemChecksum => RequestMetaInfo {
                 raft_group: None,
                 inode: None,
                 lock_id: None,
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::Any,
-            },
-            ArchivedRkyvRequest::FilesystemInformation => RequestMetaInfo {
-                raft_group: None,
-                inode: None,
-                lock_id: None,
-                access_type: AccessType::NoAccess,
-                distribution_requirement: DistributionRequirement::Any,
-            },
-            ArchivedRkyvRequest::FilesystemCheck => RequestMetaInfo {
-                raft_group: None,
-                inode: None,
-                lock_id: None,
-                access_type: AccessType::NoAccess,
-                distribution_requirement: DistributionRequirement::Any,
-            },
-            ArchivedRkyvRequest::FilesystemChecksum => RequestMetaInfo {
-                raft_group: None,
-                inode: None,
-                lock_id: None,
-                access_type: AccessType::NoAccess,
-                distribution_requirement: DistributionRequirement::Node,
             },
             ArchivedRkyvRequest::ListXattrs { inode } => RequestMetaInfo {
                 raft_group: None,
@@ -114,21 +96,9 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::ReadMetadata,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
-            ArchivedRkyvRequest::LatestCommit { raft_group } => RequestMetaInfo {
-                raft_group: Some(raft_group.into()),
-                inode: None,
-                lock_id: None,
-                access_type: AccessType::NoAccess,
-                distribution_requirement: DistributionRequirement::RaftGroup,
-            },
-            ArchivedRkyvRequest::RaftGroupLeader { raft_group } => RequestMetaInfo {
-                raft_group: Some(raft_group.into()),
-                inode: None,
-                lock_id: None,
-                access_type: AccessType::NoAccess,
-                distribution_requirement: DistributionRequirement::RaftGroup,
-            },
-            ArchivedRkyvRequest::RaftMessage { raft_group, .. } => RequestMetaInfo {
+            ArchivedRkyvRequest::LatestCommit { raft_group }
+            | ArchivedRkyvRequest::RaftGroupLeader { raft_group }
+            | ArchivedRkyvRequest::RaftMessage { raft_group, .. } => RequestMetaInfo {
                 raft_group: Some(raft_group.into()),
                 inode: None,
                 lock_id: None,
