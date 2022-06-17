@@ -2,7 +2,7 @@ namespace generated;
 
 union RequestType {ReadRequest, ReadRawRequest, GetattrRequest, MkdirRequest, ReaddirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
-                   WriteRequest, RaftRequest,
+                   WriteRequest,
                    RmdirRequest, ChownRequest, CreateRequest,
                    FsyncRequest, GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
@@ -24,12 +24,6 @@ struct UserContext {
 
 table GenericRequest {
   request: RequestType;
-}
-
-// TODO: maybe support multiple messages in a single request
-table RaftRequest {
-  raft_group: ushort;
-  message: [ubyte] (required);
 }
 
 table GetXattrRequest {

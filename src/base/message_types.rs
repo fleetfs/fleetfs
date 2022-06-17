@@ -33,6 +33,7 @@ pub enum RkyvRequest {
     ListXattrs { inode: u64 },
     LatestCommit { raft_group: u16 },
     RaftGroupLeader { raft_group: u16 },
+    RaftMessage { raft_group: u16, data: Vec<u8> },
     Flatbuffer(Vec<u8>),
 }
 
@@ -121,6 +122,13 @@ impl ArchivedRkyvRequest {
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
             ArchivedRkyvRequest::RaftGroupLeader { raft_group } => RequestMetaInfo {
+                raft_group: Some(raft_group.into()),
+                inode: None,
+                lock_id: None,
+                access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::RaftMessage { raft_group, .. } => RequestMetaInfo {
                 raft_group: Some(raft_group.into()),
                 inode: None,
                 lock_id: None,
