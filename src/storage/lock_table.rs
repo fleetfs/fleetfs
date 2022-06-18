@@ -1,5 +1,5 @@
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::AccessType;
+use crate::base::{AccessType, RequestMetaInfo};
 use crate::generated::*;
 use futures::channel::oneshot::Sender;
 use std::collections::HashMap;
@@ -37,8 +37,13 @@ impl LockTable {
     // This could happen if a lock gets revoked, so shouldn't panic in the future, but it
     // makes debugging easier for now.
     // Returns true if another client has locked this inode
-    pub fn is_locked(&self, inode: u64, access_type: AccessType, held_lock: Option<u64>) -> bool {
-        if let Some(id) = held_lock {
+    pub fn is_locked(&self, meta: &RequestMetaInfo) -> bool {
+        let inode = if let Some(inode) = meta.inode {
+            inode
+        } else {
+            return false;
+        };
+        if let Some(id) = meta.lock_id {
             assert_eq!(self.lock_ids[&inode].0, id);
             return false;
         }
@@ -47,7 +52,7 @@ impl LockTable {
         }
         let (_, lock_type) = &self.lock_ids[&inode];
         match *lock_type {
-            FileLockType::ExclusiveMetadataWriteConcurrentReadsAllowed => match access_type {
+            FileLockType::ExclusiveMetadataWriteConcurrentReadsAllowed => match meta.access_type {
                 AccessType::ReadData => {
                     unreachable!("Read requests aren't implemented for locks yet")
                 }

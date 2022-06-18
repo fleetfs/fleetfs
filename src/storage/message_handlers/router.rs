@@ -104,7 +104,7 @@ async fn request_router_inner(
             if let Some(set_xattr_request) = request.request_as_set_xattr_request() {
                 return raft
                     .lookup_by_inode(set_xattr_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -115,7 +115,7 @@ async fn request_router_inner(
             if let Some(remove_xattr_request) = request.request_as_remove_xattr_request() {
                 return raft
                     .lookup_by_inode(remove_xattr_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -158,7 +158,7 @@ async fn request_router_inner(
             if let Some(write_request) = request.request_as_write_request() {
                 return raft
                     .lookup_by_inode(write_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -169,7 +169,7 @@ async fn request_router_inner(
             if let Some(utimens_request) = request.request_as_utimens_request() {
                 return raft
                     .lookup_by_inode(utimens_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -180,7 +180,7 @@ async fn request_router_inner(
             if let Some(chmod_request) = request.request_as_chmod_request() {
                 return raft
                     .lookup_by_inode(chmod_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -191,7 +191,7 @@ async fn request_router_inner(
             if let Some(chown_request) = request.request_as_chown_request() {
                 return raft
                     .lookup_by_inode(chown_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -202,7 +202,7 @@ async fn request_router_inner(
             if let Some(truncate_request) = request.request_as_truncate_request() {
                 return raft
                     .lookup_by_inode(truncate_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -213,7 +213,7 @@ async fn request_router_inner(
             if let Some(fsync_request) = request.request_as_fsync_request() {
                 return raft
                     .lookup_by_inode(fsync_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -262,7 +262,7 @@ async fn request_router_inner(
             if let Some(lock_request) = request.request_as_lock_request() {
                 return raft
                     .lookup_by_inode(lock_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -273,7 +273,7 @@ async fn request_router_inner(
             if let Some(unlock_request) = request.request_as_unlock_request() {
                 return raft
                     .lookup_by_inode(unlock_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -285,7 +285,7 @@ async fn request_router_inner(
             if let Some(increment_request) = request.request_as_hardlink_increment_request() {
                 return raft
                     .lookup_by_inode(increment_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -297,7 +297,7 @@ async fn request_router_inner(
             if let Some(rollback_request) = request.request_as_hardlink_rollback_request() {
                 return raft
                     .lookup_by_inode(rollback_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -309,7 +309,7 @@ async fn request_router_inner(
             if let Some(create_inode_request) = request.request_as_create_inode_request() {
                 return raft
                     .lookup_by_raft_group(create_inode_request.raft_group())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -321,7 +321,7 @@ async fn request_router_inner(
             if let Some(decrement_request) = request.request_as_decrement_inode_request() {
                 return raft
                     .lookup_by_inode(decrement_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -333,7 +333,7 @@ async fn request_router_inner(
             if let Some(remove_request) = request.request_as_remove_link_request() {
                 return raft
                     .lookup_by_inode(remove_request.parent())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -345,7 +345,7 @@ async fn request_router_inner(
             if let Some(replace_request) = request.request_as_replace_link_request() {
                 return raft
                     .lookup_by_inode(replace_request.parent())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -357,7 +357,7 @@ async fn request_router_inner(
             if let Some(update_request) = request.request_as_update_parent_request() {
                 return raft
                     .lookup_by_inode(update_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -370,7 +370,7 @@ async fn request_router_inner(
             {
                 return raft
                     .lookup_by_inode(update_request.inode())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {
@@ -382,7 +382,7 @@ async fn request_router_inner(
             if let Some(create_link_request) = request.request_as_create_link_request() {
                 return raft
                     .lookup_by_inode(create_link_request.parent())
-                    .propose(request)
+                    .propose_flatbuffer(request)
                     .await
                     .map(Partial);
             } else {

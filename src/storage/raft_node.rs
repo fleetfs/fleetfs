@@ -8,7 +8,6 @@ use std::sync::Mutex;
 use crate::base::node_contains_raft_group;
 use crate::base::node_id_from_address;
 use crate::base::LocalContext;
-use crate::base::{access_type, accessed_inode, request_locks};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use crate::storage::local::FileStorage;
@@ -29,8 +28,11 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
+use crate::base::message_types::{
+    ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse, RkyvRequest,
+};
 use protobuf::Message as ProtobufMessage;
+use rkyv::{AlignedVec, Deserialize};
 
 // Compact storage when it reaches 10MB
 const COMPACTION_THRESHOLD: u64 = 10 * 1024 * 1024;
@@ -284,44 +286,62 @@ impl RaftNode {
         request_data: Vec<u8>,
         pending_response: Option<PendingResponse>,
     ) -> Vec<(Vec<u8>, Option<PendingResponse>)> {
-        let request = get_root_as_generic_request(&request_data);
+        // TODO any way to optimize away this aligning copy?
+        let mut aligned = AlignedVec::with_capacity(request_data.len());
+        aligned.extend_from_slice(&request_data);
+        let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+        let request_meta = request.meta_info();
+
         let mut lock_table = self.lock_table.lock().unwrap();
 
         let mut to_process = vec![];
-        if let Some(inode) = accessed_inode(&request) {
-            let held_lock = request_locks(&request);
-            let access_type = access_type(&request);
-            if lock_table.is_locked(inode, access_type, held_lock) {
+        if let Some(inode) = request_meta.inode {
+            if lock_table.is_locked(&request_meta) {
                 lock_table.wait_for_lock(inode, (request_data, pending_response));
             } else {
-                match request.request_type() {
-                    RequestType::LockRequest => {
-                        let lock_id = lock_table.lock(inode);
-                        if let Some(sender) = pending_response {
-                            sender
-                                .send(Ok(RkyvGenericResponse::Lock { lock_id }))
-                                .ok()
-                                .unwrap();
-                        }
-                    }
-                    RequestType::UnlockRequest => {
-                        let held_lock_id = request.request_as_unlock_request().unwrap().lock_id();
-                        let (mut requests, new_lock_id) = lock_table.unlock(inode, held_lock_id);
-                        if let Some(sender) = pending_response {
-                            sender.send(Ok(RkyvGenericResponse::Empty)).ok().unwrap();
-                        }
-                        if let Some(id) = new_lock_id {
-                            let (lock_request_data, pending) = requests.pop().unwrap();
-                            let lock_request = get_root_as_generic_request(&lock_request_data);
-                            assert_eq!(lock_request.request_type(), RequestType::LockRequest);
-                            if let Some(sender) = pending {
-                                sender
-                                    .send(Ok(RkyvGenericResponse::Lock { lock_id: id }))
-                                    .ok()
-                                    .unwrap();
+                match request {
+                    ArchivedRkyvRequest::Flatbuffer(flatbuffer_data) => {
+                        let request = get_root_as_generic_request(flatbuffer_data);
+                        match request.request_type() {
+                            RequestType::LockRequest => {
+                                let lock_id = lock_table.lock(inode);
+                                if let Some(sender) = pending_response {
+                                    sender
+                                        .send(Ok(RkyvGenericResponse::Lock { lock_id }))
+                                        .ok()
+                                        .unwrap();
+                                }
+                            }
+                            RequestType::UnlockRequest => {
+                                let held_lock_id =
+                                    request.request_as_unlock_request().unwrap().lock_id();
+                                let (mut requests, new_lock_id) =
+                                    lock_table.unlock(inode, held_lock_id);
+                                if let Some(sender) = pending_response {
+                                    sender.send(Ok(RkyvGenericResponse::Empty)).ok().unwrap();
+                                }
+                                if let Some(id) = new_lock_id {
+                                    let (lock_request_data, pending) = requests.pop().unwrap();
+                                    let lock_request =
+                                        get_root_as_generic_request(&lock_request_data);
+                                    assert_eq!(
+                                        lock_request.request_type(),
+                                        RequestType::LockRequest
+                                    );
+                                    if let Some(sender) = pending {
+                                        sender
+                                            .send(Ok(RkyvGenericResponse::Lock { lock_id: id }))
+                                            .ok()
+                                            .unwrap();
+                                    }
+                                }
+                                to_process.extend(requests);
+                            }
+                            _ => {
+                                // Default to processing the request
+                                to_process.push((request_data, pending_response));
                             }
                         }
-                        to_process.extend(requests);
                     }
                     _ => {
                         // Default to processing the request
@@ -554,7 +574,7 @@ impl RaftNode {
 
     pub fn propose(
         &self,
-        request: GenericRequest,
+        request: &RkyvRequest,
     ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
         let uuid: u128 = rand::thread_rng().gen();
 
@@ -563,11 +583,29 @@ impl RaftNode {
             let mut pending_responses = self.pending_responses.lock().unwrap();
             pending_responses.insert(uuid, sender);
         }
-        // TODO: is accessing _tab.buf safe?
-        self._propose(uuid, request._tab.buf.to_vec());
+        let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
+        self._propose(uuid, rkyv_bytes.to_vec());
 
         self.process_raft_queue();
 
         return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
+    }
+
+    pub fn propose_archived(
+        &self,
+        request: &ArchivedRkyvRequest,
+    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
+        // TODO: Can we avoid this de- and re-serialization?
+        let rkyv_request: RkyvRequest = request.deserialize(&mut rkyv::Infallible).unwrap();
+        self.propose(&rkyv_request)
+    }
+
+    pub fn propose_flatbuffer(
+        &self,
+        request: GenericRequest,
+    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
+        // TODO: is accessing _tab.buf safe?
+        let data = request._tab.buf.to_vec();
+        self.propose(&RkyvRequest::Flatbuffer(data))
     }
 }

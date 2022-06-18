@@ -129,7 +129,10 @@ async fn propose(
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<Vec<u8>, ErrorCode> {
     if raft.inode_stored_locally(inode) {
-        let rkyv_response = raft.lookup_by_inode(inode).propose(request).await?;
+        let rkyv_response = raft
+            .lookup_by_inode(inode)
+            .propose_flatbuffer(request)
+            .await?;
         let (mut builder, response_type, response_offset) =
             rkyv_response_to_fb(FlatBufferBuilder::new(), rkyv_response)?;
         finalize_response(&mut builder, response_type, response_offset);
