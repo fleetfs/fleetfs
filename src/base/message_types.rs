@@ -5,6 +5,7 @@ use crate::generated::*;
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
@@ -35,6 +36,7 @@ pub enum RkyvRequest {
     FilesystemInformation,
     FilesystemChecksum,
     FilesystemCheck,
+    Fsync { inode: u64 },
     GetAttr { inode: u64 },
     ListDir { inode: u64 },
     ListXattrs { inode: u64 },
@@ -158,6 +160,35 @@ pub enum RkyvGenericResponse {
     Checksums(HashMap<u16, Vec<u8>>),
 }
 
+impl Debug for ArchivedRkyvRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArchivedRkyvRequest::FilesystemReady => write!(f, "FilesystemReady"),
+            ArchivedRkyvRequest::FilesystemInformation => write!(f, "FilesystemInformation"),
+            ArchivedRkyvRequest::FilesystemChecksum => write!(f, "FilesystemChecksum"),
+            ArchivedRkyvRequest::FilesystemCheck => write!(f, "FilesystemCheck"),
+            ArchivedRkyvRequest::Fsync { inode } => write!(f, "Fsync: {}", inode),
+            ArchivedRkyvRequest::GetAttr { inode } => write!(f, "GetAttr: {}", inode),
+            ArchivedRkyvRequest::ListDir { inode } => write!(f, "ListDir: {}", inode),
+            ArchivedRkyvRequest::ListXattrs { inode } => write!(f, "ListXattrs: {}", inode),
+            ArchivedRkyvRequest::LatestCommit { raft_group } => {
+                write!(f, "LatestCommit: {}", raft_group)
+            }
+            ArchivedRkyvRequest::RaftGroupLeader { raft_group } => {
+                write!(f, "RaftGroupLeader: {}", raft_group)
+            }
+            ArchivedRkyvRequest::RaftMessage { raft_group, .. } => {
+                write!(f, "RaftMessage: {}", raft_group)
+            }
+            ArchivedRkyvRequest::Flatbuffer(_) => write!(f, "Flatbuffer"),
+            ArchivedRkyvRequest::Lock { inode } => write!(f, "Lock: {}", inode),
+            ArchivedRkyvRequest::Unlock { inode, lock_id } => {
+                write!(f, "Unlock: {}, {}", inode, lock_id)
+            }
+        }
+    }
+}
+
 impl ArchivedRkyvRequest {
     pub fn meta_info(&self) -> RequestMetaInfo {
         match self {
@@ -170,6 +201,13 @@ impl ArchivedRkyvRequest {
                 lock_id: None,
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::Any,
+            },
+            ArchivedRkyvRequest::Fsync { inode } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::RaftGroup,
             },
             ArchivedRkyvRequest::ListXattrs { inode }
             | ArchivedRkyvRequest::ListDir { inode }

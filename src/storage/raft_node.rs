@@ -371,7 +371,10 @@ impl RaftNode {
             let to_process = self._process_lock_table(entry.data.to_vec(), pending_response);
 
             for (data, pending_response) in to_process {
-                let request = get_root_as_generic_request(&data);
+                // TODO any way to optimize away this aligning copy?
+                let mut aligned = AlignedVec::with_capacity(data.len());
+                aligned.extend_from_slice(&data);
+                let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
                 if let Some(sender) = pending_response {
                     match commit_write(request, &self.file_storage) {
                         Ok(response) => sender.send(Ok(response)).ok().unwrap(),
@@ -391,11 +394,7 @@ impl RaftNode {
                                 && error_code != ErrorCode::InvalidXattrNamespace
                                 && error_code != ErrorCode::MissingXattrKey
                             {
-                                error!(
-                                    "Commit failed {:?} {:?}",
-                                    error_code,
-                                    request.request_type()
-                                );
+                                error!("Commit failed {:?} {:?}", error_code, request);
                             }
                             sender.send(Err(error_code)).ok().unwrap()
                         }
@@ -420,20 +419,14 @@ impl RaftNode {
                             && error_code != ErrorCode::InvalidXattrNamespace
                             && error_code != ErrorCode::MissingXattrKey
                         {
-                            error!(
-                                "Commit failed {:?} {:?}",
-                                error_code,
-                                request.request_type()
-                            );
+                            error!("Commit failed {:?} {:?}", error_code, request);
                         }
                     }
                 }
 
                 info!(
                     "Committed write index {} (leader={}): {:?}",
-                    entry.index,
-                    raft_node.raft.leader_id,
-                    request.request_type()
+                    entry.index, raft_node.raft.leader_id, request
                 );
             }
         }

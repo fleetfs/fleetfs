@@ -209,17 +209,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::FsyncRequest => {
-            if let Some(fsync_request) = request.request_as_fsync_request() {
-                return raft
-                    .lookup_by_inode(fsync_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::MkdirRequest => {
             if let Some(mkdir_request) = request.request_as_mkdir_request() {
                 return create_transaction(
@@ -553,6 +542,11 @@ async fn rkyv_request_router_inner(
         }
         ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
+        ArchivedRkyvRequest::Fsync { inode } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
         ArchivedRkyvRequest::GetAttr { inode } => {
             let inode = inode.into();
             sync_with_leader(raft.lookup_by_inode(inode)).await?;

@@ -4,7 +4,7 @@ union RequestType {ReadRequest, ReadRawRequest, MkdirRequest, RenameRequest,
                    UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
                    WriteRequest,
                    RmdirRequest, ChownRequest, CreateRequest,
-                   FsyncRequest, GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
+                   GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest, HardlinkRollbackRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest}
@@ -63,10 +63,6 @@ table ReadRequest {
   read_size: uint;
 }
 
-table GetattrRequest {
-  inode: ulong;
-}
-
 table MkdirRequest {
   parent: ulong;
   name: string (required);
@@ -79,10 +75,6 @@ table WriteRequest {
   inode: ulong;
   offset: ulong;
   data: [ubyte] (required);
-}
-
-table FsyncRequest {
-  inode: ulong;
 }
 
 table UnlinkRequest {

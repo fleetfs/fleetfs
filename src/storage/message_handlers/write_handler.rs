@@ -1,9 +1,40 @@
 use crate::base::fb_into_timestamp;
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
+use crate::base::message_types::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse};
 use crate::generated::*;
 use crate::storage::local::FileStorage;
 
 pub fn commit_write(
+    request: &ArchivedRkyvRequest,
+    file_storage: &FileStorage,
+) -> Result<RkyvGenericResponse, ErrorCode> {
+    match request {
+        ArchivedRkyvRequest::Fsync { inode } => file_storage.fsync(inode.into()),
+        ArchivedRkyvRequest::Flatbuffer(data) => {
+            let request = get_root_as_generic_request(data);
+            commit_write_flatbuffer(request, file_storage)
+        }
+        ArchivedRkyvRequest::Lock { .. } => {
+            unreachable!("This should have been handled by the LockTable");
+        }
+        ArchivedRkyvRequest::Unlock { .. } => {
+            unreachable!("This should have been handled by the LockTable");
+        }
+        ArchivedRkyvRequest::FilesystemReady
+        | ArchivedRkyvRequest::FilesystemInformation
+        | ArchivedRkyvRequest::FilesystemChecksum
+        | ArchivedRkyvRequest::FilesystemCheck
+        | ArchivedRkyvRequest::GetAttr { .. }
+        | ArchivedRkyvRequest::ListDir { .. }
+        | ArchivedRkyvRequest::ListXattrs { .. }
+        | ArchivedRkyvRequest::LatestCommit { .. }
+        | ArchivedRkyvRequest::RaftGroupLeader { .. }
+        | ArchivedRkyvRequest::RaftMessage { .. } => {
+            unreachable!()
+        }
+    }
+}
+
+pub fn commit_write_flatbuffer(
     request: GenericRequest,
     file_storage: &FileStorage,
 ) -> Result<RkyvGenericResponse, ErrorCode> {
@@ -100,12 +131,6 @@ pub fn commit_write(
                 *remove_link_request.context(),
             )
         }
-        // RequestType::LockRequest => {
-        //     unreachable!("This should have been handled by the LockTable");
-        // }
-        // RequestType::UnlockRequest => {
-        //     unreachable!("This should have been handled by the LockTable");
-        // }
         RequestType::HardlinkRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
         }
@@ -142,12 +167,6 @@ pub fn commit_write(
                 truncate_request.new_length(),
                 *truncate_request.context(),
             )
-        }
-        RequestType::FsyncRequest => {
-            let fsync_request = request
-                .request_as_fsync_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.fsync(fsync_request.inode())
         }
         RequestType::CreateRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
