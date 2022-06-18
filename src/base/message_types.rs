@@ -1,4 +1,7 @@
-use crate::base::{AccessType, DistributionRequirement, RequestMetaInfo};
+use crate::base::{
+    flatbuffer_request_meta_info, AccessType, DistributionRequirement, RequestMetaInfo,
+};
+use crate::generated::*;
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -182,7 +185,10 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
-            ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
+            ArchivedRkyvRequest::Flatbuffer(data) => {
+                let request = get_root_as_generic_request(data);
+                flatbuffer_request_meta_info(&request)
+            }
         }
     }
 }
