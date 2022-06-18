@@ -132,13 +132,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::WriteDataAndMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::FsyncRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_fsync_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::NoAccess,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::MkdirRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_mkdir_request().unwrap().parent()),
