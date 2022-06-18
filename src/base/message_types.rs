@@ -36,18 +36,46 @@ pub enum RkyvRequest {
     FilesystemInformation,
     FilesystemChecksum,
     FilesystemCheck,
-    Fsync { inode: u64 },
-    GetAttr { inode: u64 },
-    ListDir { inode: u64 },
-    ListXattrs { inode: u64 },
-    LatestCommit { raft_group: u16 },
-    RaftGroupLeader { raft_group: u16 },
-    RaftMessage { raft_group: u16, data: Vec<u8> },
+    Fsync {
+        inode: u64,
+    },
+    GetAttr {
+        inode: u64,
+    },
+    ListDir {
+        inode: u64,
+    },
+    ListXattrs {
+        inode: u64,
+    },
+    LatestCommit {
+        raft_group: u16,
+    },
+    RaftGroupLeader {
+        raft_group: u16,
+    },
+    RaftMessage {
+        raft_group: u16,
+        data: Vec<u8>,
+    },
     Flatbuffer(Vec<u8>),
     // Internal request to lock an inode
-    Lock { inode: u64 },
+    Lock {
+        inode: u64,
+    },
     // Internal request to unlock an inode
-    Unlock { inode: u64, lock_id: u64 },
+    Unlock {
+        inode: u64,
+        lock_id: u64,
+    },
+
+    // Internal transaction messages
+
+    // Used internally to rollback hardlink transactions
+    HardlinkRollback {
+        inode: u64,
+        last_modified_time: Timestamp,
+    },
 }
 
 #[derive(Archive, Deserialize, Serialize)]
@@ -185,6 +213,9 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::Unlock { inode, lock_id } => {
                 write!(f, "Unlock: {}, {}", inode, lock_id)
             }
+            ArchivedRkyvRequest::HardlinkRollback { inode, .. } => {
+                write!(f, "HardlinkRollback: {}", inode)
+            }
         }
     }
 }
@@ -239,6 +270,13 @@ impl ArchivedRkyvRequest {
                 inode: Some(inode.into()),
                 lock_id: Some(lock_id.into()),
                 access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::HardlinkRollback { inode, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::WriteMetadata,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
             ArchivedRkyvRequest::Flatbuffer(data) => {

@@ -5,7 +5,7 @@ union RequestType {ReadRequest, ReadRawRequest, MkdirRequest, RenameRequest,
                    WriteRequest,
                    RmdirRequest, ChownRequest, CreateRequest,
                    GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
-                   HardlinkIncrementRequest, HardlinkRollbackRequest,
+                   HardlinkIncrementRequest,
                    CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
                    RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest}
 
@@ -143,12 +143,6 @@ table RemoveLinkRequest {
 // Used internally for stage0 of hardlink transactions
 table HardlinkIncrementRequest {
   inode: ulong;
-}
-
-// Used internally to rollback hardlink transactions
-table HardlinkRollbackRequest {
-  inode: ulong;
-  last_modified_time: FlatbufferTimestamp (required);
 }
 
 table RenameRequest {

@@ -1,6 +1,5 @@
 use crate::base::message_types::{
     ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, RkyvGenericResponse, RkyvRequest,
-    Timestamp,
 };
 use crate::base::{
     check_access, empty_response, finalize_request_without_prefix, finalize_response,
@@ -29,22 +28,6 @@ fn hardlink_increment_request<'a>(
         RequestType::HardlinkIncrementRequest,
         finish_offset,
     );
-
-    get_root_as_generic_request(builder.finished_data())
-}
-
-fn hardlink_rollback_request<'a>(
-    inode: u64,
-    last_modified: Timestamp,
-    builder: &'a mut FlatBufferBuilder,
-) -> GenericRequest<'a> {
-    let fb_timestamp = FlatbufferTimestamp::new(last_modified.seconds, last_modified.nanos);
-    let mut request_builder = HardlinkRollbackRequestBuilder::new(builder);
-    request_builder.add_inode(inode);
-    request_builder.add_last_modified_time(&fb_timestamp);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(builder, RequestType::HardlinkRollbackRequest, finish_offset);
 
     get_root_as_generic_request(builder.finished_data())
 }
@@ -1044,6 +1027,11 @@ pub async fn hardlink_transaction<'a, 'b>(
         &mut internal_request_builder,
     );
 
+    let rollback_request = RkyvRequest::HardlinkRollback {
+        inode: hardlink_request.inode(),
+        last_modified_time: rollback.into(),
+    };
+
     match propose_flatbuffer(
         hardlink_request.new_parent(),
         create_link,
@@ -1055,17 +1043,15 @@ pub async fn hardlink_transaction<'a, 'b>(
         Ok(response_data) => {
             if response_or_error(&response_data).is_err() {
                 // Rollback the transaction
-                let mut internal_request_builder = FlatBufferBuilder::new();
-                let rollback = hardlink_rollback_request(
-                    hardlink_request.inode(),
-                    rollback.into(),
-                    &mut internal_request_builder,
-                );
                 // TODO: if this fails the filesystem is corrupted ;( since the link count
                 // may not have been decremented
-                let response_data =
-                    propose_flatbuffer(hardlink_request.inode(), rollback, &raft, &remote_rafts)
-                        .await?;
+                let response_data = propose(
+                    hardlink_request.inode(),
+                    &rollback_request,
+                    &raft,
+                    &remote_rafts,
+                )
+                .await?;
                 response_or_error(&response_data)?;
             }
 
@@ -1083,17 +1069,15 @@ pub async fn hardlink_transaction<'a, 'b>(
         }
         Err(error_code) => {
             // Rollback the transaction
-            let mut internal_request_builder = FlatBufferBuilder::new();
-            let rollback = hardlink_rollback_request(
-                hardlink_request.inode(),
-                rollback.into(),
-                &mut internal_request_builder,
-            );
             // TODO: if this fails the filesystem is corrupted ;( since the link count
             // may not have been decremented
-            let response_data =
-                propose_flatbuffer(hardlink_request.inode(), rollback, &raft, &remote_rafts)
-                    .await?;
+            let response_data = propose(
+                hardlink_request.inode(),
+                &rollback_request,
+                &raft,
+                &remote_rafts,
+            )
+            .await?;
             response_or_error(&response_data)?;
             return Err(error_code);
         }
