@@ -136,18 +136,16 @@ impl TcpPeerClient {
 
     pub fn send(
         &self,
-        request: RkyvRequest,
+        request: &RkyvRequest,
     ) -> BoxFuture<'static, Result<LengthPrefixedVec, std::io::Error>> {
         let pool = self.pool.clone();
+        let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
 
         self.connect()
             .then(move |tcp_stream| match tcp_stream {
-                Ok(stream) => {
-                    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&request).unwrap();
-                    Either::Left(async_send_unprefixed_receive_length_prefixed(
-                        stream, rkyv_bytes, pool,
-                    ))
-                }
+                Ok(stream) => Either::Left(async_send_unprefixed_receive_length_prefixed(
+                    stream, rkyv_bytes, pool,
+                )),
                 Err(e) => Either::Right(ready(Err(e))),
             })
             .boxed()
@@ -211,7 +209,7 @@ impl PeerClient for TcpPeerClient {
     fn send_raft_message(&self, raft_group: u16, message: Message) -> BoxFuture<'static, ()> {
         let serialized_message = message.write_to_bytes().unwrap();
         let ip_and_port = self.server_ip_port;
-        self.send(RkyvRequest::RaftMessage {
+        self.send(&RkyvRequest::RaftMessage {
             raft_group,
             data: serialized_message,
         })
@@ -230,7 +228,7 @@ impl PeerClient for TcpPeerClient {
         &self,
         raft_group: u16,
     ) -> BoxFuture<'static, Result<u64, std::io::Error>> {
-        self.send(RkyvRequest::LatestCommit { raft_group })
+        self.send(&RkyvRequest::LatestCommit { raft_group })
             .map(|response| {
                 response.map(|data| {
                     let rkyv_response = response_or_error(data.bytes())
@@ -249,7 +247,7 @@ impl PeerClient for TcpPeerClient {
     }
 
     fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>> {
-        self.send(RkyvRequest::FilesystemChecksum)
+        self.send(&RkyvRequest::FilesystemChecksum)
             .map(|maybe_response| {
                 let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
                 let rkyv_response = response_or_error(data.bytes())

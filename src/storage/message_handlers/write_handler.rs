@@ -100,12 +100,12 @@ pub fn commit_write(
                 *remove_link_request.context(),
             )
         }
-        RequestType::LockRequest => {
-            unreachable!("This should have been handled by the LockTable");
-        }
-        RequestType::UnlockRequest => {
-            unreachable!("This should have been handled by the LockTable");
-        }
+        // RequestType::LockRequest => {
+        //     unreachable!("This should have been handled by the LockTable");
+        // }
+        // RequestType::UnlockRequest => {
+        //     unreachable!("This should have been handled by the LockTable");
+        // }
         RequestType::HardlinkRequest => {
             unreachable!("Transaction coordinator should break these up into internal requests");
         }

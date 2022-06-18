@@ -63,7 +63,7 @@ impl RemoteRaftGroups {
     pub fn wait_for_ready(&self) -> impl Future<Output = Result<(), std::io::Error>> {
         let mut group_futures = vec![];
         for (group, client) in self.groups.iter() {
-            let group_future = client.send(RkyvRequest::RaftGroupLeader { raft_group: *group });
+            let group_future = client.send(&RkyvRequest::RaftGroupLeader { raft_group: *group });
             group_futures.push(group_future);
         }
 
@@ -77,6 +77,18 @@ impl RemoteRaftGroups {
     }
 
     pub fn propose(
+        &self,
+        inode: u64,
+        request: &RkyvRequest,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        let raft_group_id = inode % self.total_raft_groups as u64;
+        self.groups
+            .get(&(raft_group_id as u16))
+            .unwrap()
+            .send(request)
+    }
+
+    pub fn propose_flatbuffer(
         &self,
         inode: u64,
         request: &GenericRequest<'_>,

@@ -42,6 +42,10 @@ pub enum RkyvRequest {
     RaftGroupLeader { raft_group: u16 },
     RaftMessage { raft_group: u16, data: Vec<u8> },
     Flatbuffer(Vec<u8>),
+    // Internal request to lock an inode
+    Lock { inode: u64 },
+    // Internal request to unlock an inode
+    Unlock { inode: u64, lock_id: u64 },
 }
 
 #[derive(Archive, Deserialize, Serialize)]
@@ -182,6 +186,20 @@ impl ArchivedRkyvRequest {
                 raft_group: Some(raft_group.into()),
                 inode: None,
                 lock_id: None,
+                access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::Lock { inode } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::LockMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::Unlock { inode, lock_id } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: Some(lock_id.into()),
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
