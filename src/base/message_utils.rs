@@ -158,18 +158,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::WriteMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::HardlinkRollbackRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(
-                request
-                    .request_as_hardlink_rollback_request()
-                    .unwrap()
-                    .inode(),
-            ),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::CreateInodeRequest => RequestMetaInfo {
             raft_group: Some(
                 request

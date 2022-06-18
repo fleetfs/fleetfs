@@ -259,18 +259,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::HardlinkRollbackRequest => {
-            // Internal request used during transaction processing
-            if let Some(rollback_request) = request.request_as_hardlink_rollback_request() {
-                return raft
-                    .lookup_by_inode(rollback_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::CreateInodeRequest => {
             // Internal request used during transaction processing
             if let Some(create_inode_request) = request.request_as_create_inode_request() {
@@ -584,12 +572,9 @@ async fn rkyv_request_router_inner(
                 .unwrap();
             Ok(RkyvGenericResponse::Empty)
         }
-        ArchivedRkyvRequest::Lock { inode } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::Unlock { inode, .. } => {
+        ArchivedRkyvRequest::Lock { inode }
+        | ArchivedRkyvRequest::Unlock { inode, .. }
+        | ArchivedRkyvRequest::HardlinkRollback { inode, .. } => {
             raft.lookup_by_inode(inode.into())
                 .propose_archived(request)
                 .await

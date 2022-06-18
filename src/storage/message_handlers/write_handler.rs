@@ -9,6 +9,10 @@ pub fn commit_write(
 ) -> Result<RkyvGenericResponse, ErrorCode> {
     match request {
         ArchivedRkyvRequest::Fsync { inode } => file_storage.fsync(inode.into()),
+        ArchivedRkyvRequest::HardlinkRollback {
+            inode,
+            last_modified_time,
+        } => file_storage.hardlink_rollback(inode.into(), last_modified_time.into()),
         ArchivedRkyvRequest::Flatbuffer(data) => {
             let request = get_root_as_generic_request(data);
             commit_write_flatbuffer(request, file_storage)
@@ -44,15 +48,6 @@ pub fn commit_write_flatbuffer(
                 .request_as_hardlink_increment_request()
                 .ok_or(ErrorCode::BadRequest)?;
             file_storage.hardlink_stage0_link_increment(hardlink_increment_request.inode())
-        }
-        RequestType::HardlinkRollbackRequest => {
-            let hardlink_rollback_request = request
-                .request_as_hardlink_rollback_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.hardlink_rollback(
-                hardlink_rollback_request.inode(),
-                fb_into_timestamp(hardlink_rollback_request.last_modified_time()),
-            )
         }
         RequestType::CreateInodeRequest => {
             let create_inode_request = request
