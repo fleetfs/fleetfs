@@ -258,28 +258,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::LockRequest => {
-            if let Some(lock_request) = request.request_as_lock_request() {
-                return raft
-                    .lookup_by_inode(lock_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::UnlockRequest => {
-            if let Some(unlock_request) = request.request_as_unlock_request() {
-                return raft
-                    .lookup_by_inode(unlock_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::HardlinkIncrementRequest => {
             // Internal request used during transaction processing
             if let Some(increment_request) = request.request_as_hardlink_increment_request() {
@@ -611,6 +589,16 @@ async fn rkyv_request_router_inner(
                 .apply_messages(&[deserialized_message])
                 .unwrap();
             Ok(RkyvGenericResponse::Empty)
+        }
+        ArchivedRkyvRequest::Lock { inode } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::Unlock { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
         }
         ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
     }

@@ -300,48 +300,37 @@ impl RaftNode {
                 lock_table.wait_for_lock(inode, (request_data, pending_response));
             } else {
                 match request {
-                    ArchivedRkyvRequest::Flatbuffer(flatbuffer_data) => {
-                        let request = get_root_as_generic_request(flatbuffer_data);
-                        match request.request_type() {
-                            RequestType::LockRequest => {
-                                let lock_id = lock_table.lock(inode);
-                                if let Some(sender) = pending_response {
-                                    sender
-                                        .send(Ok(RkyvGenericResponse::Lock { lock_id }))
-                                        .ok()
-                                        .unwrap();
-                                }
-                            }
-                            RequestType::UnlockRequest => {
-                                let held_lock_id =
-                                    request.request_as_unlock_request().unwrap().lock_id();
-                                let (mut requests, new_lock_id) =
-                                    lock_table.unlock(inode, held_lock_id);
-                                if let Some(sender) = pending_response {
-                                    sender.send(Ok(RkyvGenericResponse::Empty)).ok().unwrap();
-                                }
-                                if let Some(id) = new_lock_id {
-                                    let (lock_request_data, pending) = requests.pop().unwrap();
-                                    let lock_request =
-                                        get_root_as_generic_request(&lock_request_data);
-                                    assert_eq!(
-                                        lock_request.request_type(),
-                                        RequestType::LockRequest
-                                    );
-                                    if let Some(sender) = pending {
-                                        sender
-                                            .send(Ok(RkyvGenericResponse::Lock { lock_id: id }))
-                                            .ok()
-                                            .unwrap();
-                                    }
-                                }
-                                to_process.extend(requests);
-                            }
-                            _ => {
-                                // Default to processing the request
-                                to_process.push((request_data, pending_response));
+                    ArchivedRkyvRequest::Lock { inode } => {
+                        let lock_id = lock_table.lock(inode.into());
+                        if let Some(sender) = pending_response {
+                            sender
+                                .send(Ok(RkyvGenericResponse::Lock { lock_id }))
+                                .ok()
+                                .unwrap();
+                        }
+                    }
+                    ArchivedRkyvRequest::Unlock { inode, lock_id } => {
+                        let (mut requests, new_lock_id) =
+                            lock_table.unlock(inode.into(), lock_id.into());
+                        if let Some(sender) = pending_response {
+                            sender.send(Ok(RkyvGenericResponse::Empty)).ok().unwrap();
+                        }
+                        if let Some(id) = new_lock_id {
+                            let (lock_request_data, pending) = requests.pop().unwrap();
+                            // TODO optimize out this copy
+                            let mut aligned = AlignedVec::with_capacity(lock_request_data.len());
+                            aligned.extend_from_slice(&lock_request_data);
+                            let lock_request =
+                                rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+                            assert!(matches!(lock_request, ArchivedRkyvRequest::Lock { .. }));
+                            if let Some(sender) = pending {
+                                sender
+                                    .send(Ok(RkyvGenericResponse::Lock { lock_id: id }))
+                                    .ok()
+                                    .unwrap();
                             }
                         }
+                        to_process.extend(requests);
                     }
                     _ => {
                         // Default to processing the request

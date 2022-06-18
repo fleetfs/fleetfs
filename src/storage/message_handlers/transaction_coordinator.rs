@@ -124,6 +124,32 @@ fn decrement_inode_request<'a>(
 
 async fn propose(
     inode: u64,
+    request: &RkyvRequest,
+    raft: &LocalRaftGroupManager,
+    remote_rafts: &RemoteRaftGroups,
+) -> Result<Vec<u8>, ErrorCode> {
+    if raft.inode_stored_locally(inode) {
+        let rkyv_response = raft.lookup_by_inode(inode).propose(request).await?;
+        let (mut builder, response_type, response_offset) =
+            rkyv_response_to_fb(FlatBufferBuilder::new(), rkyv_response)?;
+        finalize_response(&mut builder, response_type, response_offset);
+        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
+        response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
+        // TODO: optimize this to_vec() copy
+        return Ok(builder.finished_data()[SIZE_UOFFSET..].to_vec());
+    } else {
+        let response = remote_rafts
+            .propose(inode, request)
+            .await
+            .map_err(|_| ErrorCode::Uncategorized)?;
+        // TODO: optimize this to_vec() copy
+        response_or_error(response.bytes())?;
+        return Ok(response.bytes().to_vec());
+    }
+}
+
+async fn propose_flatbuffer(
+    inode: u64,
     request: GenericRequest<'_>,
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
@@ -142,7 +168,7 @@ async fn propose(
         return Ok(builder.finished_data()[SIZE_UOFFSET..].to_vec());
     } else {
         let response = remote_rafts
-            .propose(inode, &request)
+            .propose_flatbuffer(inode, &request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
         // TODO: optimize this to_vec() copy
@@ -177,7 +203,7 @@ async fn replace_link(
     finalize_request_without_prefix(&mut builder, RequestType::ReplaceLinkRequest, finish_offset);
     let request = get_root_as_generic_request(builder.finished_data());
 
-    let response_data = propose(parent, request, raft, remote_rafts).await?;
+    let response_data = propose_flatbuffer(parent, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
@@ -221,7 +247,7 @@ async fn remove_link(
     finalize_request_without_prefix(&mut builder, RequestType::RemoveLinkRequest, finish_offset);
     let request = get_root_as_generic_request(builder.finished_data());
 
-    let response_data = propose(parent, request, raft, remote_rafts).await?;
+    let response_data = propose_flatbuffer(parent, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
@@ -242,15 +268,7 @@ async fn lock_inode(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<u64, ErrorCode> {
-    let mut builder = FlatBufferBuilder::new();
-    let mut request_builder = LockRequestBuilder::new(&mut builder);
-    request_builder.add_inode(inode);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(&mut builder, RequestType::LockRequest, finish_offset);
-    let request = get_root_as_generic_request(builder.finished_data());
-
-    let response_data = propose(inode, request, raft, remote_rafts).await?;
+    let response_data = propose(inode, &RkyvRequest::Lock { inode }, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
@@ -290,7 +308,7 @@ async fn update_parent(
     );
     let request = get_root_as_generic_request(builder.finished_data());
 
-    let response_data = propose(inode, request, raft, remote_rafts).await?;
+    let response_data = propose_flatbuffer(inode, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     let rkyv_data = response
         .response_as_rkyv_response()
@@ -328,7 +346,7 @@ async fn update_metadata_changed_time(
     );
     let request = get_root_as_generic_request(builder.finished_data());
 
-    let response_data = propose(inode, request, raft, remote_rafts).await?;
+    let response_data = propose_flatbuffer(inode, request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     let rkyv_data = response
         .response_as_rkyv_response()
@@ -349,16 +367,13 @@ async fn unlock_inode(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<(), ErrorCode> {
-    let mut builder = FlatBufferBuilder::new();
-    let mut request_builder = UnlockRequestBuilder::new(&mut builder);
-    request_builder.add_inode(inode);
-    request_builder.add_lock_id(lock_id);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(&mut builder, RequestType::UnlockRequest, finish_offset);
-    let request = get_root_as_generic_request(builder.finished_data());
-
-    let response_data = propose(inode, request, raft, remote_rafts).await?;
+    let response_data = propose(
+        inode,
+        &RkyvRequest::Unlock { inode, lock_id },
+        raft,
+        remote_rafts,
+    )
+    .await?;
     let response = response_or_error(&response_data)?;
     let rkyv_data = response
         .response_as_rkyv_response()
@@ -505,7 +520,7 @@ async fn decrement_inode(
     let decrement_link_count =
         decrement_inode_request(inode, count, lock_id, &mut decrement_request_builder);
     // TODO: if this fails the inode will leak ;(
-    let response_data = propose(inode, decrement_link_count, raft, remote_rafts)
+    let response_data = propose_flatbuffer(inode, decrement_link_count, raft, remote_rafts)
         .await
         .expect("Leaked inode");
     let response = response_or_error(&response_data).expect("Leaked inode");
@@ -730,7 +745,8 @@ async fn rename_transaction_lock_context<'a>(
             &mut builder,
         );
 
-        let response_data = propose(new_parent, create_link, &raft, &remote_rafts).await?;
+        let response_data =
+            propose_flatbuffer(new_parent, create_link, &raft, &remote_rafts).await?;
         response_or_error(&response_data)?;
     }
 
@@ -815,7 +831,8 @@ pub async fn rmdir_transaction<'a>(
     let decrement_link_count =
         decrement_inode_request(inode, 2, None, &mut decrement_request_builder);
     // TODO: if this fails the inode will leak ;(
-    let response_data = propose(inode, decrement_link_count, &raft, &remote_rafts).await?;
+    let response_data =
+        propose_flatbuffer(inode, decrement_link_count, &raft, &remote_rafts).await?;
     response_or_error(&response_data)?;
 
     let (mut builder, response_type, offset) = empty_response(builder)?;
@@ -843,7 +860,8 @@ pub async fn unlink_transaction<'a>(
         let decrement_link_count =
             decrement_inode_request(link_inode, 1, None, &mut decrement_request_builder);
         // TODO: if this fails the inode will leak ;(
-        let response_data = propose(link_inode, decrement_link_count, &raft, &remote_rafts).await?;
+        let response_data =
+            propose_flatbuffer(link_inode, decrement_link_count, &raft, &remote_rafts).await?;
         response_or_error(&response_data)?;
     } else {
         let mut inode = link_inode;
@@ -886,7 +904,8 @@ pub async fn unlink_transaction<'a>(
         let decrement_link_count =
             decrement_inode_request(inode, 1, None, &mut decrement_request_builder);
         // TODO: if this fails the inode will leak ;(
-        let response_data = propose(inode, decrement_link_count, &raft, &remote_rafts).await?;
+        let response_data =
+            propose_flatbuffer(inode, decrement_link_count, &raft, &remote_rafts).await?;
         response_or_error(&response_data)?;
     }
 
@@ -958,7 +977,7 @@ pub async fn create_transaction<'a>(
         &mut link_request_builder,
     );
 
-    match propose(parent, create_link, &raft, &remote_rafts).await {
+    match propose_flatbuffer(parent, create_link, &raft, &remote_rafts).await {
         Ok(_) => {
             // This is the response back to the client
             return Ok(FlatBufferWithResponse::with_separate_response(
@@ -972,7 +991,7 @@ pub async fn create_transaction<'a>(
             let rollback =
                 decrement_inode_request(inode, link_count, None, &mut internal_request_builder);
             // TODO: if this fails the inode will leak ;(
-            let response_data = propose(inode, rollback, &raft, &remote_rafts).await?;
+            let response_data = propose_flatbuffer(inode, rollback, &raft, &remote_rafts).await?;
             response_or_error(&response_data)?;
             return Err(error_code);
         }
@@ -994,7 +1013,8 @@ pub async fn hardlink_transaction<'a, 'b>(
     let increment =
         hardlink_increment_request(hardlink_request.inode(), &mut internal_request_builder);
 
-    let response_data = propose(hardlink_request.inode(), increment, &raft, &remote_rafts).await?;
+    let response_data =
+        propose_flatbuffer(hardlink_request.inode(), increment, &raft, &remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
     let rkyv_data = response
@@ -1024,7 +1044,7 @@ pub async fn hardlink_transaction<'a, 'b>(
         &mut internal_request_builder,
     );
 
-    match propose(
+    match propose_flatbuffer(
         hardlink_request.new_parent(),
         create_link,
         &raft,
@@ -1044,7 +1064,8 @@ pub async fn hardlink_transaction<'a, 'b>(
                 // TODO: if this fails the filesystem is corrupted ;( since the link count
                 // may not have been decremented
                 let response_data =
-                    propose(hardlink_request.inode(), rollback, &raft, &remote_rafts).await?;
+                    propose_flatbuffer(hardlink_request.inode(), rollback, &raft, &remote_rafts)
+                        .await?;
                 response_or_error(&response_data)?;
             }
 
@@ -1071,7 +1092,8 @@ pub async fn hardlink_transaction<'a, 'b>(
             // TODO: if this fails the filesystem is corrupted ;( since the link count
             // may not have been decremented
             let response_data =
-                propose(hardlink_request.inode(), rollback, &raft, &remote_rafts).await?;
+                propose_flatbuffer(hardlink_request.inode(), rollback, &raft, &remote_rafts)
+                    .await?;
             response_or_error(&response_data)?;
             return Err(error_code);
         }

@@ -153,20 +153,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::WriteMetadata,
             distribution_requirement: DistributionRequirement::TransactionCoordinator,
         },
-        RequestType::LockRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_lock_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::LockMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::UnlockRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_unlock_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::NoAccess,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::HardlinkIncrementRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(
