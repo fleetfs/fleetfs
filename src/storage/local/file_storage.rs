@@ -4,9 +4,9 @@ use std::fs;
 
 use crate::base::fast_data_protocol::to_fast_read_response;
 use crate::base::message_types::{
-    DirectoryEntry, EntryMetadata, ErrorCode, RkyvGenericResponse, Timestamp,
+    DirectoryEntry, EntryMetadata, ErrorCode, FileKind, RkyvGenericResponse, Timestamp, UserContext,
 };
-use crate::base::{file_kind_to_u8, node_id_from_address, FlatBufferWithResponse};
+use crate::base::{node_id_from_address, FlatBufferWithResponse};
 use crate::client::TcpPeerClient;
 use crate::generated::*;
 use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
@@ -29,7 +29,7 @@ fn build_fileattr_response(
         last_access_time: attributes.last_accessed,
         last_modified_time: attributes.last_modified,
         last_metadata_modified_time: attributes.last_metadata_changed,
-        kind: file_kind_to_u8(attributes.kind),
+        kind: attributes.kind,
         mode: attributes.mode,
         hard_links: attributes.hardlinks,
         user_id: attributes.uid,
@@ -130,7 +130,7 @@ impl FileStorage {
             entries.push(DirectoryEntry {
                 inode,
                 name: filename,
-                kind: file_kind_to_u8(file_type),
+                kind: file_type,
             });
         }
 

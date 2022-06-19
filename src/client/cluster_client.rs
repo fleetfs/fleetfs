@@ -104,13 +104,9 @@ impl RemoteRaftGroups {
     pub fn propose_to_specific_group(
         &self,
         raft_group: u16,
-        request: &GenericRequest<'_>,
+        request: &RkyvRequest,
     ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
-        self.groups
-            .get(&raft_group)
-            .unwrap()
-            // TODO: is accessing _tab.buf safe?
-            .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
+        self.groups.get(&raft_group).unwrap().send(request)
     }
 
     pub fn forward_flatbuffer_request(
@@ -125,16 +121,23 @@ impl RemoteRaftGroups {
             .send_flatbuffer_unprefixed_and_receive_length_prefixed(request._tab.buf.to_vec())
     }
 
-    pub fn forward_request(
+    pub fn forward_archived_request(
         &self,
         request: &ArchivedRkyvRequest,
     ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
-        let raft_group_id = request.meta_info().inode.unwrap() % self.total_raft_groups as u64;
-
         // TODO: avoid this deserializing and re-serializing. Unfortunately, I can't figure out
         // how to get the underlying bytes out of the archived type
         let deserialized: RkyvRequest = request.deserialize(&mut rkyv::Infallible).unwrap();
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&deserialized).unwrap();
+        self.forward_request(&deserialized)
+    }
+
+    pub fn forward_request(
+        &self,
+        request: &RkyvRequest,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
+        let serialized = rkyv::check_archived_root::<RkyvRequest>(&rkyv_bytes).unwrap();
+        let raft_group_id = serialized.meta_info().inode.unwrap() % self.total_raft_groups as u64;
         self.groups
             .get(&(raft_group_id as u16))
             .unwrap()

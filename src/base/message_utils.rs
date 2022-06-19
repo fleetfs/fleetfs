@@ -1,4 +1,3 @@
-use crate::base::message_types::Timestamp;
 use crate::generated::*;
 
 pub struct RequestMetaInfo {
@@ -26,33 +25,6 @@ pub enum DistributionRequirement {
     Node,                   // Must be processed by a specific node
 }
 
-pub fn fb_into_timestamp(fb_timestamp: &FlatbufferTimestamp) -> Timestamp {
-    Timestamp {
-        seconds: fb_timestamp.seconds(),
-        nanos: fb_timestamp.nanos(),
-    }
-}
-
-// TODO: remove this
-pub fn file_kind_to_u8(kind: FileKind) -> u8 {
-    match kind {
-        FileKind::DefaultValueNotAType => 0,
-        FileKind::File => 1,
-        FileKind::Directory => 2,
-        FileKind::Symlink => 3,
-    }
-}
-
-pub fn u8_to_file_kind(value: u8) -> FileKind {
-    match value {
-        0 => FileKind::DefaultValueNotAType,
-        1 => FileKind::File,
-        2 => FileKind::Directory,
-        3 => FileKind::Symlink,
-        _ => unreachable!(),
-    }
-}
-
 pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMetaInfo {
     match request.request_type() {
         RequestType::ReadRequest => RequestMetaInfo {
@@ -69,82 +41,12 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::ReadData,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::SetXattrRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_set_xattr_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::RemoveXattrRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_remove_xattr_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::UnlinkRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_unlink_request().unwrap().parent()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::RmdirRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_rmdir_request().unwrap().parent()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::WriteRequest => RequestMetaInfo {
             raft_group: None,
             inode: Some(request.request_as_write_request().unwrap().inode()),
             lock_id: None,
             access_type: AccessType::WriteDataAndMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::UtimensRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_utimens_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::ChmodRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_chmod_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::ChownRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_chown_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::TruncateRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_truncate_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteDataAndMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::MkdirRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_mkdir_request().unwrap().parent()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::TransactionCoordinator,
-        },
-        RequestType::CreateRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_create_request().unwrap().parent()),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::TransactionCoordinator,
         },
         RequestType::HardlinkIncrementRequest => RequestMetaInfo {
             raft_group: None,
@@ -154,18 +56,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
                     .unwrap()
                     .inode(),
             ),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::CreateInodeRequest => RequestMetaInfo {
-            raft_group: Some(
-                request
-                    .request_as_create_inode_request()
-                    .unwrap()
-                    .raft_group(),
-            ),
-            inode: None,
             lock_id: None,
             access_type: AccessType::WriteMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
@@ -180,39 +70,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             ),
             lock_id: request
                 .request_as_decrement_inode_request()
-                .unwrap()
-                .lock_id()
-                .map(|x| x.value()),
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::RemoveLinkRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_remove_link_request().unwrap().parent()),
-            lock_id: request
-                .request_as_remove_link_request()
-                .unwrap()
-                .lock_id()
-                .map(|x| x.value()),
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::CreateLinkRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_create_link_request().unwrap().parent()),
-            lock_id: request
-                .request_as_create_link_request()
-                .unwrap()
-                .lock_id()
-                .map(|x| x.value()),
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::ReplaceLinkRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_replace_link_request().unwrap().parent()),
-            lock_id: request
-                .request_as_replace_link_request()
                 .unwrap()
                 .lock_id()
                 .map(|x| x.value()),
@@ -244,34 +101,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
                 .lock_id()
                 .map(|x| x.value()),
             access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::HardlinkRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: None,
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::TransactionCoordinator,
-        },
-        RequestType::RenameRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: None,
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::TransactionCoordinator,
-        },
-        RequestType::LookupRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_lookup_request().unwrap().parent()),
-            lock_id: None,
-            access_type: AccessType::ReadMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::GetXattrRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_get_xattr_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::ReadMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
         RequestType::NONE => unreachable!(),

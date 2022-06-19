@@ -7,10 +7,10 @@ use thread_local::ThreadLocal;
 
 use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
 use crate::base::message_types::{
-    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, RkyvGenericResponse, RkyvRequest,
-    Timestamp,
+    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, RkyvGenericResponse,
+    RkyvRequest, Timestamp, UserContext,
 };
-use crate::base::{finalize_request_without_prefix, response_or_error, u8_to_file_kind};
+use crate::base::{finalize_request_without_prefix, response_or_error};
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
@@ -26,7 +26,6 @@ fn to_fuse_file_type(file_type: FileKind) -> fuser::FileType {
         FileKind::File => fuser::FileType::RegularFile,
         FileKind::Directory => fuser::FileType::Directory,
         FileKind::Symlink => fuser::FileType::Symlink,
-        FileKind::DefaultValueNotAType => unreachable!(),
     }
 }
 
@@ -44,7 +43,7 @@ fn metadata_to_fuse_fileattr(metadata: &EntryMetadata) -> FileAttr {
         mtime: metadata.last_modified_time.into(),
         ctime: metadata.last_metadata_modified_time.into(),
         crtime: SystemTime::UNIX_EPOCH,
-        kind: to_fuse_file_type(u8_to_file_kind(metadata.kind)),
+        kind: to_fuse_file_type(metadata.kind),
         perm: metadata.mode,
         nlink: metadata.hard_links,
         uid: metadata.user_id,
@@ -171,19 +170,16 @@ impl NodeClient {
         gid: u32,
         mode: u16,
     ) -> Result<FileAttr, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_name = builder.create_string(name);
-        let mut request_builder = MkdirRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_uid(uid);
-        request_builder.add_gid(gid);
-        request_builder.add_mode(mode);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::MkdirRequest, finish_offset);
+        let request = RkyvRequest::Mkdir {
+            parent,
+            name: name.to_string(),
+            uid,
+            gid,
+            mode,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -200,17 +196,15 @@ impl NodeClient {
     }
 
     pub fn lookup(&self, parent: u64, name: &str, context: UserContext) -> Result<u64, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_name = builder.create_string(name);
-        let mut request_builder = LookupRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::LookupRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(
+            RkyvRequest::Lookup {
+                parent,
+                name: name.to_string(),
+                context,
+            },
+            &mut buffer,
+        )?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -234,20 +228,18 @@ impl NodeClient {
         mode: u16,
         kind: FileKind,
     ) -> Result<FileAttr, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_name = builder.create_string(name);
-        let mut request_builder = CreateRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_uid(uid);
-        request_builder.add_gid(gid);
-        request_builder.add_mode(mode);
-        request_builder.add_kind(kind);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::CreateRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(
+            RkyvRequest::Create {
+                parent,
+                name: name.to_string(),
+                uid,
+                gid,
+                mode,
+                kind,
+            },
+            &mut buffer,
+        )?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -313,17 +305,15 @@ impl NodeClient {
         key: &str,
         context: UserContext,
     ) -> Result<Vec<u8>, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_key = builder.create_string(key);
-        let mut request_builder = GetXattrRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_key(builder_key);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::GetXattrRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(
+            RkyvRequest::GetXattr {
+                inode,
+                key: key.to_string(),
+                context,
+            },
+            &mut buffer,
+        )?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -364,19 +354,16 @@ impl NodeClient {
         value: &[u8],
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_key = builder.create_string(key);
-        let builder_value = builder.create_vector_direct(value);
-        let mut request_builder = SetXattrRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_key(builder_key);
-        request_builder.add_value(builder_value);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::SetXattrRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(
+            RkyvRequest::SetXattr {
+                inode,
+                key: key.to_string(),
+                value: value.to_vec(),
+                context,
+            },
+            &mut buffer,
+        )?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -395,21 +382,14 @@ impl NodeClient {
         key: &str,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_key = builder.create_string(key);
-        let mut request_builder = RemoveXattrRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_key(builder_key);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(
-            &mut builder,
-            RequestType::RemoveXattrRequest,
-            finish_offset,
-        );
+        let request = RkyvRequest::RemoveXattr {
+            inode,
+            key: key.to_string(),
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -430,24 +410,15 @@ impl NodeClient {
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
-
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = UtimensRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        let fb_atime = atime.map(|x| FlatbufferTimestamp::new(x.seconds, x.nanos));
-        if let Some(ref atime) = fb_atime {
-            request_builder.add_atime(atime);
-        }
-        let fb_mtime = mtime.map(|x| FlatbufferTimestamp::new(x.seconds, x.nanos));
-        if let Some(ref mtime) = fb_mtime {
-            request_builder.add_mtime(mtime);
-        }
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::UtimensRequest, finish_offset);
+        let request = RkyvRequest::Utimens {
+            inode,
+            atime,
+            mtime,
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -464,17 +435,14 @@ impl NodeClient {
         if inode == ROOT_INODE {
             return Err(ErrorCode::OperationNotPermitted);
         }
-
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ChmodRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_mode(mode);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::ChmodRequest, finish_offset);
+        let request = RkyvRequest::Chmod {
+            inode,
+            mode,
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -495,26 +463,15 @@ impl NodeClient {
         context: UserContext,
     ) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
-
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ChownRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        let uid_struct;
-        let gid_struct;
-        if let Some(uid) = uid {
-            uid_struct = OptionalUInt::new(uid);
-            request_builder.add_uid(&uid_struct);
-        }
-        if let Some(gid) = gid {
-            gid_struct = OptionalUInt::new(gid);
-            request_builder.add_gid(&gid_struct);
-        }
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::ChownRequest, finish_offset);
+        let request = RkyvRequest::Chown {
+            inode,
+            uid,
+            gid,
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -535,19 +492,15 @@ impl NodeClient {
         context: UserContext,
     ) -> Result<FileAttr, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
-
-        let mut builder = self.get_or_create_builder();
-        let builder_new_name = builder.create_string(new_name);
-        let mut request_builder = HardlinkRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_new_parent(new_parent);
-        request_builder.add_new_name(builder_new_name);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::HardlinkRequest, finish_offset);
+        let request = RkyvRequest::Hardlink {
+            inode,
+            new_parent,
+            new_name: new_name.to_string(),
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -571,20 +524,16 @@ impl NodeClient {
         new_name: &str,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_name = builder.create_string(name);
-        let builder_new_name = builder.create_string(new_name);
-        let mut request_builder = RenameRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_new_parent(new_parent);
-        request_builder.add_new_name(builder_new_name);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::RenameRequest, finish_offset);
+        let request = RkyvRequest::Rename {
+            parent,
+            name: name.to_string(),
+            new_parent,
+            new_name: new_name.to_string(),
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -686,7 +635,7 @@ impl NodeClient {
             result.push((
                 entry.inode,
                 OsString::from(entry.name),
-                to_fuse_file_type(u8_to_file_kind(entry.kind)),
+                to_fuse_file_type(entry.kind),
             ));
         }
 
@@ -695,17 +644,14 @@ impl NodeClient {
 
     pub fn truncate(&self, inode: u64, length: u64, context: UserContext) -> Result<(), ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
-
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = TruncateRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_new_length(length);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::TruncateRequest, finish_offset);
+        let request = RkyvRequest::Truncate {
+            inode,
+            new_length: length,
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -760,17 +706,14 @@ impl NodeClient {
     }
 
     pub fn unlink(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_name = builder.create_string(name);
-        let mut request_builder = UnlinkRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::UnlinkRequest, finish_offset);
+        let request = RkyvRequest::Unlink {
+            parent,
+            name: name.to_string(),
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -784,17 +727,14 @@ impl NodeClient {
     }
 
     pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let builder_name = builder.create_string(name);
-        let mut request_builder = RmdirRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::RmdirRequest, finish_offset);
+        let request = RkyvRequest::Rmdir {
+            parent,
+            name: name.to_string(),
+            context,
+        };
 
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(request, &mut buffer)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
