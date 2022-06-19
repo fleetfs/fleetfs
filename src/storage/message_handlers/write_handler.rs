@@ -129,6 +129,20 @@ pub fn commit_write(
             mode.into(),
             kind.into(),
         ),
+        ArchivedRkyvRequest::HardlinkIncrement { inode } => {
+            file_storage.hardlink_stage0_link_increment(inode.into())
+        }
+        ArchivedRkyvRequest::UpdateParent {
+            inode, new_parent, ..
+        } => file_storage.update_parent(inode.into(), new_parent.into()),
+        ArchivedRkyvRequest::UpdateMetadataChangedTime { inode, .. } => {
+            file_storage.update_metadata_changed_time(inode.into())
+        }
+        ArchivedRkyvRequest::DecrementInode {
+            inode,
+            decrement_count,
+            ..
+        } => file_storage.decrement_inode_link_count(inode.into(), decrement_count.into()),
         ArchivedRkyvRequest::Flatbuffer(data) => {
             let request = get_root_as_generic_request(data);
             commit_write_flatbuffer(request, file_storage)
@@ -161,36 +175,6 @@ pub fn commit_write_flatbuffer(
     file_storage: &FileStorage,
 ) -> Result<RkyvGenericResponse, ErrorCode> {
     match request.request_type() {
-        RequestType::HardlinkIncrementRequest => {
-            let hardlink_increment_request = request
-                .request_as_hardlink_increment_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.hardlink_stage0_link_increment(hardlink_increment_request.inode())
-        }
-        RequestType::UpdateParentRequest => {
-            let update_parent_request = request
-                .request_as_update_parent_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.update_parent(
-                update_parent_request.inode(),
-                update_parent_request.new_parent(),
-            )
-        }
-        RequestType::UpdateMetadataChangedTimeRequest => {
-            let update_request = request
-                .request_as_update_metadata_changed_time_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.update_metadata_changed_time(update_request.inode())
-        }
-        RequestType::DecrementInodeRequest => {
-            let decrement_inode_request = request
-                .request_as_decrement_inode_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.decrement_inode_link_count(
-                decrement_inode_request.inode(),
-                decrement_inode_request.decrement_count(),
-            )
-        }
         RequestType::WriteRequest => {
             let write_request = request
                 .request_as_write_request()

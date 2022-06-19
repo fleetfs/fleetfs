@@ -48,61 +48,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::WriteDataAndMetadata,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::HardlinkIncrementRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(
-                request
-                    .request_as_hardlink_increment_request()
-                    .unwrap()
-                    .inode(),
-            ),
-            lock_id: None,
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::DecrementInodeRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(
-                request
-                    .request_as_decrement_inode_request()
-                    .unwrap()
-                    .inode(),
-            ),
-            lock_id: request
-                .request_as_decrement_inode_request()
-                .unwrap()
-                .lock_id()
-                .map(|x| x.value()),
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::UpdateParentRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_update_parent_request().unwrap().inode()),
-            lock_id: request
-                .request_as_update_parent_request()
-                .unwrap()
-                .lock_id()
-                .map(|x| x.value()),
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
-        RequestType::UpdateMetadataChangedTimeRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(
-                request
-                    .request_as_update_metadata_changed_time_request()
-                    .unwrap()
-                    .inode(),
-            ),
-            lock_id: request
-                .request_as_update_metadata_changed_time_request()
-                .unwrap()
-                .lock_id()
-                .map(|x| x.value()),
-            access_type: AccessType::WriteMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::NONE => unreachable!(),
     }
 }

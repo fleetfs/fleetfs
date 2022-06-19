@@ -1,10 +1,6 @@
 namespace generated;
 
-union RequestType {ReadRequest, ReadRawRequest,
-                   WriteRequest,
-                   HardlinkIncrementRequest,
-                   DecrementInodeRequest,
-                   UpdateParentRequest, UpdateMetadataChangedTimeRequest}
+union RequestType {ReadRequest, ReadRawRequest, WriteRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -33,37 +29,6 @@ table WriteRequest {
   inode: ulong;
   offset: ulong;
   data: [ubyte] (required);
-}
-
-struct OptionalULong {
-  value: ulong;
-}
-
-// Used internally for stage0 of hardlink transactions
-table HardlinkIncrementRequest {
-  inode: ulong;
-}
-
-// Internal request to update the parent link of a directory inode
-table UpdateParentRequest {
-  inode: ulong;
-  new_parent: ulong;
-  lock_id: OptionalULong;
-}
-
-// Internal request to update the metadata changed time an inode
-table UpdateMetadataChangedTimeRequest {
-  inode: ulong;
-  lock_id: OptionalULong;
-}
-
-// TODO: raft messages have to be idempotent. This one is not.
-// Internal request to decrement inode link count. Will delete the inode if its count reaches zero.
-table DecrementInodeRequest {
-  inode: ulong;
-  // The number of times to decrement the link count
-  decrement_count: uint;
-  lock_id: OptionalULong;
 }
 
 root_type GenericRequest;

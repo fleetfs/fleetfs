@@ -2,9 +2,7 @@ use crate::base::message_types::{
     ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, InodeUidPair,
     RkyvGenericResponse, RkyvRequest, UserContext,
 };
-use crate::base::{
-    check_access, finalize_request_without_prefix, finalize_response, response_or_error,
-};
+use crate::base::{check_access, finalize_response, response_or_error};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
 use crate::storage::message_handlers::router::rkyv_response_to_fb;
@@ -14,44 +12,6 @@ use rand::Rng;
 use rkyv::{AlignedVec, Deserialize};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-
-fn hardlink_increment_request<'a>(
-    inode: u64,
-    builder: &'a mut FlatBufferBuilder,
-) -> GenericRequest<'a> {
-    let mut request_builder = HardlinkIncrementRequestBuilder::new(builder);
-    request_builder.add_inode(inode);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(
-        builder,
-        RequestType::HardlinkIncrementRequest,
-        finish_offset,
-    );
-
-    get_root_as_generic_request(builder.finished_data())
-}
-
-fn decrement_inode_request<'a>(
-    inode: u64,
-    decrement_count: u32,
-    lock_id: Option<u64>,
-    builder: &'a mut FlatBufferBuilder,
-) -> GenericRequest<'a> {
-    let mut request_builder = DecrementInodeRequestBuilder::new(builder);
-    request_builder.add_inode(inode);
-    request_builder.add_decrement_count(decrement_count);
-    let builder_lock_id;
-    if let Some(id) = lock_id {
-        builder_lock_id = OptionalULong::new(id);
-        request_builder.add_lock_id(&builder_lock_id);
-    }
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(builder, RequestType::DecrementInodeRequest, finish_offset);
-
-    get_root_as_generic_request(builder.finished_data())
-}
 
 async fn propose(
     inode: u64,
@@ -71,35 +31,6 @@ async fn propose(
     } else {
         let response = remote_rafts
             .propose(inode, request)
-            .await
-            .map_err(|_| ErrorCode::Uncategorized)?;
-        // TODO: optimize this to_vec() copy
-        response_or_error(response.bytes())?;
-        return Ok(response.bytes().to_vec());
-    }
-}
-
-async fn propose_flatbuffer(
-    inode: u64,
-    request: GenericRequest<'_>,
-    raft: &LocalRaftGroupManager,
-    remote_rafts: &RemoteRaftGroups,
-) -> Result<Vec<u8>, ErrorCode> {
-    if raft.inode_stored_locally(inode) {
-        let rkyv_response = raft
-            .lookup_by_inode(inode)
-            .propose_flatbuffer(request)
-            .await?;
-        let (mut builder, response_type, response_offset) =
-            rkyv_response_to_fb(FlatBufferBuilder::new(), rkyv_response)?;
-        finalize_response(&mut builder, response_type, response_offset);
-        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
-        response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-        // TODO: optimize this to_vec() copy
-        return Ok(builder.finished_data()[SIZE_UOFFSET..].to_vec());
-    } else {
-        let response = remote_rafts
-            .propose_flatbuffer(inode, &request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
         // TODO: optimize this to_vec() copy
@@ -198,25 +129,13 @@ async fn update_parent(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<(), ErrorCode> {
-    let mut builder = FlatBufferBuilder::new();
-    let mut request_builder = UpdateParentRequestBuilder::new(&mut builder);
-    request_builder.add_inode(inode);
-    request_builder.add_new_parent(new_parent);
-    let builder_lock_id;
-    if let Some(id) = lock_id {
-        builder_lock_id = OptionalULong::new(id);
-        request_builder.add_lock_id(&builder_lock_id);
-    }
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(
-        &mut builder,
-        RequestType::UpdateParentRequest,
-        finish_offset,
-    );
-    let request = get_root_as_generic_request(builder.finished_data());
+    let request = RkyvRequest::UpdateParent {
+        inode,
+        new_parent,
+        lock_id,
+    };
 
-    let response_data = propose_flatbuffer(inode, request, raft, remote_rafts).await?;
+    let response_data = propose(inode, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     let rkyv_data = response
         .response_as_rkyv_response()
@@ -237,24 +156,9 @@ async fn update_metadata_changed_time(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<(), ErrorCode> {
-    let mut builder = FlatBufferBuilder::new();
-    let mut request_builder = UpdateMetadataChangedTimeRequestBuilder::new(&mut builder);
-    request_builder.add_inode(inode);
-    let builder_lock_id;
-    if let Some(id) = lock_id {
-        builder_lock_id = OptionalULong::new(id);
-        request_builder.add_lock_id(&builder_lock_id);
-    }
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(
-        &mut builder,
-        RequestType::UpdateMetadataChangedTimeRequest,
-        finish_offset,
-    );
-    let request = get_root_as_generic_request(builder.finished_data());
+    let request = RkyvRequest::UpdateMetadataChangedTime { inode, lock_id };
 
-    let response_data = propose_flatbuffer(inode, request, raft, remote_rafts).await?;
+    let response_data = propose(inode, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     let rkyv_data = response
         .response_as_rkyv_response()
@@ -419,11 +323,13 @@ async fn decrement_inode(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) {
-    let mut decrement_request_builder = FlatBufferBuilder::new();
-    let decrement_link_count =
-        decrement_inode_request(inode, count, lock_id, &mut decrement_request_builder);
+    let request = RkyvRequest::DecrementInode {
+        inode,
+        decrement_count: count,
+        lock_id,
+    };
     // TODO: if this fails the inode will leak ;(
-    let response_data = propose_flatbuffer(inode, decrement_link_count, raft, remote_rafts)
+    let response_data = propose(inode, &request, raft, remote_rafts)
         .await
         .expect("Leaked inode");
     let response = response_or_error(&response_data).expect("Leaked inode");
@@ -728,12 +634,13 @@ pub async fn rmdir_transaction<'a>(
     let hardlinks = getattrs(inode, &raft, &remote_rafts).await?.hardlinks;
     assert_eq!(hardlinks, 2);
 
-    let mut decrement_request_builder = FlatBufferBuilder::new();
-    let decrement_link_count =
-        decrement_inode_request(inode, 2, None, &mut decrement_request_builder);
+    let decrement_link_count = RkyvRequest::DecrementInode {
+        inode,
+        decrement_count: 2,
+        lock_id: None,
+    };
     // TODO: if this fails the inode will leak ;(
-    let response_data =
-        propose_flatbuffer(inode, decrement_link_count, &raft, &remote_rafts).await?;
+    let response_data = propose(inode, &decrement_link_count, &raft, &remote_rafts).await?;
     response_or_error(&response_data)?;
 
     Ok(RkyvGenericResponse::Empty)
@@ -754,12 +661,14 @@ pub async fn unlink_transaction<'a>(
         remove_link(parent, name, None, None, context, &raft, &remote_rafts).await?;
 
     if complete {
-        let mut decrement_request_builder = FlatBufferBuilder::new();
-        let decrement_link_count =
-            decrement_inode_request(link_inode, 1, None, &mut decrement_request_builder);
+        let decrement_link_count = RkyvRequest::DecrementInode {
+            inode: link_inode,
+            decrement_count: 1,
+            lock_id: None,
+        };
         // TODO: if this fails the inode will leak ;(
         let response_data =
-            propose_flatbuffer(link_inode, decrement_link_count, &raft, &remote_rafts).await?;
+            propose(link_inode, &decrement_link_count, &raft, &remote_rafts).await?;
         response_or_error(&response_data)?;
     } else {
         let mut inode = link_inode;
@@ -798,12 +707,13 @@ pub async fn unlink_transaction<'a>(
                 }
             }
         }
-        let mut decrement_request_builder = FlatBufferBuilder::new();
-        let decrement_link_count =
-            decrement_inode_request(inode, 1, None, &mut decrement_request_builder);
+        let decrement_link_count = RkyvRequest::DecrementInode {
+            inode,
+            decrement_count: 1,
+            lock_id: None,
+        };
         // TODO: if this fails the inode will leak ;(
-        let response_data =
-            propose_flatbuffer(inode, decrement_link_count, &raft, &remote_rafts).await?;
+        let response_data = propose(inode, &decrement_link_count, &raft, &remote_rafts).await?;
         response_or_error(&response_data)?;
     }
 
@@ -873,11 +783,13 @@ pub async fn create_transaction<'a>(
         }
         Err(error_code) => {
             // Rollback the transaction
-            let mut internal_request_builder = FlatBufferBuilder::new();
-            let rollback =
-                decrement_inode_request(inode, link_count, None, &mut internal_request_builder);
+            let rollback = RkyvRequest::DecrementInode {
+                inode,
+                decrement_count: link_count,
+                lock_id: None,
+            };
             // TODO: if this fails the inode will leak ;(
-            let response_data = propose_flatbuffer(inode, rollback, &raft, &remote_rafts).await?;
+            let response_data = propose(inode, &rollback, &raft, &remote_rafts).await?;
             response_or_error(&response_data)?;
             return Err(error_code);
         }
@@ -894,13 +806,11 @@ pub async fn hardlink_transaction(
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
 ) -> Result<RkyvGenericResponse, ErrorCode> {
-    let mut internal_request_builder = FlatBufferBuilder::new();
-
     // First increment the link count on the inode to ensure it can't be deleted
     // this effectively begins the transaction.
-    let increment = hardlink_increment_request(inode, &mut internal_request_builder);
+    let increment = RkyvRequest::HardlinkIncrement { inode };
 
-    let response_data = propose_flatbuffer(inode, increment, &raft, &remote_rafts).await?;
+    let response_data = propose(inode, &increment, &raft, &remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
     let rkyv_data = response
