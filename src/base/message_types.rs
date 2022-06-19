@@ -225,6 +225,29 @@ pub enum RkyvRequest {
         mode: u16,
         kind: FileKind,
     },
+    // Used internally for stage0 of hardlink transactions
+    HardlinkIncrement {
+        inode: u64,
+    },
+    // Internal request to update the parent link of a directory inode
+    UpdateParent {
+        inode: u64,
+        new_parent: u64,
+        lock_id: Option<u64>,
+    },
+    // Internal request to update the metadata changed time an inode
+    UpdateMetadataChangedTime {
+        inode: u64,
+        lock_id: Option<u64>,
+    },
+    // TODO: raft messages have to be idempotent. This one is not.
+    // Internal request to decrement inode link count. Will delete the inode if its count reaches zero.
+    DecrementInode {
+        inode: u64,
+        // The number of times to decrement the link count
+        decrement_count: u32,
+        lock_id: Option<u64>,
+    },
 }
 
 #[derive(Archive, Deserialize, Serialize)]
@@ -407,6 +430,18 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::HardlinkRollback { inode, .. } => {
                 write!(f, "HardlinkRollback: {}", inode)
             }
+            ArchivedRkyvRequest::HardlinkIncrement { inode, .. } => {
+                write!(f, "HardlinkIncrement: {}", inode)
+            }
+            ArchivedRkyvRequest::DecrementInode { inode, .. } => {
+                write!(f, "DecrementInode: {}", inode)
+            }
+            ArchivedRkyvRequest::UpdateParent { inode, .. } => {
+                write!(f, "UpdateParent: {}", inode)
+            }
+            ArchivedRkyvRequest::UpdateMetadataChangedTime { inode, .. } => {
+                write!(f, "UpdateMetadataChangedTime: {}", inode)
+            }
         }
     }
 }
@@ -506,16 +541,25 @@ impl ArchivedRkyvRequest {
                 distribution_requirement: DistributionRequirement::TransactionCoordinator,
             },
             ArchivedRkyvRequest::RemoveLink {
-                parent, lock_id, ..
+                parent: inode,
+                lock_id,
+                ..
             }
             | ArchivedRkyvRequest::CreateLink {
-                parent, lock_id, ..
+                parent: inode,
+                lock_id,
+                ..
             }
+            | ArchivedRkyvRequest::DecrementInode { inode, lock_id, .. }
+            | ArchivedRkyvRequest::UpdateParent { inode, lock_id, .. }
+            | ArchivedRkyvRequest::UpdateMetadataChangedTime { inode, lock_id, .. }
             | ArchivedRkyvRequest::ReplaceLink {
-                parent, lock_id, ..
+                parent: inode,
+                lock_id,
+                ..
             } => RequestMetaInfo {
                 raft_group: None,
-                inode: Some(parent.into()),
+                inode: Some(inode.into()),
                 lock_id: lock_id.as_ref().map(|x| x.into()),
                 access_type: AccessType::WriteMetadata,
                 distribution_requirement: DistributionRequirement::RaftGroup,
@@ -530,6 +574,7 @@ impl ArchivedRkyvRequest {
             ArchivedRkyvRequest::HardlinkRollback { inode, .. }
             | ArchivedRkyvRequest::Chown { inode, .. }
             | ArchivedRkyvRequest::Chmod { inode, .. }
+            | ArchivedRkyvRequest::HardlinkIncrement { inode, .. }
             | ArchivedRkyvRequest::Utimens { inode, .. } => RequestMetaInfo {
                 raft_group: None,
                 inode: Some(inode.into()),

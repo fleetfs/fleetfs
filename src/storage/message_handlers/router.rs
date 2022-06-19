@@ -111,55 +111,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::HardlinkIncrementRequest => {
-            // Internal request used during transaction processing
-            if let Some(increment_request) = request.request_as_hardlink_increment_request() {
-                return raft
-                    .lookup_by_inode(increment_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::DecrementInodeRequest => {
-            // Internal request used during transaction processing
-            if let Some(decrement_request) = request.request_as_decrement_inode_request() {
-                return raft
-                    .lookup_by_inode(decrement_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::UpdateParentRequest => {
-            // Internal request used during transaction processing
-            if let Some(update_request) = request.request_as_update_parent_request() {
-                return raft
-                    .lookup_by_inode(update_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::UpdateMetadataChangedTimeRequest => {
-            // Internal request used during transaction processing
-            if let Some(update_request) = request.request_as_update_metadata_changed_time_request()
-            {
-                return raft
-                    .lookup_by_inode(update_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::NONE => unreachable!(),
     }
 }
@@ -287,6 +238,15 @@ async fn rkyv_request_router_inner(
         }
         ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
+        ArchivedRkyvRequest::HardlinkIncrement { inode }
+        | ArchivedRkyvRequest::DecrementInode { inode, .. }
+        | ArchivedRkyvRequest::UpdateParent { inode, .. }
+        | ArchivedRkyvRequest::UpdateMetadataChangedTime { inode, .. } => {
+            // Internal request used during transaction processing
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
         ArchivedRkyvRequest::Utimens { inode, .. } => {
             raft.lookup_by_inode(inode.into())
                 .propose_archived(request)
