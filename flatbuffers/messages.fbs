@@ -1,47 +1,13 @@
 namespace generated;
 
-union RequestType {ReadRequest, ReadRawRequest, MkdirRequest, RenameRequest,
-                   UtimensRequest, ChmodRequest, HardlinkRequest, TruncateRequest, UnlinkRequest, LookupRequest,
+union RequestType {ReadRequest, ReadRawRequest,
                    WriteRequest,
-                   RmdirRequest, ChownRequest, CreateRequest,
-                   GetXattrRequest, SetXattrRequest, RemoveXattrRequest,
                    HardlinkIncrementRequest,
-                   CreateInodeRequest, CreateLinkRequest, DecrementInodeRequest,
-                   RemoveLinkRequest, ReplaceLinkRequest, UpdateParentRequest, UpdateMetadataChangedTimeRequest}
-
-enum FileKind: ubyte {
-  DefaultValueNotAType,
-  File,
-  Directory,
-  Symlink
-}
-
-struct UserContext {
-  uid: uint;
-  gid: uint;
-}
+                   DecrementInodeRequest,
+                   UpdateParentRequest, UpdateMetadataChangedTimeRequest}
 
 table GenericRequest {
   request: RequestType;
-}
-
-table GetXattrRequest {
-  inode: ulong;
-  key: string (required);
-  context: UserContext (required);
-}
-
-table SetXattrRequest {
-  inode: ulong;
-  key: string (required);
-  value: [ubyte] (required);
-  context: UserContext (required);
-}
-
-table RemoveXattrRequest {
-  inode: ulong;
-  key: string (required);
-  context: UserContext (required);
 }
 
 struct CommitId {
@@ -63,109 +29,19 @@ table ReadRequest {
   read_size: uint;
 }
 
-table MkdirRequest {
-  parent: ulong;
-  name: string (required);
-  uid: uint;
-  gid: uint;
-  mode: ushort;
-}
-
 table WriteRequest {
   inode: ulong;
   offset: ulong;
   data: [ubyte] (required);
 }
 
-table UnlinkRequest {
-  parent: ulong;
-  name: string (required);
-  context: UserContext (required);
-}
-
-table RmdirRequest {
-  parent: ulong;
-  name: string (required);
-  context: UserContext (required);
-}
-
-table TruncateRequest {
-  inode: ulong;
-  new_length: ulong;
-  context: UserContext (required);
-}
-
-struct OptionalUInt {
-  value: uint;
-}
-
 struct OptionalULong {
   value: ulong;
-}
-
-table ChownRequest {
-  inode: ulong;
-  uid: OptionalUInt;
-  gid: OptionalUInt;
-  context: UserContext (required);
-}
-
-table ChmodRequest {
-  inode: ulong;
-  mode: uint;
-  context: UserContext (required);
-}
-
-table UtimensRequest {
-  inode: ulong;
-  atime: FlatbufferTimestamp;
-  mtime: FlatbufferTimestamp;
-  context: UserContext (required);
-}
-
-table HardlinkRequest {
-  inode: ulong;
-  new_parent: ulong;
-  new_name: string (required);
-  context: UserContext (required);
-}
-
-// Used internally to remove a link entry from a directory. Does *not* decrement the hard link count of the target inode
-table RemoveLinkRequest {
-  parent: ulong;
-  name: string (required);
-  link_inode: OptionalULong;
-  link_uid: OptionalUInt;
-  lock_id: OptionalULong;
-  context: UserContext (required);
 }
 
 // Used internally for stage0 of hardlink transactions
 table HardlinkIncrementRequest {
   inode: ulong;
-}
-
-table RenameRequest {
-  parent: ulong;
-  name: string (required);
-  new_parent: ulong;
-  new_name: string (required);
-  context: UserContext (required);
-}
-
-table LookupRequest {
-  parent: ulong;
-  name: string (required);
-  context: UserContext (required);
-}
-
-table CreateRequest {
-  parent: ulong;
-  name: string (required);
-  uid: uint;
-  gid: uint;
-  mode: ushort;
-  kind: FileKind;
 }
 
 // Internal request to update the parent link of a directory inode
@@ -181,38 +57,6 @@ table UpdateMetadataChangedTimeRequest {
   lock_id: OptionalULong;
 }
 
-// Internal request to create an inode as part of a create() or mkdir() transaction
-table CreateInodeRequest {
-  raft_group: ushort;
-  parent: ulong;
-  uid: uint;
-  gid: uint;
-  mode: ushort;
-  kind: FileKind;
-}
-
-// Internal request to create directory link as part of a transaction. Does not increment the inode's link count.
-table CreateLinkRequest {
-  parent: ulong;
-  name: string (required);
-  inode: ulong;
-  kind: FileKind;
-  lock_id: OptionalULong;
-  context: UserContext (required);
-}
-
-// Internal request to atomically replace a directory link, so that it points to a different inode,
-// as part of a transaction. Does not change either inode's link count. It is the callers responsibility to ensure
-// that replacing the existing link is safe (i.e. it doesn't point to a non-empty directory)
-table ReplaceLinkRequest {
-  parent: ulong;
-  name: string (required);
-  new_inode: ulong;
-  kind: FileKind;
-  lock_id: OptionalULong;
-  context: UserContext (required);
-}
-
 // TODO: raft messages have to be idempotent. This one is not.
 // Internal request to decrement inode link count. Will delete the inode if its count reaches zero.
 table DecrementInodeRequest {
@@ -223,11 +67,6 @@ table DecrementInodeRequest {
 }
 
 root_type GenericRequest;
-
-struct FlatbufferTimestamp {
-  seconds: long;
-  nanos: int;
-}
 
 table RkyvResponse {
   rkyv_data: [ubyte] (required);

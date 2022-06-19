@@ -29,6 +29,37 @@ pub enum ErrorCode {
     Uncategorized,
 }
 
+#[derive(Archive, Debug, Deserialize, PartialEq, Serialize, Clone, Copy)]
+#[archive_attr(derive(CheckBytes))]
+pub enum FileKind {
+    File,
+    Directory,
+    Symlink,
+}
+
+impl From<&ArchivedFileKind> for FileKind {
+    fn from(archived: &ArchivedFileKind) -> Self {
+        match archived {
+            ArchivedFileKind::File => FileKind::File,
+            ArchivedFileKind::Directory => FileKind::Directory,
+            ArchivedFileKind::Symlink => FileKind::Symlink,
+        }
+    }
+}
+
+#[derive(Archive, Debug, Deserialize, PartialEq, Serialize, Clone, Copy)]
+#[archive_attr(derive(CheckBytes))]
+pub struct InodeUidPair {
+    pub inode: u64,
+    pub uid: u32,
+}
+
+impl InodeUidPair {
+    pub fn new(inode: u64, uid: u32) -> Self {
+        Self { inode, uid }
+    }
+}
+
 #[derive(Archive, Deserialize, Serialize)]
 #[archive_attr(derive(CheckBytes))]
 pub enum RkyvRequest {
@@ -45,8 +76,89 @@ pub enum RkyvRequest {
     ListDir {
         inode: u64,
     },
+    Create {
+        parent: u64,
+        name: String,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+        kind: FileKind,
+    },
+    Mkdir {
+        parent: u64,
+        name: String,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+    },
+    Unlink {
+        parent: u64,
+        name: String,
+        context: UserContext,
+    },
+    Rmdir {
+        parent: u64,
+        name: String,
+        context: UserContext,
+    },
+    Truncate {
+        inode: u64,
+        new_length: u64,
+        context: UserContext,
+    },
+    Rename {
+        parent: u64,
+        name: String,
+        new_parent: u64,
+        new_name: String,
+        context: UserContext,
+    },
+    Lookup {
+        parent: u64,
+        name: String,
+        context: UserContext,
+    },
+    Chown {
+        inode: u64,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        context: UserContext,
+    },
+    Chmod {
+        inode: u64,
+        mode: u32,
+        context: UserContext,
+    },
+    Utimens {
+        inode: u64,
+        atime: Option<Timestamp>,
+        mtime: Option<Timestamp>,
+        context: UserContext,
+    },
+    Hardlink {
+        inode: u64,
+        new_parent: u64,
+        new_name: String,
+        context: UserContext,
+    },
     ListXattrs {
         inode: u64,
+    },
+    GetXattr {
+        inode: u64,
+        key: String,
+        context: UserContext,
+    },
+    SetXattr {
+        inode: u64,
+        key: String,
+        value: Vec<u8>,
+        context: UserContext,
+    },
+    RemoveXattr {
+        inode: u64,
+        key: String,
+        context: UserContext,
     },
     LatestCommit {
         raft_group: u16,
@@ -76,6 +188,43 @@ pub enum RkyvRequest {
         inode: u64,
         last_modified_time: Timestamp,
     },
+    // Internal request to create directory link as part of a transaction. Does not increment the inode's link count.
+    CreateLink {
+        parent: u64,
+        name: String,
+        inode: u64,
+        kind: FileKind,
+        lock_id: Option<u64>,
+        context: UserContext,
+    },
+    // Internal request to atomically replace a directory link, so that it points to a different inode,
+    // as part of a transaction. Does not change either inode's link count. It is the callers responsibility to ensure
+    // that replacing the existing link is safe (i.e. it doesn't point to a non-empty directory)
+    ReplaceLink {
+        parent: u64,
+        name: String,
+        new_inode: u64,
+        kind: FileKind,
+        lock_id: Option<u64>,
+        context: UserContext,
+    },
+    // Used internally to remove a link entry from a directory. Does *not* decrement the hard link count of the target inode
+    RemoveLink {
+        parent: u64,
+        name: String,
+        link_inode_and_uid: Option<InodeUidPair>,
+        lock_id: Option<u64>,
+        context: UserContext,
+    },
+    // Internal request to create an inode as part of a create() or mkdir() transaction
+    CreateInode {
+        raft_group: u16,
+        parent: u64,
+        uid: u32,
+        gid: u32,
+        mode: u16,
+        kind: FileKind,
+    },
 }
 
 #[derive(Archive, Deserialize, Serialize)]
@@ -83,7 +232,37 @@ pub enum RkyvRequest {
 pub struct DirectoryEntry {
     pub inode: u64,
     pub name: String,
-    pub kind: u8,
+    pub kind: FileKind,
+}
+
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy)]
+#[archive_attr(derive(CheckBytes))]
+pub struct UserContext {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+impl UserContext {
+    pub fn new(uid: u32, gid: u32) -> Self {
+        Self { uid, gid }
+    }
+
+    pub fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    pub fn gid(&self) -> u32 {
+        self.gid
+    }
+}
+
+impl From<&ArchivedUserContext> for UserContext {
+    fn from(context: &ArchivedUserContext) -> Self {
+        Self {
+            uid: context.uid.into(),
+            gid: context.gid.into(),
+        }
+    }
 }
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy)]
@@ -99,26 +278,20 @@ impl Timestamp {
     }
 }
 
-impl Into<SystemTime> for Timestamp {
-    fn into(self) -> SystemTime {
-        SystemTime::UNIX_EPOCH.add(Duration::new(self.seconds as u64, self.nanos as u32))
+impl From<Timestamp> for SystemTime {
+    fn from(timestamp: Timestamp) -> Self {
+        SystemTime::UNIX_EPOCH.add(Duration::new(
+            timestamp.seconds as u64,
+            timestamp.nanos as u32,
+        ))
     }
 }
 
-impl Into<Timestamp> for ArchivedTimestamp {
-    fn into(self) -> Timestamp {
+impl From<&ArchivedTimestamp> for Timestamp {
+    fn from(archived: &ArchivedTimestamp) -> Self {
         Timestamp {
-            seconds: self.seconds.into(),
-            nanos: self.nanos.into(),
-        }
-    }
-}
-
-impl Into<Timestamp> for &ArchivedTimestamp {
-    fn into(self) -> Timestamp {
-        Timestamp {
-            seconds: self.seconds.into(),
-            nanos: self.nanos.into(),
+            seconds: archived.seconds.into(),
+            nanos: archived.nanos.into(),
         }
     }
 }
@@ -132,7 +305,7 @@ pub struct EntryMetadata {
     pub last_access_time: Timestamp,
     pub last_modified_time: Timestamp,
     pub last_metadata_modified_time: Timestamp,
-    pub kind: u8,
+    pub kind: FileKind,
     pub mode: u16,
     pub hard_links: u32,
     pub user_id: u32,
@@ -195,10 +368,28 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::FilesystemInformation => write!(f, "FilesystemInformation"),
             ArchivedRkyvRequest::FilesystemChecksum => write!(f, "FilesystemChecksum"),
             ArchivedRkyvRequest::FilesystemCheck => write!(f, "FilesystemCheck"),
+            ArchivedRkyvRequest::Create { .. } => write!(f, "Create"),
+            ArchivedRkyvRequest::Mkdir { .. } => write!(f, "Mkdir"),
+            ArchivedRkyvRequest::Unlink { .. } => write!(f, "Unlink"),
+            ArchivedRkyvRequest::Truncate { .. } => write!(f, "Truncate"),
+            ArchivedRkyvRequest::Rmdir { .. } => write!(f, "Rmdir"),
+            ArchivedRkyvRequest::Rename { .. } => write!(f, "Rename"),
+            ArchivedRkyvRequest::Lookup { .. } => write!(f, "Lookup"),
+            ArchivedRkyvRequest::Chown { .. } => write!(f, "Chown"),
+            ArchivedRkyvRequest::Chmod { .. } => write!(f, "Chmod"),
+            ArchivedRkyvRequest::Utimens { .. } => write!(f, "Utimens"),
+            ArchivedRkyvRequest::Hardlink { .. } => write!(f, "Hardlink"),
+            ArchivedRkyvRequest::CreateLink { .. } => write!(f, "CreateLink"),
+            ArchivedRkyvRequest::ReplaceLink { .. } => write!(f, "ReplaceLink"),
+            ArchivedRkyvRequest::RemoveLink { .. } => write!(f, "RemoveLink"),
+            ArchivedRkyvRequest::CreateInode { .. } => write!(f, "CreateInode"),
             ArchivedRkyvRequest::Fsync { inode } => write!(f, "Fsync: {}", inode),
             ArchivedRkyvRequest::GetAttr { inode } => write!(f, "GetAttr: {}", inode),
             ArchivedRkyvRequest::ListDir { inode } => write!(f, "ListDir: {}", inode),
             ArchivedRkyvRequest::ListXattrs { inode } => write!(f, "ListXattrs: {}", inode),
+            ArchivedRkyvRequest::GetXattr { .. } => write!(f, "GetXattr"),
+            ArchivedRkyvRequest::SetXattr { .. } => write!(f, "SetXattr"),
+            ArchivedRkyvRequest::RemoveXattr { .. } => write!(f, "RemoveXattr"),
             ArchivedRkyvRequest::LatestCommit { raft_group } => {
                 write!(f, "LatestCommit: {}", raft_group)
             }
@@ -240,7 +431,28 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
+            ArchivedRkyvRequest::SetXattr { inode, .. }
+            | ArchivedRkyvRequest::RemoveXattr { inode, .. }
+            | ArchivedRkyvRequest::Unlink { parent: inode, .. }
+            | ArchivedRkyvRequest::Rmdir { parent: inode, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::WriteMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::Hardlink { .. } | ArchivedRkyvRequest::Rename { .. } => {
+                RequestMetaInfo {
+                    raft_group: None,
+                    inode: None,
+                    lock_id: None,
+                    access_type: AccessType::WriteMetadata,
+                    distribution_requirement: DistributionRequirement::TransactionCoordinator,
+                }
+            }
             ArchivedRkyvRequest::ListXattrs { inode }
+            | ArchivedRkyvRequest::GetXattr { inode, .. }
+            | ArchivedRkyvRequest::Lookup { parent: inode, .. }
             | ArchivedRkyvRequest::ListDir { inode }
             | ArchivedRkyvRequest::GetAttr { inode } => RequestMetaInfo {
                 raft_group: None,
@@ -272,7 +484,53 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::NoAccess,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
-            ArchivedRkyvRequest::HardlinkRollback { inode, .. } => RequestMetaInfo {
+            ArchivedRkyvRequest::CreateInode { raft_group, .. } => RequestMetaInfo {
+                raft_group: Some(raft_group.into()),
+                inode: None,
+                lock_id: None,
+                access_type: AccessType::WriteMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::Mkdir { parent, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(parent.into()),
+                lock_id: None,
+                access_type: AccessType::WriteMetadata,
+                distribution_requirement: DistributionRequirement::TransactionCoordinator,
+            },
+            ArchivedRkyvRequest::Create { parent, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(parent.into()),
+                lock_id: None,
+                access_type: AccessType::WriteMetadata,
+                distribution_requirement: DistributionRequirement::TransactionCoordinator,
+            },
+            ArchivedRkyvRequest::RemoveLink {
+                parent, lock_id, ..
+            }
+            | ArchivedRkyvRequest::CreateLink {
+                parent, lock_id, ..
+            }
+            | ArchivedRkyvRequest::ReplaceLink {
+                parent, lock_id, ..
+            } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(parent.into()),
+                lock_id: lock_id.as_ref().map(|x| x.into()),
+                access_type: AccessType::WriteMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::Truncate { inode, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::WriteDataAndMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::HardlinkRollback { inode, .. }
+            | ArchivedRkyvRequest::Chown { inode, .. }
+            | ArchivedRkyvRequest::Chmod { inode, .. }
+            | ArchivedRkyvRequest::Utimens { inode, .. } => RequestMetaInfo {
                 raft_group: None,
                 inode: Some(inode.into()),
                 lock_id: None,
@@ -317,7 +575,7 @@ impl ArchivedRkyvGenericResponse {
                 result.push(DirectoryEntry {
                     inode: entry.inode.into(),
                     name: entry.name.to_string(),
-                    kind: entry.kind,
+                    kind: (&entry.kind).into(),
                 });
             }
             Some(result)

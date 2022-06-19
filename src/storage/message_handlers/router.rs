@@ -1,4 +1,4 @@
-use crate::base::message_types::ArchivedRkyvRequest;
+use crate::base::message_types::{ArchivedRkyvRequest, FileKind};
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::{finalize_response, FlatBufferWithResponse};
 use crate::base::{flatbuffer_request_meta_info, LocalContext, RequestMetaInfo};
@@ -52,7 +52,7 @@ pub fn to_error_response(
 async fn request_router_inner(
     request: GenericRequest<'_>,
     raft: Arc<LocalRaftGroupManager>,
-    remote_rafts: Arc<RemoteRaftGroups>,
+    _remote_rafts: Arc<RemoteRaftGroups>,
     _context: LocalContext,
     builder: FlatBufferBuilder<'static>,
 ) -> Result<FullOrPartialResponse, ErrorCode> {
@@ -100,60 +100,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::SetXattrRequest => {
-            if let Some(set_xattr_request) = request.request_as_set_xattr_request() {
-                return raft
-                    .lookup_by_inode(set_xattr_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::RemoveXattrRequest => {
-            if let Some(remove_xattr_request) = request.request_as_remove_xattr_request() {
-                return raft
-                    .lookup_by_inode(remove_xattr_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::UnlinkRequest => {
-            if let Some(unlink_request) = request.request_as_unlink_request() {
-                return unlink_transaction(
-                    unlink_request.parent(),
-                    unlink_request.name().to_string(),
-                    *unlink_request.context(),
-                    builder,
-                    raft.clone(),
-                    remote_rafts.clone(),
-                )
-                .await
-                .map(Full);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::RmdirRequest => {
-            if let Some(rmdir_request) = request.request_as_rmdir_request() {
-                return rmdir_transaction(
-                    rmdir_request.parent(),
-                    rmdir_request.name().to_string(),
-                    *rmdir_request.context(),
-                    builder,
-                    raft.clone(),
-                    remote_rafts.clone(),
-                )
-                .await
-                .map(Full);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::WriteRequest => {
             if let Some(write_request) = request.request_as_write_request() {
                 return raft
@@ -161,88 +107,6 @@ async fn request_router_inner(
                     .propose_flatbuffer(request)
                     .await
                     .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::UtimensRequest => {
-            if let Some(utimens_request) = request.request_as_utimens_request() {
-                return raft
-                    .lookup_by_inode(utimens_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::ChmodRequest => {
-            if let Some(chmod_request) = request.request_as_chmod_request() {
-                return raft
-                    .lookup_by_inode(chmod_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::ChownRequest => {
-            if let Some(chown_request) = request.request_as_chown_request() {
-                return raft
-                    .lookup_by_inode(chown_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::TruncateRequest => {
-            if let Some(truncate_request) = request.request_as_truncate_request() {
-                return raft
-                    .lookup_by_inode(truncate_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::MkdirRequest => {
-            if let Some(mkdir_request) = request.request_as_mkdir_request() {
-                return create_transaction(
-                    mkdir_request.parent(),
-                    mkdir_request.name().to_string(),
-                    mkdir_request.uid(),
-                    mkdir_request.gid(),
-                    mkdir_request.mode(),
-                    FileKind::Directory,
-                    builder,
-                    raft.clone(),
-                    remote_rafts.clone(),
-                )
-                .await
-                .map(Full);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::CreateRequest => {
-            if let Some(create_request) = request.request_as_create_request() {
-                return create_transaction(
-                    create_request.parent(),
-                    create_request.name().to_string(),
-                    create_request.uid(),
-                    create_request.gid(),
-                    create_request.mode(),
-                    create_request.kind(),
-                    builder,
-                    raft.clone(),
-                    remote_rafts.clone(),
-                )
-                .await
-                .map(Full);
             } else {
                 return Err(ErrorCode::BadRequest);
             }
@@ -259,47 +123,11 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::CreateInodeRequest => {
-            // Internal request used during transaction processing
-            if let Some(create_inode_request) = request.request_as_create_inode_request() {
-                return raft
-                    .lookup_by_raft_group(create_inode_request.raft_group())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::DecrementInodeRequest => {
             // Internal request used during transaction processing
             if let Some(decrement_request) = request.request_as_decrement_inode_request() {
                 return raft
                     .lookup_by_inode(decrement_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::RemoveLinkRequest => {
-            // Internal request used during transaction processing
-            if let Some(remove_request) = request.request_as_remove_link_request() {
-                return raft
-                    .lookup_by_inode(remove_request.parent())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::ReplaceLinkRequest => {
-            // Internal request used during transaction processing
-            if let Some(replace_request) = request.request_as_replace_link_request() {
-                return raft
-                    .lookup_by_inode(replace_request.parent())
                     .propose_flatbuffer(request)
                     .await
                     .map(Partial);
@@ -332,77 +160,6 @@ async fn request_router_inner(
                 return Err(ErrorCode::BadRequest);
             }
         }
-        RequestType::CreateLinkRequest => {
-            // Internal request used during transaction processing
-            if let Some(create_link_request) = request.request_as_create_link_request() {
-                return raft
-                    .lookup_by_inode(create_link_request.parent())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::HardlinkRequest => {
-            if let Some(hardlink_request) = request.request_as_hardlink_request() {
-                return hardlink_transaction(
-                    hardlink_request,
-                    builder,
-                    raft.clone(),
-                    remote_rafts.clone(),
-                )
-                .await
-                .map(Full);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::RenameRequest => {
-            if let Some(rename_request) = request.request_as_rename_request() {
-                return rename_transaction(
-                    rename_request.parent(),
-                    rename_request.name().to_string(),
-                    rename_request.new_parent(),
-                    rename_request.new_name().to_string(),
-                    *rename_request.context(),
-                    builder,
-                    raft.clone(),
-                    remote_rafts.clone(),
-                )
-                .await
-                .map(Full);
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::LookupRequest => {
-            if let Some(lookup_request) = request.request_as_lookup_request() {
-                let parent = lookup_request.parent();
-                let name = lookup_request.name().to_string();
-                let user_context = *lookup_request.context();
-                sync_with_leader(raft.lookup_by_inode(parent)).await?;
-                raft.lookup_by_inode(parent)
-                    .file_storage()
-                    .lookup(parent, &name, user_context)
-                    .map(Partial)
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::GetXattrRequest => {
-            if let Some(get_xattr_request) = request.request_as_get_xattr_request() {
-                let inode = get_xattr_request.inode();
-                let key = get_xattr_request.key().to_string();
-                sync_with_leader(raft.lookup_by_inode(inode)).await?;
-                raft.lookup_by_inode(inode)
-                    .file_storage()
-                    .get_xattr(inode, &key, *get_xattr_request.context())
-                    .map(Partial)
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
         RequestType::NONE => unreachable!(),
     }
 }
@@ -430,7 +187,7 @@ async fn forward_request(
     builder: FlatBufferBuilder<'static>,
     rafts: Arc<RemoteRaftGroups>,
 ) -> FlatBufferWithResponse<'static> {
-    if let Ok(response) = rafts.forward_request(request).await {
+    if let Ok(response) = rafts.forward_archived_request(request).await {
         FlatBufferWithResponse::with_separate_response(builder, response)
     } else {
         FlatBufferWithResponse::new(to_error_response(
@@ -530,6 +287,185 @@ async fn rkyv_request_router_inner(
         }
         ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
+        ArchivedRkyvRequest::Utimens { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::Chmod { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::Chown { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::Truncate { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::SetXattr { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::RemoveXattr { inode, .. } => {
+            raft.lookup_by_inode(inode.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::Unlink {
+            parent,
+            name,
+            context,
+        } => {
+            unlink_transaction(
+                parent.into(),
+                name.as_str(),
+                context.into(),
+                raft.clone(),
+                remote_rafts.clone(),
+            )
+            .await
+        }
+        ArchivedRkyvRequest::Rmdir {
+            parent,
+            name,
+            context,
+        } => {
+            rmdir_transaction(
+                parent.into(),
+                name.as_str(),
+                context.into(),
+                raft.clone(),
+                remote_rafts.clone(),
+            )
+            .await
+        }
+        ArchivedRkyvRequest::Mkdir {
+            parent,
+            name,
+            uid,
+            gid,
+            mode,
+        } => {
+            create_transaction(
+                parent.into(),
+                name.as_str(),
+                uid.into(),
+                gid.into(),
+                mode.into(),
+                FileKind::Directory,
+                raft.clone(),
+                remote_rafts.clone(),
+            )
+            .await
+        }
+        ArchivedRkyvRequest::Create {
+            parent,
+            name,
+            uid,
+            gid,
+            mode,
+            kind,
+        } => {
+            create_transaction(
+                parent.into(),
+                name.as_str(),
+                uid.into(),
+                gid.into(),
+                mode.into(),
+                kind.into(),
+                raft.clone(),
+                remote_rafts.clone(),
+            )
+            .await
+        }
+        ArchivedRkyvRequest::Lookup {
+            parent,
+            name,
+            context,
+        } => {
+            sync_with_leader(raft.lookup_by_inode(parent.into())).await?;
+            raft.lookup_by_inode(parent.into()).file_storage().lookup(
+                parent.into(),
+                name.as_str(),
+                context.into(),
+            )
+        }
+        ArchivedRkyvRequest::GetXattr {
+            inode,
+            key,
+            context,
+        } => {
+            sync_with_leader(raft.lookup_by_inode(inode.into())).await?;
+            raft.lookup_by_inode(inode.into()).file_storage().get_xattr(
+                inode.into(),
+                key.as_str(),
+                context.into(),
+            )
+        }
+        ArchivedRkyvRequest::CreateInode { raft_group, .. } => {
+            // Internal request used during transaction processing
+            raft.lookup_by_raft_group(raft_group.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::CreateLink { parent, .. } => {
+            // Internal request used during transaction processing
+            raft.lookup_by_inode(parent.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::RemoveLink { parent, .. } => {
+            // Internal request used during transaction processing
+            raft.lookup_by_inode(parent.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::ReplaceLink { parent, .. } => {
+            // Internal request used during transaction processing
+            raft.lookup_by_inode(parent.into())
+                .propose_archived(request)
+                .await
+        }
+        ArchivedRkyvRequest::Hardlink {
+            inode,
+            new_parent,
+            new_name,
+            context,
+        } => {
+            hardlink_transaction(
+                inode.into(),
+                new_parent.into(),
+                new_name.as_str(),
+                context.into(),
+                raft.clone(),
+                remote_rafts.clone(),
+            )
+            .await
+        }
+        ArchivedRkyvRequest::Rename {
+            parent,
+            name,
+            new_parent,
+            new_name,
+            context,
+        } => {
+            rename_transaction(
+                parent.into(),
+                name.as_str(),
+                new_parent.into(),
+                new_name.as_str(),
+                context.into(),
+                raft.clone(),
+                remote_rafts.clone(),
+            )
+            .await
+        }
         ArchivedRkyvRequest::Fsync { inode } => {
             raft.lookup_by_inode(inode.into())
                 .propose_archived(request)

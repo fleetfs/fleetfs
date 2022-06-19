@@ -1,9 +1,9 @@
 use crate::base::message_types::{
-    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, RkyvGenericResponse, RkyvRequest,
+    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, InodeUidPair,
+    RkyvGenericResponse, RkyvRequest, UserContext,
 };
 use crate::base::{
-    check_access, empty_response, finalize_request_without_prefix, finalize_response,
-    response_or_error, u8_to_file_kind, FlatBufferWithResponse,
+    check_access, finalize_request_without_prefix, finalize_response, response_or_error,
 };
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
@@ -28,58 +28,6 @@ fn hardlink_increment_request<'a>(
         RequestType::HardlinkIncrementRequest,
         finish_offset,
     );
-
-    get_root_as_generic_request(builder.finished_data())
-}
-
-fn create_inode_request<'a>(
-    parent: Option<u64>,
-    uid: u32,
-    gid: u32,
-    mode: u16,
-    kind: FileKind,
-    total_raft_groups: u16,
-    builder: &'a mut FlatBufferBuilder,
-) -> GenericRequest<'a> {
-    let mut request_builder = CreateInodeRequestBuilder::new(builder);
-    // TODO: actually load balance
-    request_builder.add_raft_group(rand::thread_rng().gen_range(0..total_raft_groups));
-    request_builder.add_uid(uid);
-    request_builder.add_gid(gid);
-    request_builder.add_mode(mode);
-    request_builder.add_kind(kind);
-    request_builder.add_parent(parent.unwrap_or(0));
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(builder, RequestType::CreateInodeRequest, finish_offset);
-
-    get_root_as_generic_request(builder.finished_data())
-}
-
-fn create_link_request<'a>(
-    parent: u64,
-    name: &'_ str,
-    inode: u64,
-    kind: FileKind,
-    lock_id: Option<u64>,
-    context: UserContext,
-    builder: &'a mut FlatBufferBuilder,
-) -> GenericRequest<'a> {
-    let builder_name = builder.create_string(name);
-    let mut request_builder = CreateLinkRequestBuilder::new(builder);
-    request_builder.add_parent(parent);
-    request_builder.add_name(builder_name);
-    request_builder.add_inode(inode);
-    request_builder.add_kind(kind);
-    let builder_lock_id;
-    if let Some(id) = lock_id {
-        builder_lock_id = OptionalULong::new(id);
-        request_builder.add_lock_id(&builder_lock_id);
-    }
-    request_builder.add_context(&context);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(builder, RequestType::CreateLinkRequest, finish_offset);
 
     get_root_as_generic_request(builder.finished_data())
 }
@@ -171,22 +119,16 @@ async fn replace_link(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<u64, ErrorCode> {
-    let mut builder = FlatBufferBuilder::new();
-    let builder_name = builder.create_string(name);
-    let mut request_builder = ReplaceLinkRequestBuilder::new(&mut builder);
-    request_builder.add_parent(parent);
-    request_builder.add_name(builder_name);
-    request_builder.add_new_inode(new_inode);
-    request_builder.add_kind(kind);
-    let builder_lock_id = OptionalULong::new(lock_id);
-    request_builder.add_lock_id(&builder_lock_id);
-    request_builder.add_context(&context);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(&mut builder, RequestType::ReplaceLinkRequest, finish_offset);
-    let request = get_root_as_generic_request(builder.finished_data());
+    let request = RkyvRequest::ReplaceLink {
+        parent,
+        name: name.to_string(),
+        new_inode,
+        kind,
+        lock_id: Some(lock_id),
+        context,
+    };
 
-    let response_data = propose_flatbuffer(parent, request, raft, remote_rafts).await?;
+    let response_data = propose(parent, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
@@ -206,31 +148,14 @@ async fn remove_link(
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
 ) -> Result<(u64, bool), ErrorCode> {
-    let mut builder = FlatBufferBuilder::new();
-    let builder_name = builder.create_string(name);
-    let mut request_builder = RemoveLinkRequestBuilder::new(&mut builder);
-    request_builder.add_parent(parent);
-    request_builder.add_name(builder_name);
-    let builder_inode;
-    let builder_uid;
-    if let Some((link_inode, link_uid)) = link_inode_and_uid {
-        builder_inode = OptionalULong::new(link_inode);
-        builder_uid = OptionalUInt::new(link_uid);
-        request_builder.add_link_inode(&builder_inode);
-        request_builder.add_link_uid(&builder_uid);
-    }
-    let builder_lock_id;
-    if let Some(id) = lock_id {
-        builder_lock_id = OptionalULong::new(id);
-        request_builder.add_lock_id(&builder_lock_id);
-    }
-    request_builder.add_context(&context);
-    let finish_offset = request_builder.finish().as_union_value();
-    // Don't need length prefix, since we're not serializing over network
-    finalize_request_without_prefix(&mut builder, RequestType::RemoveLinkRequest, finish_offset);
-    let request = get_root_as_generic_request(builder.finished_data());
-
-    let response_data = propose_flatbuffer(parent, request, raft, remote_rafts).await?;
+    let request = RkyvRequest::RemoveLink {
+        parent,
+        name: name.to_string(),
+        link_inode_and_uid: link_inode_and_uid.map(|(inode, uid)| InodeUidPair::new(inode, uid)),
+        lock_id,
+        context,
+    };
+    let response_data = propose(parent, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
 
@@ -385,7 +310,7 @@ impl FileOrDirAttrs {
     fn new(response: &EntryMetadata) -> FileOrDirAttrs {
         FileOrDirAttrs {
             inode: response.inode,
-            kind: u8_to_file_kind(response.kind),
+            kind: response.kind,
             mode: response.mode,
             hardlinks: response.hard_links,
             uid: response.user_id,
@@ -418,7 +343,7 @@ async fn getattrs(
         let archived_request = rkyv::check_archived_root::<RkyvRequest>(&rkyv_bytes).unwrap();
 
         let response_data = remote_rafts
-            .forward_request(archived_request)
+            .forward_archived_request(archived_request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
@@ -462,17 +387,12 @@ async fn lookup(
             _ => Err(ErrorCode::BadResponse),
         }
     } else {
-        let mut builder = FlatBufferBuilder::new();
-        let builder_name = builder.create_string(&name);
-        let mut request_builder = LookupRequestBuilder::new(&mut builder);
-        request_builder.add_parent(parent);
-        request_builder.add_name(builder_name);
-        request_builder.add_context(&context);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::LookupRequest, finish_offset);
-        let request = get_root_as_generic_request(builder.finished_data());
         let response_data = remote_rafts
-            .forward_flatbuffer_request(&request)
+            .forward_request(&RkyvRequest::Lookup {
+                parent,
+                name,
+                context,
+            })
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
@@ -600,14 +520,13 @@ fn rename_check_access(
 #[allow(clippy::too_many_arguments)]
 pub async fn rename_transaction<'a>(
     parent: u64,
-    name: String,
+    name: &str,
     new_parent: u64,
-    new_name: String,
+    new_name: &str,
     context: UserContext,
-    builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     let locks: Arc<Mutex<HashSet<(u64, u64)>>> = Arc::new(Mutex::new(HashSet::new()));
     let result = rename_transaction_lock_context(
         parent,
@@ -616,7 +535,6 @@ pub async fn rename_transaction<'a>(
         new_name,
         context,
         locks.clone(),
-        builder,
         raft.clone(),
         remote_rafts.clone(),
     )
@@ -634,16 +552,15 @@ pub async fn rename_transaction<'a>(
 #[allow(clippy::cognitive_complexity)]
 async fn rename_transaction_lock_context<'a>(
     parent: u64,
-    name: String,
+    name: &str,
     new_parent: u64,
-    new_name: String,
+    new_name: &str,
     context: UserContext,
     // Pairs of (inode, lock_id)
     lock_guard: Arc<Mutex<HashSet<(u64, u64)>>>,
-    builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     // TODO: since we acquire multiple locks in this function it could cause a deadlock.
     // We should acquire them in ascending order of inode
     let parent_lock_id = lock_inode(parent, &raft, &remote_rafts).await?;
@@ -657,21 +574,28 @@ async fn rename_transaction_lock_context<'a>(
         parent_lock_id
     };
 
-    let inode = lookup(parent, name.clone(), context, &raft, &remote_rafts).await?;
+    let inode = lookup(parent, name.to_string(), context, &raft, &remote_rafts).await?;
     let inode_lock_id = lock_inode(inode, &raft, &remote_rafts).await?;
     lock_guard.lock().unwrap().insert((inode, inode_lock_id));
 
-    let existing_dest_inode =
-        match lookup(new_parent, new_name.clone(), context, &raft, &remote_rafts).await {
-            Ok(inode) => Some(inode),
-            Err(error_code) => {
-                if error_code == ErrorCode::DoesNotExist {
-                    None
-                } else {
-                    return Err(error_code);
-                }
+    let existing_dest_inode = match lookup(
+        new_parent,
+        new_name.to_string(),
+        context,
+        &raft,
+        &remote_rafts,
+    )
+    .await
+    {
+        Ok(inode) => Some(inode),
+        Err(error_code) => {
+            if error_code == ErrorCode::DoesNotExist {
+                None
+            } else {
+                return Err(error_code);
             }
-        };
+        }
+    };
     let existing_inode_lock_id = if let Some(inode) = existing_dest_inode {
         let lock_id = lock_inode(inode, &raft, &remote_rafts).await?;
         lock_guard.lock().unwrap().insert((inode, lock_id));
@@ -700,7 +624,7 @@ async fn rename_transaction_lock_context<'a>(
     if let Some(existing_inode) = existing_dest_inode {
         let old_inode = replace_link(
             new_parent,
-            &new_name,
+            new_name,
             inode,
             inode_attrs.kind,
             new_parent_lock_id,
@@ -717,26 +641,23 @@ async fn rename_transaction_lock_context<'a>(
             decrement_inode(old_inode, 1, existing_inode_lock_id, &raft, &remote_rafts).await;
         }
     } else {
-        let mut builder = FlatBufferBuilder::new();
-        let create_link = create_link_request(
-            new_parent,
-            &new_name,
+        let create_link = RkyvRequest::CreateLink {
+            parent: new_parent,
+            name: new_name.to_string(),
             inode,
-            inode_attrs.kind,
-            Some(new_parent_lock_id),
+            kind: inode_attrs.kind,
+            lock_id: Some(new_parent_lock_id),
             context,
-            &mut builder,
-        );
+        };
 
-        let response_data =
-            propose_flatbuffer(new_parent, create_link, &raft, &remote_rafts).await?;
+        let response_data = propose(new_parent, &create_link, &raft, &remote_rafts).await?;
         response_or_error(&response_data)?;
     }
 
     // TODO: this shouldn't be able to fail since we already performed access checks
     remove_link(
         parent,
-        &name,
+        name,
         Some((inode, inode_attrs.uid)),
         Some(parent_lock_id),
         context,
@@ -750,22 +671,19 @@ async fn rename_transaction_lock_context<'a>(
     }
     update_metadata_changed_time(inode, Some(inode_lock_id), &raft, &remote_rafts).await?;
 
-    let (mut builder, response_type, offset) = empty_response(builder)?;
-    finalize_response(&mut builder, response_type, offset);
-    return Ok(FlatBufferWithResponse::new(builder));
+    return Ok(RkyvGenericResponse::Empty);
 }
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
 pub async fn rmdir_transaction<'a>(
     parent: u64,
-    name: String,
+    name: &str,
     context: UserContext,
-    builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
-    let mut inode = lookup(parent, name.clone(), context, &raft, &remote_rafts).await?;
+) -> Result<RkyvGenericResponse, ErrorCode> {
+    let mut inode = lookup(parent, name.to_string(), context, &raft, &remote_rafts).await?;
     let mut complete = false;
     while !complete {
         // If the link removal didn't complete successful or with an error, then we need to
@@ -779,7 +697,7 @@ pub async fn rmdir_transaction<'a>(
                 }
                 match remove_link(
                     parent,
-                    &name,
+                    name,
                     Some((inode, attrs.uid)),
                     None,
                     context,
@@ -818,25 +736,22 @@ pub async fn rmdir_transaction<'a>(
         propose_flatbuffer(inode, decrement_link_count, &raft, &remote_rafts).await?;
     response_or_error(&response_data)?;
 
-    let (mut builder, response_type, offset) = empty_response(builder)?;
-    finalize_response(&mut builder, response_type, offset);
-    return Ok(FlatBufferWithResponse::new(builder));
+    Ok(RkyvGenericResponse::Empty)
 }
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
 pub async fn unlink_transaction<'a>(
     parent: u64,
-    name: String,
+    name: &str,
     context: UserContext,
-    builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     // Try to remove the link. The result of this might be indeterminate, since "sticky bit"
     // can require that we know the uid of the inode
     let (link_inode, complete) =
-        remove_link(parent, &name, None, None, context, &raft, &remote_rafts).await?;
+        remove_link(parent, name, None, None, context, &raft, &remote_rafts).await?;
 
     if complete {
         let mut decrement_request_builder = FlatBufferBuilder::new();
@@ -857,7 +772,7 @@ pub async fn unlink_transaction<'a>(
                 Ok(attrs) => {
                     match remove_link(
                         parent,
-                        &name,
+                        name,
                         Some((inode, attrs.uid)),
                         None,
                         context,
@@ -892,9 +807,7 @@ pub async fn unlink_transaction<'a>(
         response_or_error(&response_data)?;
     }
 
-    let (mut builder, response_type, offset) = empty_response(builder)?;
-    finalize_response(&mut builder, response_type, offset);
-    return Ok(FlatBufferWithResponse::new(builder));
+    Ok(RkyvGenericResponse::Empty)
 }
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
@@ -902,36 +815,29 @@ pub async fn unlink_transaction<'a>(
 #[allow(clippy::too_many_arguments)]
 pub async fn create_transaction<'a>(
     parent: u64,
-    name: String,
+    name: &str,
     uid: u32,
     gid: u32,
     mode: u16,
     kind: FileKind,
-    builder: FlatBufferBuilder<'static>,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
-    let mut create_request_builder = FlatBufferBuilder::new();
+) -> Result<RkyvGenericResponse, ErrorCode> {
     // First create inode. This effectively begins the transaction.
-    let create_inode = create_inode_request(
-        Some(parent),
+    // TODO: actually load balance
+    let raft_group = rand::thread_rng().gen_range(0..remote_rafts.get_total_raft_groups());
+    let create_inode = RkyvRequest::CreateInode {
+        raft_group,
+        parent,
         uid,
         gid,
         mode,
         kind,
-        remote_rafts.get_total_raft_groups(),
-        &mut create_request_builder,
-    );
+    };
 
     // This will be the response back to the client
     let create_response_data = remote_rafts
-        .propose_to_specific_group(
-            create_inode
-                .request_as_create_inode_request()
-                .unwrap()
-                .raft_group(),
-            &create_inode,
-        )
+        .propose_to_specific_group(raft_group, &create_inode)
         .await
         .map_err(|_| ErrorCode::Uncategorized)?;
     let response = response_or_error(create_response_data.bytes())?;
@@ -947,26 +853,23 @@ pub async fn create_transaction<'a>(
 
     let inode = created_inode_response.inode;
     let link_count = created_inode_response.hard_links;
+    // TODO: optimize out deserialize
+    let client_response = RkyvGenericResponse::EntryMetadata(created_inode_response);
 
     // Second create the link
-    let mut link_request_builder = FlatBufferBuilder::new();
-    let create_link = create_link_request(
+    let create_link = RkyvRequest::CreateLink {
         parent,
-        &name,
+        name: name.to_string(),
         inode,
         kind,
-        None,
-        UserContext::new(uid, gid),
-        &mut link_request_builder,
-    );
+        lock_id: None,
+        context: UserContext::new(uid, gid),
+    };
 
-    match propose_flatbuffer(parent, create_link, &raft, &remote_rafts).await {
+    match propose(parent, &create_link, &raft, &remote_rafts).await {
         Ok(_) => {
             // This is the response back to the client
-            return Ok(FlatBufferWithResponse::with_separate_response(
-                builder,
-                create_response_data,
-            ));
+            return Ok(client_response);
         }
         Err(error_code) => {
             // Rollback the transaction
@@ -983,21 +886,21 @@ pub async fn create_transaction<'a>(
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
-pub async fn hardlink_transaction<'a, 'b>(
-    hardlink_request: HardlinkRequest<'a>,
-    mut builder: FlatBufferBuilder<'b>,
+pub async fn hardlink_transaction(
+    inode: u64,
+    new_parent: u64,
+    new_name: &str,
+    context: UserContext,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
-) -> Result<FlatBufferWithResponse<'b>, ErrorCode> {
+) -> Result<RkyvGenericResponse, ErrorCode> {
     let mut internal_request_builder = FlatBufferBuilder::new();
 
     // First increment the link count on the inode to ensure it can't be deleted
     // this effectively begins the transaction.
-    let increment =
-        hardlink_increment_request(hardlink_request.inode(), &mut internal_request_builder);
+    let increment = hardlink_increment_request(inode, &mut internal_request_builder);
 
-    let response_data =
-        propose_flatbuffer(hardlink_request.inode(), increment, &raft, &remote_rafts).await?;
+    let response_data = propose_flatbuffer(inode, increment, &raft, &remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
     let rkyv_data = response
@@ -1013,71 +916,41 @@ pub async fn hardlink_transaction<'a, 'b>(
         } => (rollback_last_modified, attrs),
         _ => return Err(ErrorCode::BadResponse),
     };
-    let inode_kind = u8_to_file_kind(attrs.kind);
 
     // Second create the new link
-    let mut internal_request_builder = FlatBufferBuilder::new();
-    let create_link = create_link_request(
-        hardlink_request.new_parent(),
-        hardlink_request.new_name(),
-        hardlink_request.inode(),
-        inode_kind,
-        None,
-        *hardlink_request.context(),
-        &mut internal_request_builder,
-    );
+    let create_link = RkyvRequest::CreateLink {
+        parent: new_parent,
+        name: new_name.to_string(),
+        inode,
+        kind: (&attrs.kind).into(),
+        lock_id: None,
+        context,
+    };
 
     let rollback_request = RkyvRequest::HardlinkRollback {
-        inode: hardlink_request.inode(),
+        inode,
         last_modified_time: rollback.into(),
     };
 
-    match propose_flatbuffer(
-        hardlink_request.new_parent(),
-        create_link,
-        &raft,
-        &remote_rafts,
-    )
-    .await
-    {
+    match propose(new_parent, &create_link, &raft, &remote_rafts).await {
         Ok(response_data) => {
             if response_or_error(&response_data).is_err() {
                 // Rollback the transaction
                 // TODO: if this fails the filesystem is corrupted ;( since the link count
                 // may not have been decremented
-                let response_data = propose(
-                    hardlink_request.inode(),
-                    &rollback_request,
-                    &raft,
-                    &remote_rafts,
-                )
-                .await?;
+                let response_data = propose(inode, &rollback_request, &raft, &remote_rafts).await?;
                 response_or_error(&response_data)?;
             }
 
             // This is the response back to the client
             let entry: EntryMetadata = attrs.deserialize(&mut rkyv::Infallible).unwrap();
-
-            let rkyv_bytes =
-                rkyv::to_bytes::<_, 64>(&RkyvGenericResponse::EntryMetadata(entry)).unwrap();
-            let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-            let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-            response_builder.add_rkyv_data(flatbuffer_offset);
-            let offset = response_builder.finish().as_union_value();
-            finalize_response(&mut builder, ResponseType::RkyvResponse, offset);
-            return Ok(FlatBufferWithResponse::new(builder));
+            return Ok(RkyvGenericResponse::EntryMetadata(entry));
         }
         Err(error_code) => {
             // Rollback the transaction
             // TODO: if this fails the filesystem is corrupted ;( since the link count
             // may not have been decremented
-            let response_data = propose(
-                hardlink_request.inode(),
-                &rollback_request,
-                &raft,
-                &remote_rafts,
-            )
-            .await?;
+            let response_data = propose(inode, &rollback_request, &raft, &remote_rafts).await?;
             response_or_error(&response_data)?;
             return Err(error_code);
         }

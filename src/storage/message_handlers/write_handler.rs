@@ -1,4 +1,3 @@
-use crate::base::fb_into_timestamp;
 use crate::base::message_types::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse};
 use crate::generated::*;
 use crate::storage::local::FileStorage;
@@ -13,6 +12,123 @@ pub fn commit_write(
             inode,
             last_modified_time,
         } => file_storage.hardlink_rollback(inode.into(), last_modified_time.into()),
+        ArchivedRkyvRequest::Utimens {
+            inode,
+            atime,
+            mtime,
+            context,
+        } => file_storage.utimens(
+            inode.into(),
+            atime.as_ref().map(|x| x.into()),
+            mtime.as_ref().map(|x| x.into()),
+            context.into(),
+        ),
+        ArchivedRkyvRequest::SetXattr {
+            inode,
+            key,
+            value,
+            context,
+        } => file_storage.set_xattr(inode.into(), key.as_str(), value, context.into()),
+        ArchivedRkyvRequest::RemoveXattr {
+            inode,
+            key,
+            context,
+        } => file_storage.remove_xattr(inode.into(), key.as_str(), context.into()),
+        ArchivedRkyvRequest::Mkdir { .. } => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        ArchivedRkyvRequest::Hardlink { .. } => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        ArchivedRkyvRequest::Rename { .. } => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        ArchivedRkyvRequest::Create { .. } => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        ArchivedRkyvRequest::Unlink { .. } => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        ArchivedRkyvRequest::Rmdir { .. } => {
+            unreachable!("Transaction coordinator should break these up into internal requests");
+        }
+        ArchivedRkyvRequest::Chmod {
+            inode,
+            mode,
+            context,
+        } => file_storage.chmod(inode.into(), mode.into(), context.into()),
+        ArchivedRkyvRequest::Chown {
+            inode,
+            uid,
+            gid,
+            context,
+        } => file_storage.chown(
+            inode.into(),
+            uid.as_ref().map(|x| x.into()),
+            gid.as_ref().map(|x| x.into()),
+            context.into(),
+        ),
+        ArchivedRkyvRequest::Truncate {
+            inode,
+            new_length,
+            context,
+        } => file_storage.truncate(inode.into(), new_length.into(), context.into()),
+        ArchivedRkyvRequest::RemoveLink {
+            parent,
+            name,
+            link_inode_and_uid,
+            context,
+            ..
+        } => file_storage.remove_link(
+            parent.into(),
+            name.as_str(),
+            link_inode_and_uid
+                .as_ref()
+                .map(|x| (x.inode.into(), x.uid.into())),
+            context.into(),
+        ),
+        ArchivedRkyvRequest::ReplaceLink {
+            parent,
+            name,
+            new_inode,
+            kind,
+            context,
+            ..
+        } => file_storage.replace_link(
+            parent.into(),
+            name.as_str(),
+            new_inode.into(),
+            kind.into(),
+            context.into(),
+        ),
+        ArchivedRkyvRequest::CreateLink {
+            inode,
+            parent,
+            name,
+            kind,
+            context,
+            ..
+        } => file_storage.create_link(
+            inode.into(),
+            parent.into(),
+            name.as_str(),
+            context.into(),
+            kind.into(),
+        ),
+        ArchivedRkyvRequest::CreateInode {
+            parent,
+            uid,
+            gid,
+            mode,
+            kind,
+            ..
+        } => file_storage.create_inode(
+            parent.into(),
+            uid.into(),
+            gid.into(),
+            mode.into(),
+            kind.into(),
+        ),
         ArchivedRkyvRequest::Flatbuffer(data) => {
             let request = get_root_as_generic_request(data);
             commit_write_flatbuffer(request, file_storage)
@@ -27,9 +143,11 @@ pub fn commit_write(
         | ArchivedRkyvRequest::FilesystemInformation
         | ArchivedRkyvRequest::FilesystemChecksum
         | ArchivedRkyvRequest::FilesystemCheck
+        | ArchivedRkyvRequest::Lookup { .. }
         | ArchivedRkyvRequest::GetAttr { .. }
         | ArchivedRkyvRequest::ListDir { .. }
         | ArchivedRkyvRequest::ListXattrs { .. }
+        | ArchivedRkyvRequest::GetXattr { .. }
         | ArchivedRkyvRequest::LatestCommit { .. }
         | ArchivedRkyvRequest::RaftGroupLeader { .. }
         | ArchivedRkyvRequest::RaftMessage { .. } => {
@@ -48,42 +166,6 @@ pub fn commit_write_flatbuffer(
                 .request_as_hardlink_increment_request()
                 .ok_or(ErrorCode::BadRequest)?;
             file_storage.hardlink_stage0_link_increment(hardlink_increment_request.inode())
-        }
-        RequestType::CreateInodeRequest => {
-            let create_inode_request = request
-                .request_as_create_inode_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.create_inode(
-                create_inode_request.parent(),
-                create_inode_request.uid(),
-                create_inode_request.gid(),
-                create_inode_request.mode(),
-                create_inode_request.kind(),
-            )
-        }
-        RequestType::CreateLinkRequest => {
-            let create_link_request = request
-                .request_as_create_link_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.create_link(
-                create_link_request.inode(),
-                create_link_request.parent(),
-                create_link_request.name(),
-                *create_link_request.context(),
-                create_link_request.kind(),
-            )
-        }
-        RequestType::ReplaceLinkRequest => {
-            let replace_link_request = request
-                .request_as_replace_link_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.replace_link(
-                replace_link_request.parent(),
-                replace_link_request.name(),
-                replace_link_request.new_inode(),
-                replace_link_request.kind(),
-                *replace_link_request.context(),
-            )
         }
         RequestType::UpdateParentRequest => {
             let update_parent_request = request
@@ -109,90 +191,6 @@ pub fn commit_write_flatbuffer(
                 decrement_inode_request.decrement_count(),
             )
         }
-        RequestType::RemoveLinkRequest => {
-            let remove_link_request = request
-                .request_as_remove_link_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            let link_inode_and_uid = if let Some(inode) = remove_link_request.link_inode() {
-                let uid = remove_link_request.link_uid().unwrap();
-                Some((inode.value(), uid.value()))
-            } else {
-                None
-            };
-            file_storage.remove_link(
-                remove_link_request.parent(),
-                remove_link_request.name(),
-                link_inode_and_uid,
-                *remove_link_request.context(),
-            )
-        }
-        RequestType::HardlinkRequest => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        RequestType::RenameRequest => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        RequestType::ChmodRequest => {
-            let chmod_request = request
-                .request_as_chmod_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.chmod(
-                chmod_request.inode(),
-                chmod_request.mode(),
-                *chmod_request.context(),
-            )
-        }
-        RequestType::ChownRequest => {
-            let chown_request = request
-                .request_as_chown_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.chown(
-                chown_request.inode(),
-                chown_request.uid().map(OptionalUInt::value),
-                chown_request.gid().map(OptionalUInt::value),
-                *chown_request.context(),
-            )
-        }
-        RequestType::TruncateRequest => {
-            let truncate_request = request
-                .request_as_truncate_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.truncate(
-                truncate_request.inode(),
-                truncate_request.new_length(),
-                *truncate_request.context(),
-            )
-        }
-        RequestType::CreateRequest => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        RequestType::SetXattrRequest => {
-            let set_xattr_request = request
-                .request_as_set_xattr_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.set_xattr(
-                set_xattr_request.inode(),
-                set_xattr_request.key(),
-                set_xattr_request.value(),
-                *set_xattr_request.context(),
-            )
-        }
-        RequestType::RemoveXattrRequest => {
-            let remove_xattr_request = request
-                .request_as_remove_xattr_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.remove_xattr(
-                remove_xattr_request.inode(),
-                remove_xattr_request.key(),
-                *remove_xattr_request.context(),
-            )
-        }
-        RequestType::UnlinkRequest => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        RequestType::RmdirRequest => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
         RequestType::WriteRequest => {
             let write_request = request
                 .request_as_write_request()
@@ -203,24 +201,8 @@ pub fn commit_write_flatbuffer(
                 write_request.data(),
             )
         }
-        RequestType::UtimensRequest => {
-            let utimens_request = request
-                .request_as_utimens_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.utimens(
-                utimens_request.inode(),
-                utimens_request.atime().map(fb_into_timestamp),
-                utimens_request.mtime().map(fb_into_timestamp),
-                *utimens_request.context(),
-            )
-        }
-        RequestType::MkdirRequest => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        RequestType::LookupRequest => unreachable!(),
         RequestType::ReadRequest => unreachable!(),
         RequestType::ReadRawRequest => unreachable!(),
-        RequestType::GetXattrRequest => unreachable!(),
         RequestType::NONE => unreachable!(),
     }
 }

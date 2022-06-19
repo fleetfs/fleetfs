@@ -10,9 +10,8 @@ mod utils;
 pub use length_prefixed_vec::LengthPrefixedVec;
 pub use local_context::LocalContext;
 pub use message_utils::{
-    access_type, accessed_inode, distribution_requirement, fb_into_timestamp, file_kind_to_u8,
-    flatbuffer_request_meta_info, raft_group, request_locks, u8_to_file_kind, AccessType,
-    DistributionRequirement, RequestMetaInfo,
+    access_type, accessed_inode, distribution_requirement, flatbuffer_request_meta_info,
+    raft_group, request_locks, AccessType, DistributionRequirement, RequestMetaInfo,
 };
 pub use raft_utils::node_contains_raft_group;
 pub use response_types::{FlatBufferResponse, FlatBufferWithResponse, ResultResponse};
