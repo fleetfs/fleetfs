@@ -1,6 +1,6 @@
 namespace generated;
 
-union RequestType {ReadRequest, ReadRawRequest, WriteRequest}
+union RequestType {ReadRequest, ReadRawRequest}
 
 table GenericRequest {
   request: RequestType;
@@ -23,12 +23,6 @@ table ReadRequest {
   inode: ulong;
   offset: ulong;
   read_size: uint;
-}
-
-table WriteRequest {
-  inode: ulong;
-  offset: ulong;
-  data: [ubyte] (required);
 }
 
 root_type GenericRequest;
