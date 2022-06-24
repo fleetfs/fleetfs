@@ -32,7 +32,7 @@ use crate::base::message_types::{
     ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse, RkyvRequest,
 };
 use protobuf::Message as ProtobufMessage;
-use rkyv::{AlignedVec, Deserialize};
+use rkyv::AlignedVec;
 
 // Compact storage when it reaches 10MB
 const COMPACTION_THRESHOLD: u64 = 10 * 1024 * 1024;
@@ -573,13 +573,22 @@ impl RaftNode {
         return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
     }
 
-    pub fn propose_archived(
+    pub fn propose_raw(
         &self,
-        request: &ArchivedRkyvRequest,
+        request: AlignedVec,
     ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
-        // TODO: Can we avoid this de- and re-serialization?
-        let rkyv_request: RkyvRequest = request.deserialize(&mut rkyv::Infallible).unwrap();
-        self.propose(&rkyv_request)
+        let uuid: u128 = rand::thread_rng().gen();
+
+        let (sender, receiver) = oneshot::channel();
+        {
+            let mut pending_responses = self.pending_responses.lock().unwrap();
+            pending_responses.insert(uuid, sender);
+        }
+        self._propose(uuid, request.to_vec());
+
+        self.process_raft_queue();
+
+        return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
     }
 
     pub fn propose_flatbuffer(

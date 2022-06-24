@@ -1,12 +1,12 @@
-use crate::base::accessed_inode;
 use crate::base::message_types::{ArchivedRkyvRequest, RkyvRequest};
 use crate::base::node_contains_raft_group;
 use crate::base::LengthPrefixedVec;
 use crate::base::LocalContext;
+use crate::base::{accessed_inode, RequestMetaInfo};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::generated::*;
 use futures_util::future::FutureExt;
-use rkyv::Deserialize;
+use rkyv::{AlignedVec, Deserialize};
 use std::collections::HashMap;
 use std::future::Future;
 
@@ -142,5 +142,17 @@ impl RemoteRaftGroups {
             .get(&(raft_group_id as u16))
             .unwrap()
             .send_unprefixed_and_receive_length_prefixed(rkyv_bytes)
+    }
+
+    pub fn forward_raw_request(
+        &self,
+        request: AlignedVec,
+        meta: RequestMetaInfo,
+    ) -> impl Future<Output = Result<LengthPrefixedVec, std::io::Error>> {
+        let raft_group_id = meta.inode.unwrap() % self.total_raft_groups as u64;
+        self.groups
+            .get(&(raft_group_id as u16))
+            .unwrap()
+            .send_unprefixed_and_receive_length_prefixed(request)
     }
 }

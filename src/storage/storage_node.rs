@@ -13,7 +13,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::base::message_types::RkyvRequest;
 use crate::base::LocalContext;
 use crate::client::RemoteRaftGroups;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
@@ -48,9 +47,8 @@ fn spawn_connection_handler(
             builder.reset();
             let mut aligned = AlignedVec::with_capacity(frame.len());
             aligned.extend_from_slice(&frame);
-            let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
             let response = request_router(
-                request,
+                aligned,
                 raft.clone(),
                 remote_raft.clone(),
                 context.clone(),

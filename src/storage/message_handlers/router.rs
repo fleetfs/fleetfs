@@ -1,4 +1,4 @@
-use crate::base::message_types::{ArchivedRkyvRequest, FileKind};
+use crate::base::message_types::{ArchivedRkyvRequest, FileKind, RkyvRequest};
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::{finalize_response, FlatBufferWithResponse};
 use crate::base::{flatbuffer_request_meta_info, LocalContext, RequestMetaInfo};
@@ -16,6 +16,7 @@ use crate::storage::raft_node::sync_with_leader;
 use flatbuffers::FlatBufferBuilder;
 use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;
+use rkyv::AlignedVec;
 use std::sync::Arc;
 
 enum FullOrPartialResponse {
@@ -117,7 +118,7 @@ async fn request_router_inner(
 
 // Determines whether the request can be handled by the local node, or whether it needs to be
 // forwarded to a different raft group
-fn can_handle_locally(request_meta: RequestMetaInfo, local_rafts: &LocalRaftGroupManager) -> bool {
+fn can_handle_locally(request_meta: &RequestMetaInfo, local_rafts: &LocalRaftGroupManager) -> bool {
     match request_meta.distribution_requirement {
         DistributionRequirement::Any => true,
         DistributionRequirement::TransactionCoordinator => true,
@@ -134,11 +135,12 @@ fn can_handle_locally(request_meta: RequestMetaInfo, local_rafts: &LocalRaftGrou
 }
 
 async fn forward_request(
-    request: &ArchivedRkyvRequest,
+    request: AlignedVec,
+    meta: RequestMetaInfo,
     builder: FlatBufferBuilder<'static>,
     rafts: Arc<RemoteRaftGroups>,
 ) -> FlatBufferWithResponse<'static> {
-    if let Ok(response) = rafts.forward_archived_request(request).await {
+    if let Ok(response) = rafts.forward_raw_request(request, meta).await {
         FlatBufferWithResponse::with_separate_response(builder, response)
     } else {
         FlatBufferWithResponse::new(to_error_response(
@@ -164,12 +166,13 @@ async fn forward_flatbuffer_request(
 }
 
 pub async fn request_router(
-    request: &ArchivedRkyvRequest,
+    aligned: AlignedVec,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
     builder: FlatBufferBuilder<'static>,
 ) -> FlatBufferWithResponse<'static> {
+    let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
     match request {
         ArchivedRkyvRequest::Flatbuffer(flatbuffer) => {
             let request = get_root_as_generic_request(flatbuffer);
@@ -183,22 +186,24 @@ pub async fn request_router(
             .await;
             response
         }
-        _ => rkyv_request_router(request, raft, remote_rafts, context, builder).await,
+        _ => rkyv_request_router(aligned, raft, remote_rafts, context, builder).await,
     }
 }
 
 async fn rkyv_request_router<'a>(
-    request: &ArchivedRkyvRequest,
+    aligned: AlignedVec,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
     mut builder: FlatBufferBuilder<'static>,
 ) -> FlatBufferWithResponse<'static> {
-    if !can_handle_locally(request.meta_info(), &raft) {
-        return forward_request(request, builder, remote_rafts.clone()).await;
+    let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+    let meta = request.meta_info();
+    if !can_handle_locally(&meta, &raft) {
+        return forward_request(aligned, meta, builder, remote_rafts.clone()).await;
     }
 
-    match rkyv_request_router_inner(request, raft, remote_rafts, context).await {
+    match rkyv_request_router_inner(aligned, raft, remote_rafts, context).await {
         Ok(rkyv_response) => {
             let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
             let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
@@ -215,11 +220,12 @@ async fn rkyv_request_router<'a>(
 }
 
 async fn rkyv_request_router_inner(
-    request: &ArchivedRkyvRequest,
+    aligned: AlignedVec,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
 ) -> Result<RkyvGenericResponse, ErrorCode> {
+    let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
     match request {
         ArchivedRkyvRequest::FilesystemReady => {
             for node in raft.all_groups() {
@@ -238,43 +244,36 @@ async fn rkyv_request_router_inner(
         }
         ArchivedRkyvRequest::FilesystemCheck => fsck(context.clone(), raft.clone()).await,
         ArchivedRkyvRequest::FilesystemChecksum => checksum_request(raft.clone()).await,
-        ArchivedRkyvRequest::HardlinkIncrement { inode }
+        ArchivedRkyvRequest::CreateInode { raft_group, .. } => {
+            // Internal request used during transaction processing
+            raft.lookup_by_raft_group(raft_group.into())
+                .propose_raw(aligned)
+                .await
+        }
+        ArchivedRkyvRequest::CreateLink { parent: inode, .. }
+        | ArchivedRkyvRequest::RemoveLink { parent: inode, .. }
+        | ArchivedRkyvRequest::ReplaceLink { parent: inode, .. }
+        | ArchivedRkyvRequest::HardlinkRollback { inode, .. }
+        | ArchivedRkyvRequest::HardlinkIncrement { inode }
         | ArchivedRkyvRequest::DecrementInode { inode, .. }
         | ArchivedRkyvRequest::UpdateParent { inode, .. }
         | ArchivedRkyvRequest::UpdateMetadataChangedTime { inode, .. } => {
             // Internal request used during transaction processing
             raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
+                .propose_raw(aligned)
                 .await
         }
-        ArchivedRkyvRequest::Utimens { inode, .. } => {
+        ArchivedRkyvRequest::Lock { inode }
+        | ArchivedRkyvRequest::Unlock { inode, .. }
+        | ArchivedRkyvRequest::Fsync { inode }
+        | ArchivedRkyvRequest::Chmod { inode, .. }
+        | ArchivedRkyvRequest::Chown { inode, .. }
+        | ArchivedRkyvRequest::Truncate { inode, .. }
+        | ArchivedRkyvRequest::SetXattr { inode, .. }
+        | ArchivedRkyvRequest::RemoveXattr { inode, .. }
+        | ArchivedRkyvRequest::Utimens { inode, .. } => {
             raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::Chmod { inode, .. } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::Chown { inode, .. } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::Truncate { inode, .. } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::SetXattr { inode, .. } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::RemoveXattr { inode, .. } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
+                .propose_raw(aligned)
                 .await
         }
         ArchivedRkyvRequest::Unlink {
@@ -368,30 +367,6 @@ async fn rkyv_request_router_inner(
                 context.into(),
             )
         }
-        ArchivedRkyvRequest::CreateInode { raft_group, .. } => {
-            // Internal request used during transaction processing
-            raft.lookup_by_raft_group(raft_group.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::CreateLink { parent, .. } => {
-            // Internal request used during transaction processing
-            raft.lookup_by_inode(parent.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::RemoveLink { parent, .. } => {
-            // Internal request used during transaction processing
-            raft.lookup_by_inode(parent.into())
-                .propose_archived(request)
-                .await
-        }
-        ArchivedRkyvRequest::ReplaceLink { parent, .. } => {
-            // Internal request used during transaction processing
-            raft.lookup_by_inode(parent.into())
-                .propose_archived(request)
-                .await
-        }
         ArchivedRkyvRequest::Hardlink {
             inode,
             new_parent,
@@ -425,11 +400,6 @@ async fn rkyv_request_router_inner(
                 remote_rafts.clone(),
             )
             .await
-        }
-        ArchivedRkyvRequest::Fsync { inode } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
         }
         ArchivedRkyvRequest::GetAttr { inode } => {
             let inode = inode.into();
@@ -468,13 +438,6 @@ async fn rkyv_request_router_inner(
                 .unwrap();
             Ok(RkyvGenericResponse::Empty)
         }
-        ArchivedRkyvRequest::Lock { inode }
-        | ArchivedRkyvRequest::Unlock { inode, .. }
-        | ArchivedRkyvRequest::HardlinkRollback { inode, .. } => {
-            raft.lookup_by_inode(inode.into())
-                .propose_archived(request)
-                .await
-        }
         ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
     }
 }
@@ -486,7 +449,7 @@ async fn flatbuffer_request_router<'a>(
     context: LocalContext,
     builder: FlatBufferBuilder<'static>,
 ) -> FlatBufferWithResponse<'static> {
-    if !can_handle_locally(flatbuffer_request_meta_info(&request), &raft) {
+    if !can_handle_locally(&flatbuffer_request_meta_info(&request), &raft) {
         return forward_flatbuffer_request(&request, builder, remote_rafts.clone()).await;
     }
 
