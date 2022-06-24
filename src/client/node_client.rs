@@ -104,15 +104,6 @@ impl NodeClient {
         Ok(buffer)
     }
 
-    fn send_flatbuffer<'b>(
-        &self,
-        request: &[u8],
-        buffer: &'b mut Vec<u8>,
-    ) -> Result<GenericResponse<'b>, ErrorCode> {
-        let request = RkyvRequest::Flatbuffer(request.as_ref().to_vec());
-        self.send(request, buffer)
-    }
-
     fn send<'b>(
         &self,
         request: RkyvRequest,
@@ -665,17 +656,15 @@ impl NodeClient {
     }
 
     pub fn write(&self, inode: u64, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
-        let mut builder = self.get_or_create_builder();
-        let data_offset = builder.create_vector_direct(data);
-        let mut request_builder = WriteRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_offset(offset);
-        request_builder.add_data(data_offset);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::WriteRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer(builder.finished_data(), &mut buffer)?;
+        let response = self.send(
+            RkyvRequest::Write {
+                inode,
+                offset,
+                data: data.to_vec(),
+            },
+            &mut buffer,
+        )?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?

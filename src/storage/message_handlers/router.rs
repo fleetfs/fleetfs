@@ -6,7 +6,6 @@ use crate::base::{DistributionRequirement, ResultResponse};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};
-use crate::storage::message_handlers::router::FullOrPartialResponse::{Full, Partial};
 use crate::storage::message_handlers::transaction_coordinator::{
     create_transaction, hardlink_transaction, rename_transaction, rmdir_transaction,
     unlink_transaction,
@@ -18,11 +17,6 @@ use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;
 use rkyv::AlignedVec;
 use std::sync::Arc;
-
-enum FullOrPartialResponse {
-    Full(FlatBufferWithResponse<'static>),
-    Partial(RkyvGenericResponse),
-}
 
 pub fn rkyv_response_to_fb(
     mut builder: FlatBufferBuilder,
@@ -56,7 +50,7 @@ async fn request_router_inner(
     _remote_rafts: Arc<RemoteRaftGroups>,
     _context: LocalContext,
     builder: FlatBufferBuilder<'static>,
-) -> Result<FullOrPartialResponse, ErrorCode> {
+) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
     match request.request_type() {
         RequestType::ReadRequest => {
             if let Some(read_request) = request.request_as_read_request() {
@@ -79,8 +73,7 @@ async fn request_router_inner(
                         CommitId::new(0, latest_commit),
                         builder,
                     )
-                    .await
-                    .map(Full);
+                    .await;
             } else {
                 return Err(ErrorCode::BadRequest);
             }
@@ -91,23 +84,12 @@ async fn request_router_inner(
                 raft.lookup_by_inode(inode)
                     .sync(read_request.required_commit().index())
                     .await?;
-                return Ok(Full(raft.lookup_by_inode(inode).file_storage().read_raw(
+                return Ok(raft.lookup_by_inode(inode).file_storage().read_raw(
                     inode,
                     read_request.offset(),
                     read_request.read_size(),
                     builder,
-                )));
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::WriteRequest => {
-            if let Some(write_request) = request.request_as_write_request() {
-                return raft
-                    .lookup_by_inode(write_request.inode())
-                    .propose_flatbuffer(request)
-                    .await
-                    .map(Partial);
+                ));
             } else {
                 return Err(ErrorCode::BadRequest);
             }
@@ -263,7 +245,8 @@ async fn rkyv_request_router_inner(
                 .propose_raw(aligned)
                 .await
         }
-        ArchivedRkyvRequest::Lock { inode }
+        ArchivedRkyvRequest::Write { inode, .. }
+        | ArchivedRkyvRequest::Lock { inode }
         | ArchivedRkyvRequest::Unlock { inode, .. }
         | ArchivedRkyvRequest::Fsync { inode }
         | ArchivedRkyvRequest::Chmod { inode, .. }
@@ -454,20 +437,9 @@ async fn flatbuffer_request_router<'a>(
     }
 
     match request_router_inner(request, raft, remote_rafts, context, builder).await {
-        Ok(response) => match response {
-            Full(full_response) => return full_response,
-            Partial(response) => {
-                let (mut builder, response_type, response_offset) =
-                    rkyv_response_to_fb(FlatBufferBuilder::new(), response).unwrap();
-                finalize_response(&mut builder, response_type, response_offset);
-                return FlatBufferWithResponse::new(builder);
-            }
-        },
+        Ok(response) => response,
         Err(error_code) => {
-            return FlatBufferWithResponse::new(to_error_response(
-                FlatBufferBuilder::new(),
-                error_code,
-            ));
+            FlatBufferWithResponse::new(to_error_response(FlatBufferBuilder::new(), error_code))
         }
-    };
+    }
 }

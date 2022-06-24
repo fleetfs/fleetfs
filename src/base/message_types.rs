@@ -160,6 +160,11 @@ pub enum RkyvRequest {
         key: String,
         context: UserContext,
     },
+    Write {
+        inode: u64,
+        offset: u64,
+        data: Vec<u8>,
+    },
     LatestCommit {
         raft_group: u16,
     },
@@ -413,6 +418,7 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::GetXattr { .. } => write!(f, "GetXattr"),
             ArchivedRkyvRequest::SetXattr { .. } => write!(f, "SetXattr"),
             ArchivedRkyvRequest::RemoveXattr { .. } => write!(f, "RemoveXattr"),
+            ArchivedRkyvRequest::Write { inode, .. } => write!(f, "Write: {}", inode),
             ArchivedRkyvRequest::LatestCommit { raft_group } => {
                 write!(f, "LatestCommit: {}", raft_group)
             }
@@ -485,6 +491,13 @@ impl ArchivedRkyvRequest {
                     distribution_requirement: DistributionRequirement::TransactionCoordinator,
                 }
             }
+            ArchivedRkyvRequest::Write { inode, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::WriteDataAndMetadata,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
             ArchivedRkyvRequest::ListXattrs { inode }
             | ArchivedRkyvRequest::GetXattr { inode, .. }
             | ArchivedRkyvRequest::Lookup { parent: inode, .. }

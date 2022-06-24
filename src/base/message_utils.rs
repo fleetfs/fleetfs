@@ -41,13 +41,6 @@ pub fn flatbuffer_request_meta_info(request: &GenericRequest<'_>) -> RequestMeta
             access_type: AccessType::ReadData,
             distribution_requirement: DistributionRequirement::RaftGroup,
         },
-        RequestType::WriteRequest => RequestMetaInfo {
-            raft_group: None,
-            inode: Some(request.request_as_write_request().unwrap().inode()),
-            lock_id: None,
-            access_type: AccessType::WriteDataAndMetadata,
-            distribution_requirement: DistributionRequirement::RaftGroup,
-        },
         RequestType::NONE => unreachable!(),
     }
 }

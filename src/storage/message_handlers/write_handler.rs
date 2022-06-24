@@ -1,5 +1,4 @@
 use crate::base::message_types::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse};
-use crate::generated::*;
 use crate::storage::local::FileStorage;
 
 pub fn commit_write(
@@ -73,6 +72,11 @@ pub fn commit_write(
             new_length,
             context,
         } => file_storage.truncate(inode.into(), new_length.into(), context.into()),
+        ArchivedRkyvRequest::Write {
+            inode,
+            offset,
+            data,
+        } => file_storage.write(inode.into(), offset.into(), data),
         ArchivedRkyvRequest::RemoveLink {
             parent,
             name,
@@ -143,10 +147,6 @@ pub fn commit_write(
             decrement_count,
             ..
         } => file_storage.decrement_inode_link_count(inode.into(), decrement_count.into()),
-        ArchivedRkyvRequest::Flatbuffer(data) => {
-            let request = get_root_as_generic_request(data);
-            commit_write_flatbuffer(request, file_storage)
-        }
         ArchivedRkyvRequest::Lock { .. } => {
             unreachable!("This should have been handled by the LockTable");
         }
@@ -154,6 +154,7 @@ pub fn commit_write(
             unreachable!("This should have been handled by the LockTable");
         }
         ArchivedRkyvRequest::FilesystemReady
+        | ArchivedRkyvRequest::Flatbuffer(_)
         | ArchivedRkyvRequest::FilesystemInformation
         | ArchivedRkyvRequest::FilesystemChecksum
         | ArchivedRkyvRequest::FilesystemCheck
@@ -167,26 +168,5 @@ pub fn commit_write(
         | ArchivedRkyvRequest::RaftMessage { .. } => {
             unreachable!()
         }
-    }
-}
-
-pub fn commit_write_flatbuffer(
-    request: GenericRequest,
-    file_storage: &FileStorage,
-) -> Result<RkyvGenericResponse, ErrorCode> {
-    match request.request_type() {
-        RequestType::WriteRequest => {
-            let write_request = request
-                .request_as_write_request()
-                .ok_or(ErrorCode::BadRequest)?;
-            file_storage.write(
-                write_request.inode(),
-                write_request.offset(),
-                write_request.data(),
-            )
-        }
-        RequestType::ReadRequest => unreachable!(),
-        RequestType::ReadRawRequest => unreachable!(),
-        RequestType::NONE => unreachable!(),
     }
 }

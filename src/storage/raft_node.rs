@@ -9,7 +9,6 @@ use crate::base::node_contains_raft_group;
 use crate::base::node_id_from_address;
 use crate::base::LocalContext;
 use crate::client::{PeerClient, TcpPeerClient};
-use crate::generated::*;
 use crate::storage::local::FileStorage;
 use crate::storage::lock_table::LockTable;
 use crate::storage::message_handlers::commit_write;
@@ -589,14 +588,5 @@ impl RaftNode {
         self.process_raft_queue();
 
         return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
-    }
-
-    pub fn propose_flatbuffer(
-        &self,
-        request: GenericRequest,
-    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
-        // TODO: is accessing _tab.buf safe?
-        let data = request._tab.buf.to_vec();
-        self.propose(&RkyvRequest::Flatbuffer(data))
     }
 }
