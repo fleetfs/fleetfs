@@ -74,10 +74,10 @@ impl FleetFUSE {
             .lock()
             .expect("file_handles lock is poisoned");
         if let Some(value) = handles.get(&handle).map(|x| x.read) {
-            return value;
+            value
         } else {
             error!("Undefined file handle: {}", handle);
-            return false;
+            false
         }
     }
 
@@ -87,10 +87,10 @@ impl FleetFUSE {
             .lock()
             .expect("file_handles lock is poisoned");
         if let Some(value) = handles.get(&handle).map(|x| x.write) {
-            return value;
+            value
         } else {
             error!("Undefined file handle: {}", handle);
-            return false;
+            false
         }
     }
 }
@@ -119,11 +119,11 @@ fn as_file_kind(mut mode: u32) -> FileKind {
     mode &= libc::S_IFMT as u32;
 
     if mode == libc::S_IFREG as u32 {
-        return FileKind::File;
+        FileKind::File
     } else if mode == libc::S_IFLNK as u32 {
-        return FileKind::Symlink;
+        FileKind::Symlink
     } else if mode == libc::S_IFDIR as u32 {
-        return FileKind::Directory;
+        FileKind::Directory
     } else {
         unimplemented!("{}", mode);
     }

@@ -98,7 +98,7 @@ impl<T: PeerClient> DataStorage<T> {
             }
             // TODO handle other file types
         }
-        return Ok(hasher.finalize().to_vec());
+        Ok(hasher.finalize().to_vec())
     }
 
     fn to_local_path(&self, path: &str) -> PathBuf {
@@ -160,7 +160,7 @@ impl<T: PeerClient> DataStorage<T> {
 
             file.write_all(&local_data)?;
         }
-        return Ok(local_data.len() as u32);
+        Ok(local_data.len() as u32)
     }
 
     pub(super) fn file_inode_exists(&self, inode: u64) -> bool {
@@ -385,8 +385,8 @@ mod tests {
         }
 
         let mut data = vec![0u8; 20 * 1024];
-        for i in 0..data.len() {
-            data[i] = rand::thread_rng().gen();
+        for element in &mut data {
+            *element = rand::thread_rng().gen();
         }
 
         cluster.write(0, 0, &data);
@@ -418,7 +418,7 @@ mod tests {
     impl<'a> FakeCluster<'a> {
         fn write(&self, inode: u64, offset: u64, data: &[u8]) {
             for s in self.data_stores.borrow().values() {
-                s.write_local_blocks(inode, offset, &data).unwrap();
+                s.write_local_blocks(inode, offset, data).unwrap();
             }
         }
 

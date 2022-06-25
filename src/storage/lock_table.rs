@@ -89,7 +89,7 @@ impl LockTable {
                 FileLockType::ExclusiveMetadataWriteConcurrentReadsAllowed,
             ),
         );
-        return lock_id;
+        lock_id
     }
 
     // Returns a list of requests that were pending to process.
@@ -122,6 +122,6 @@ impl LockTable {
             .unwrap()
             .drain(..requests_to_process)
             .collect();
-        return (requests, lock_id);
+        (requests, lock_id)
     }
 }

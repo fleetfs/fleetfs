@@ -20,14 +20,14 @@ async fn propose(
         let rkyv_response = raft.lookup_by_inode(inode).propose(request).await?;
         let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
         response_or_error(&rkyv_bytes)?;
-        return Ok(rkyv_bytes);
+        Ok(rkyv_bytes)
     } else {
         let response = remote_rafts
             .propose(inode, request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
         response_or_error(&response)?;
-        return Ok(response);
+        Ok(response)
     }
 }
 
@@ -75,7 +75,7 @@ async fn remove_link(
     let response_data = propose(parent, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     if let ArchivedRkyvGenericResponse::RemovedInode { id, complete } = response {
-        return Ok((id.into(), *complete));
+        Ok((id.into(), *complete))
     } else {
         unreachable!();
     }
@@ -90,7 +90,7 @@ async fn lock_inode(
     let response_data = propose(inode, &RkyvRequest::Lock { inode }, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
     if let ArchivedRkyvGenericResponse::Lock { lock_id } = response {
-        return Ok(lock_id.into());
+        Ok(lock_id.into())
     } else {
         unreachable!();
     }
@@ -376,7 +376,7 @@ pub async fn rename_transaction<'a>(
             .await
             .expect("Unlock failed");
     }
-    return result;
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -502,7 +502,7 @@ async fn rename_transaction_lock_context<'a>(
     }
     update_metadata_changed_time(inode, Some(inode_lock_id), &raft, &remote_rafts).await?;
 
-    return Ok(RkyvGenericResponse::Empty);
+    Ok(RkyvGenericResponse::Empty)
 }
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
@@ -699,7 +699,7 @@ pub async fn create_transaction<'a>(
     match propose(parent, &create_link, &raft, &remote_rafts).await {
         Ok(_) => {
             // This is the response back to the client
-            return Ok(client_response);
+            Ok(client_response)
         }
         Err(error_code) => {
             // Rollback the transaction
@@ -711,7 +711,7 @@ pub async fn create_transaction<'a>(
             // TODO: if this fails the inode will leak ;(
             let response_data = propose(inode, &rollback, &raft, &remote_rafts).await?;
             response_or_error(&response_data)?;
-            return Err(error_code);
+            Err(error_code)
         }
     }
 }
@@ -767,7 +767,7 @@ pub async fn hardlink_transaction(
 
             // This is the response back to the client
             let entry: EntryMetadata = attrs.deserialize(&mut rkyv::Infallible).unwrap();
-            return Ok(RkyvGenericResponse::EntryMetadata(entry));
+            Ok(RkyvGenericResponse::EntryMetadata(entry))
         }
         Err(error_code) => {
             // Rollback the transaction
@@ -775,7 +775,7 @@ pub async fn hardlink_transaction(
             // may not have been decremented
             let response_data = propose(inode, &rollback_request, &raft, &remote_rafts).await?;
             response_or_error(&response_data)?;
-            return Err(error_code);
+            Err(error_code)
         }
     }
 }

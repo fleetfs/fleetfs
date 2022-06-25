@@ -46,7 +46,7 @@ pub fn check_access(
         access_mask -= access_mask & file_mode;
     }
 
-    return access_mask == 0;
+    access_mask == 0
 }
 
 pub fn node_id_from_address(address: &SocketAddr) -> u64 {

@@ -87,7 +87,7 @@ impl NodeClient {
         self.tcp_client
             .send_and_receive_length_prefixed(&send_buffer, buffer)
             .map_err(|_| ErrorCode::Uncategorized)?;
-        return response_or_error(buffer);
+        response_or_error(buffer)
     }
 
     pub fn filesystem_ready(&self) -> Result<(), ErrorCode> {
@@ -95,7 +95,7 @@ impl NodeClient {
         let response = self.send(RkyvRequest::FilesystemReady, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn fsck(&self) -> Result<(), ErrorCode> {
@@ -125,9 +125,9 @@ impl NodeClient {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
 
-        return Ok(metadata_to_fuse_fileattr(
+        Ok(metadata_to_fuse_fileattr(
             &response.as_attr_response().unwrap(),
-        ));
+        ))
     }
 
     pub fn lookup(&self, parent: u64, name: &str, context: UserContext) -> Result<u64, ErrorCode> {
@@ -165,9 +165,9 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        return Ok(metadata_to_fuse_fileattr(
+        Ok(metadata_to_fuse_fileattr(
             &response.as_attr_response().unwrap(),
-        ));
+        ))
     }
 
     pub fn statfs(&self) -> Result<StatFS, ErrorCode> {
@@ -178,12 +178,12 @@ impl NodeClient {
             max_name_length,
         } = response
         {
-            return Ok(StatFS {
+            Ok(StatFS {
                 block_size: block_size.into(),
                 max_name_length: max_name_length.into(),
-            });
+            })
         } else {
-            return Err(ErrorCode::BadResponse);
+            Err(ErrorCode::BadResponse)
         }
     }
 
@@ -191,9 +191,9 @@ impl NodeClient {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::GetAttr { inode }, &mut buffer)?;
 
-        return Ok(metadata_to_fuse_fileattr(
+        Ok(metadata_to_fuse_fileattr(
             &response.as_attr_response().unwrap(),
-        ));
+        ))
     }
 
     pub fn getxattr(
@@ -213,7 +213,7 @@ impl NodeClient {
         )?;
         let data = response.as_read_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(data.to_vec());
+        Ok(data.to_vec())
     }
 
     pub fn listxattr(&self, inode: u64) -> Result<Vec<String>, ErrorCode> {
@@ -226,7 +226,7 @@ impl NodeClient {
 
         let attrs = xattrs.iter().map(|x| x.to_string()).collect();
 
-        return Ok(attrs);
+        Ok(attrs)
     }
 
     pub fn setxattr(
@@ -289,7 +289,7 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn chmod(&self, inode: u64, mode: u32, context: UserContext) -> Result<(), ErrorCode> {
@@ -306,7 +306,7 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn chown(
@@ -328,7 +328,7 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn hardlink(
@@ -349,9 +349,9 @@ impl NodeClient {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
 
-        return Ok(metadata_to_fuse_fileattr(
+        Ok(metadata_to_fuse_fileattr(
             &response.as_attr_response().unwrap(),
-        ));
+        ))
     }
 
     pub fn rename(
@@ -374,7 +374,7 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn readlink(&self, inode: u64) -> Result<Vec<u8>, ErrorCode> {
@@ -418,11 +418,9 @@ impl NodeClient {
             Ok(response) => {
                 let data = response.as_read_response().unwrap();
                 callback(Ok(data));
-                return;
             }
             Err(e) => {
                 callback(Err(e));
-                return;
             }
         };
     }
@@ -443,7 +441,7 @@ impl NodeClient {
             ));
         }
 
-        return Ok(result);
+        Ok(result)
     }
 
     pub fn truncate(&self, inode: u64, length: u64, context: UserContext) -> Result<(), ErrorCode> {
@@ -458,7 +456,7 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn write(&self, inode: u64, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
@@ -482,7 +480,7 @@ impl NodeClient {
         let response = self.send(RkyvRequest::Fsync { inode }, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn unlink(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
@@ -496,7 +494,7 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
@@ -510,6 +508,6 @@ impl NodeClient {
         let response = self.send(request, &mut buffer)?;
         response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        return Ok(());
+        Ok(())
     }
 }

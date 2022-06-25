@@ -10,7 +10,7 @@ pub fn into_error_code(error: std::io::Error) -> ErrorCode {
                     return ErrorCode::FileTooLarge;
                 }
             }
-            return ErrorCode::Uncategorized;
+            ErrorCode::Uncategorized
         }
         _ => ErrorCode::Uncategorized,
     }

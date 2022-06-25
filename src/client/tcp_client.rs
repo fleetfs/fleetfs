@@ -67,6 +67,6 @@ impl TcpClient {
         // If the connection is still working, store it back
         locked.replace(stream);
 
-        return Ok(());
+        Ok(())
     }
 }
