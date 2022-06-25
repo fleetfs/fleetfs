@@ -1,10 +1,10 @@
-use crate::base::message_types::{ArchivedRkyvRequest, RkyvRequest};
+use crate::base::message_types::RkyvRequest;
 use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
 use crate::base::RequestMetaInfo;
 use crate::client::{PeerClient, TcpPeerClient};
 use futures_util::future::FutureExt;
-use rkyv::{AlignedVec, Deserialize};
+use rkyv::AlignedVec;
 use std::collections::HashMap;
 use std::future::Future;
 
@@ -78,7 +78,7 @@ impl RemoteRaftGroups {
         &self,
         inode: u64,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
         let raft_group_id = inode % self.total_raft_groups as u64;
         self.groups
             .get(&(raft_group_id as u16))
@@ -90,24 +90,14 @@ impl RemoteRaftGroups {
         &self,
         raft_group: u16,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
         self.groups.get(&raft_group).unwrap().send(request)
-    }
-
-    pub fn forward_archived_request(
-        &self,
-        request: &ArchivedRkyvRequest,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
-        // TODO: avoid this deserializing and re-serializing. Unfortunately, I can't figure out
-        // how to get the underlying bytes out of the archived type
-        let deserialized: RkyvRequest = request.deserialize(&mut rkyv::Infallible).unwrap();
-        self.forward_request(&deserialized)
     }
 
     pub fn forward_request(
         &self,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
         let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
         let serialized = rkyv::check_archived_root::<RkyvRequest>(&rkyv_bytes).unwrap();
         let raft_group_id = serialized.meta_info().inode.unwrap() % self.total_raft_groups as u64;
@@ -121,7 +111,7 @@ impl RemoteRaftGroups {
         &self,
         request: AlignedVec,
         meta: RequestMetaInfo,
-    ) -> impl Future<Output = Result<Vec<u8>, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
         let raft_group_id = meta.inode.unwrap() % self.total_raft_groups as u64;
         self.groups
             .get(&(raft_group_id as u16))

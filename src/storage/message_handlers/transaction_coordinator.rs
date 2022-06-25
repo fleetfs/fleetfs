@@ -2,12 +2,9 @@ use crate::base::message_types::{
     ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, InodeUidPair,
     RkyvGenericResponse, RkyvRequest, UserContext,
 };
-use crate::base::{check_access, finalize_response, response_or_error};
+use crate::base::{check_access, response_or_error};
 use crate::client::RemoteRaftGroups;
-use crate::generated::*;
-use crate::storage::message_handlers::router::rkyv_response_to_fb;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
-use flatbuffers::{FlatBufferBuilder, SIZE_UOFFSET};
 use rand::Rng;
 use rkyv::{AlignedVec, Deserialize};
 use std::collections::HashSet;
@@ -18,16 +15,12 @@ async fn propose(
     request: &RkyvRequest,
     raft: &LocalRaftGroupManager,
     remote_rafts: &RemoteRaftGroups,
-) -> Result<Vec<u8>, ErrorCode> {
+) -> Result<AlignedVec, ErrorCode> {
     if raft.inode_stored_locally(inode) {
         let rkyv_response = raft.lookup_by_inode(inode).propose(request).await?;
-        let (mut builder, response_type, response_offset) =
-            rkyv_response_to_fb(FlatBufferBuilder::new(), rkyv_response)?;
-        finalize_response(&mut builder, response_type, response_offset);
-        // Skip the first SIZE_UOFFSET bytes because that's the size prefix
-        response_or_error(&builder.finished_data()[SIZE_UOFFSET..])?;
-        // TODO: optimize this to_vec() copy
-        return Ok(builder.finished_data()[SIZE_UOFFSET..].to_vec());
+        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+        response_or_error(&rkyv_bytes)?;
+        return Ok(rkyv_bytes);
     } else {
         let response = remote_rafts
             .propose(inode, request)
@@ -60,13 +53,7 @@ async fn replace_link(
 
     let response_data = propose(parent, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
-
-    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-    rkyv_aligned.extend_from_slice(rkyv_data);
-    let inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-    Ok(inode_response.as_inode_response().unwrap())
+    Ok(response.as_inode_response().unwrap())
 }
 
 async fn remove_link(
@@ -87,13 +74,7 @@ async fn remove_link(
     };
     let response_data = propose(parent, &request, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
-
-    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-    rkyv_aligned.extend_from_slice(rkyv_data);
-    let removed_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-    if let ArchivedRkyvGenericResponse::RemovedInode { id, complete } = removed_response {
+    if let ArchivedRkyvGenericResponse::RemovedInode { id, complete } = response {
         return Ok((id.into(), *complete));
     } else {
         unreachable!();
@@ -108,13 +89,7 @@ async fn lock_inode(
 ) -> Result<u64, ErrorCode> {
     let response_data = propose(inode, &RkyvRequest::Lock { inode }, raft, remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
-
-    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-    rkyv_aligned.extend_from_slice(rkyv_data);
-    let lock_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-    if let ArchivedRkyvGenericResponse::Lock { lock_id } = lock_response {
+    if let ArchivedRkyvGenericResponse::Lock { lock_id } = response {
         return Ok(lock_id.into());
     } else {
         unreachable!();
@@ -135,14 +110,7 @@ async fn update_parent(
     };
 
     let response_data = propose(inode, &request, raft, remote_rafts).await?;
-    let response = response_or_error(&response_data)?;
-    let rkyv_data = response
-        .response_as_rkyv_response()
-        .ok_or(ErrorCode::BadResponse)
-        .unwrap()
-        .rkyv_data();
-    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-        .unwrap()
+    response_or_error(&response_data)?
         .as_empty_response()
         .expect("expected Empty");
 
@@ -158,14 +126,7 @@ async fn update_metadata_changed_time(
     let request = RkyvRequest::UpdateMetadataChangedTime { inode, lock_id };
 
     let response_data = propose(inode, &request, raft, remote_rafts).await?;
-    let response = response_or_error(&response_data)?;
-    let rkyv_data = response
-        .response_as_rkyv_response()
-        .ok_or(ErrorCode::BadResponse)
-        .unwrap()
-        .rkyv_data();
-    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-        .unwrap()
+    response_or_error(&response_data)?
         .as_empty_response()
         .expect("expected Empty");
 
@@ -185,13 +146,7 @@ async fn unlock_inode(
         remote_rafts,
     )
     .await?;
-    let response = response_or_error(&response_data)?;
-    let rkyv_data = response
-        .response_as_rkyv_response()
-        .ok_or(ErrorCode::BadResponse)?
-        .rkyv_data();
-    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-        .unwrap()
+    response_or_error(&response_data)?
         .as_empty_response()
         .expect("expected Empty");
 
@@ -241,27 +196,14 @@ async fn getattrs(
         }
     } else {
         let rkyv_request = RkyvRequest::GetAttr { inode };
-        // TODO: this seems wasteful
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_request).unwrap();
-        let archived_request = rkyv::check_archived_root::<RkyvRequest>(&rkyv_bytes).unwrap();
 
         let response_data = remote_rafts
-            .forward_archived_request(archived_request)
+            .forward_request(&rkyv_request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
         let response = response_or_error(&response_data)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let attr_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-        let metadata = attr_response
-            .as_attr_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let metadata = response.as_attr_response().ok_or(ErrorCode::BadResponse)?;
 
         Ok(FileOrDirAttrs::new(&metadata))
     }
@@ -300,18 +242,8 @@ async fn lookup(
             .map_err(|_| ErrorCode::Uncategorized)?;
 
         let response = response_or_error(&response_data)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let inode_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
-        inode_response
-            .as_inode_response()
-            .ok_or(ErrorCode::BadResponse)
+        response.as_inode_response().ok_or(ErrorCode::BadResponse)
     }
 }
 
@@ -331,14 +263,8 @@ async fn decrement_inode(
     let response_data = propose(inode, &request, raft, remote_rafts)
         .await
         .expect("Leaked inode");
-    let response = response_or_error(&response_data).expect("Leaked inode");
-    let rkyv_data = response
-        .response_as_rkyv_response()
-        .ok_or(ErrorCode::BadResponse)
-        .unwrap()
-        .rkyv_data();
-    rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-        .unwrap()
+    response_or_error(&response_data)
+        .expect("Leaked inode")
         .as_empty_response()
         .expect("expected Empty");
 }
@@ -750,12 +676,7 @@ pub async fn create_transaction<'a>(
         .await
         .map_err(|_| ErrorCode::Uncategorized)?;
     let response = response_or_error(&create_response_data)?;
-    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
-    let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-    rkyv_aligned.extend_from_slice(rkyv_data);
-    let created_inode_response = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned)
-        .unwrap()
+    let created_inode_response = response
         .as_attr_response()
         .ok_or(ErrorCode::BadResponse)
         .unwrap();
@@ -811,14 +732,7 @@ pub async fn hardlink_transaction(
 
     let response_data = propose(inode, &increment, &raft, &remote_rafts).await?;
     let response = response_or_error(&response_data)?;
-    assert_eq!(response.response_type(), ResponseType::RkyvResponse);
-    let rkyv_data = response
-        .response_as_rkyv_response()
-        .ok_or(ErrorCode::BadResponse)
-        .unwrap()
-        .rkyv_data();
-    let rkyv_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
-    let (rollback, attrs) = match rkyv_response {
+    let (rollback, attrs) = match response {
         ArchivedRkyvGenericResponse::HardlinkTransaction {
             rollback_last_modified,
             attrs,

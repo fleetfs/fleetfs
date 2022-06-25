@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use core::time::Duration;
+use rkyv::AlignedVec;
 
 const TIMEOUT: u64 = 10;
 
@@ -25,7 +26,7 @@ impl TcpClient {
     pub fn send_and_receive_length_prefixed(
         &self,
         data: &[u8],
-        response: &mut Vec<u8>,
+        response: &mut AlignedVec,
     ) -> Result<(), std::io::Error> {
         let mut locked = self.connection.lock().expect("lock acquisition failed");
         if locked.is_none() {
@@ -56,8 +57,11 @@ impl TcpClient {
             }
         }
 
-        let data_size = stream.read_u32::<LittleEndian>()?;
-        response.resize(data_size as usize, 0);
+        let data_size = stream.read_u32::<LittleEndian>()? as usize;
+        // TODO: should be able to more efficiently resize this
+        response.clear();
+        response.reserve(data_size);
+        response.extend_from_slice(&vec![0; data_size]);
         stream.read_exact(response)?;
 
         // If the connection is still working, store it back

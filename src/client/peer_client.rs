@@ -1,7 +1,7 @@
 use log::error;
 use std::net::SocketAddr;
 
-use crate::base::message_types::{CommitId, ErrorCode, RkyvGenericResponse, RkyvRequest};
+use crate::base::message_types::{CommitId, ErrorCode, RkyvRequest};
 use crate::base::response_or_error;
 use byteorder::{ByteOrder, LittleEndian};
 use futures::future::{ok, ready, BoxFuture, Either};
@@ -21,7 +21,7 @@ pub trait PeerClient {
     fn send_raw<T: AsRef<[u8]> + Send + 'static>(
         &self,
         data: T,
-    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>>;
+    ) -> BoxFuture<'static, Result<AlignedVec, std::io::Error>>;
 
     fn send_raft_message(&self, raft_group: u16, message: Message) -> BoxFuture<'static, ()>;
 
@@ -45,11 +45,11 @@ pub struct TcpPeerClient {
     pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
-async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]> + Send>(
+async fn async_send_and_receive<T: AsRef<[u8]> + Send>(
     mut stream: TcpStream,
     data: T,
     pool: Arc<Mutex<Vec<TcpStream>>>,
-) -> Result<Vec<u8>, std::io::Error> {
+) -> Result<AlignedVec, std::io::Error> {
     let mut request = vec![0; 4 + data.as_ref().len()];
     LittleEndian::write_u32(&mut request[..4], data.as_ref().len() as u32);
     // TODO: remove this copy and use vectored write of the header and data separately,
@@ -63,7 +63,9 @@ async fn async_send_unprefixed_receive_length_prefixed<T: AsRef<[u8]> + Send>(
     stream.read_exact(&mut response_size).await?;
 
     let size = LittleEndian::read_u32(&response_size);
-    let mut buffer = vec![0; size as usize];
+    let mut buffer = AlignedVec::with_capacity(size as usize);
+    // TODO: this seems very wasteful. There should be a AlignedVec.zeros() method
+    buffer.extend_from_slice(&vec![0u8; size as usize]);
     stream.read_exact(&mut buffer).await?;
 
     TcpPeerClient::return_connection(pool, stream);
@@ -92,15 +94,13 @@ impl TcpPeerClient {
     pub fn send(
         &self,
         request: &RkyvRequest,
-    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>> {
+    ) -> BoxFuture<'static, Result<AlignedVec, std::io::Error>> {
         let pool = self.pool.clone();
         let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
 
         self.connect()
             .then(move |tcp_stream| match tcp_stream {
-                Ok(stream) => Either::Left(async_send_unprefixed_receive_length_prefixed(
-                    stream, rkyv_bytes, pool,
-                )),
+                Ok(stream) => Either::Left(async_send_and_receive(stream, rkyv_bytes, pool)),
                 Err(e) => Either::Right(ready(Err(e))),
             })
             .boxed()
@@ -118,14 +118,12 @@ impl PeerClient for TcpPeerClient {
     fn send_raw<T: AsRef<[u8]> + Send + 'static>(
         &self,
         data: T,
-    ) -> BoxFuture<'static, Result<Vec<u8>, std::io::Error>> {
+    ) -> BoxFuture<'static, Result<AlignedVec, std::io::Error>> {
         let pool = self.pool.clone();
 
         self.connect()
             .then(move |tcp_stream| match tcp_stream {
-                Ok(stream) => Either::Left(async_send_unprefixed_receive_length_prefixed(
-                    stream, data, pool,
-                )),
+                Ok(stream) => Either::Left(async_send_and_receive(stream, data, pool)),
                 Err(e) => Either::Right(ready(Err(e))),
             })
             .boxed()
@@ -156,16 +154,8 @@ impl PeerClient for TcpPeerClient {
         self.send(&RkyvRequest::LatestCommit { raft_group })
             .map(|response| {
                 response.map(|data| {
-                    let rkyv_response = response_or_error(&data)
-                        .unwrap()
-                        .response_as_rkyv_response()
-                        .unwrap();
-                    let rkyv_data = rkyv_response.rkyv_data();
-                    let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-                    rkyv_aligned.extend_from_slice(rkyv_data);
-                    let commit_response =
-                        rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-                    commit_response.as_latest_commit_response().unwrap().1
+                    let response = response_or_error(&data).unwrap();
+                    response.as_latest_commit_response().unwrap().1
                 })
             })
             .boxed()
@@ -175,16 +165,8 @@ impl PeerClient for TcpPeerClient {
         self.send(&RkyvRequest::FilesystemChecksum)
             .map(|maybe_response| {
                 let data = maybe_response.map_err(|_| ErrorCode::Uncategorized)?;
-                let rkyv_response = response_or_error(&data)
-                    .unwrap()
-                    .response_as_rkyv_response()
-                    .unwrap();
-                let rkyv_data = rkyv_response.rkyv_data();
-                let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-                rkyv_aligned.extend_from_slice(rkyv_data);
-                let checksum_response =
-                    rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-                let checksums = checksum_response.as_checksum_response().unwrap();
+                let response = response_or_error(&data).unwrap();
+                let checksums = response.as_checksum_response().unwrap();
 
                 Ok(checksums)
             })
@@ -208,17 +190,8 @@ impl PeerClient for TcpPeerClient {
         self.send(&request)
             .map(|response| {
                 let response = response?;
-                let rkyv_response = response_or_error(&response)
-                    .unwrap()
-                    .response_as_rkyv_response()
-                    .unwrap();
-                let rkyv_data = rkyv_response.rkyv_data();
-                let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-                // TODO: optimize out this copy
-                rkyv_aligned.extend_from_slice(rkyv_data);
-                let read_response =
-                    rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-                let data = read_response.as_read_response().unwrap().to_vec();
+                let response = response_or_error(&response).unwrap();
+                let data = response.as_read_response().unwrap().to_vec();
                 Ok(data)
             })
             .boxed()

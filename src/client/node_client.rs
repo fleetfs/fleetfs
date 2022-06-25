@@ -5,12 +5,11 @@ use std::net::SocketAddr;
 use thread_local::ThreadLocal;
 
 use crate::base::message_types::{
-    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, RkyvGenericResponse,
-    RkyvRequest, Timestamp, UserContext,
+    ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, RkyvRequest, Timestamp,
+    UserContext,
 };
 use crate::base::response_or_error;
 use crate::client::tcp_client::TcpClient;
-use crate::generated::*;
 use crate::storage::ROOT_INODE;
 use byteorder::{ByteOrder, LittleEndian};
 use fuser::FileAttr;
@@ -54,7 +53,7 @@ fn metadata_to_fuse_fileattr(metadata: &EntryMetadata) -> FileAttr {
 
 pub struct NodeClient {
     tcp_client: TcpClient,
-    response_buffer: ThreadLocal<RefCell<Vec<u8>>>,
+    response_buffer: ThreadLocal<RefCell<AlignedVec>>,
 }
 
 impl NodeClient {
@@ -65,18 +64,18 @@ impl NodeClient {
         }
     }
 
-    fn get_or_create_buffer(&self) -> RefMut<Vec<u8>> {
+    fn get_or_create_buffer(&self) -> RefMut<AlignedVec> {
         return self
             .response_buffer
-            .get_or(|| RefCell::new(vec![]))
+            .get_or(|| RefCell::new(AlignedVec::new()))
             .borrow_mut();
     }
 
     fn send<'b>(
         &self,
         request: RkyvRequest,
-        buffer: &'b mut Vec<u8>,
-    ) -> Result<GenericResponse<'b>, ErrorCode> {
+        buffer: &'b mut AlignedVec,
+    ) -> Result<&'b ArchivedRkyvGenericResponse, ErrorCode> {
         // TODO: reuse these serializers to reduce allocations, like get_or_create_builder()
         let mut serializer = AllocSerializer::<64>::default();
         serializer.serialize_value(&request).unwrap();
@@ -86,7 +85,7 @@ impl NodeClient {
         // TODO: optimize out this copy
         send_buffer[4..].copy_from_slice(&request_buffer);
         self.tcp_client
-            .send_and_receive_length_prefixed(&send_buffer, buffer.as_mut())
+            .send_and_receive_length_prefixed(&send_buffer, buffer)
             .map_err(|_| ErrorCode::Uncategorized)?;
         return response_or_error(buffer);
     }
@@ -94,14 +93,7 @@ impl NodeClient {
     pub fn filesystem_ready(&self) -> Result<(), ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::FilesystemReady, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -109,14 +101,7 @@ impl NodeClient {
     pub fn fsck(&self) -> Result<(), ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::FilesystemCheck, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
     }
@@ -139,18 +124,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let attr_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
         return Ok(metadata_to_fuse_fileattr(
-            &attr_response.as_attr_response().unwrap(),
+            &response.as_attr_response().unwrap(),
         ));
     }
 
@@ -164,18 +140,8 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let inode_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
-        inode_response
-            .as_inode_response()
-            .ok_or(ErrorCode::BadResponse)
+        response.as_inode_response().ok_or(ErrorCode::BadResponse)
     }
 
     pub fn create(
@@ -199,37 +165,18 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let attr_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
-
         return Ok(metadata_to_fuse_fileattr(
-            &attr_response.as_attr_response().unwrap(),
+            &response.as_attr_response().unwrap(),
         ));
     }
 
     pub fn statfs(&self) -> Result<StatFS, ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::FilesystemInformation, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let fs_info_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
         if let ArchivedRkyvGenericResponse::FilesystemInformation {
             block_size,
             max_name_length,
-        } = fs_info_response
+        } = response
         {
             return Ok(StatFS {
                 block_size: block_size.into(),
@@ -243,18 +190,9 @@ impl NodeClient {
     pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::GetAttr { inode }, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let attr_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
         return Ok(metadata_to_fuse_fileattr(
-            &attr_response.as_attr_response().unwrap(),
+            &response.as_attr_response().unwrap(),
         ));
     }
 
@@ -273,14 +211,7 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let data_response = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data).unwrap();
-        let data = data_response
-            .as_read_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        let data = response.as_read_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(data.to_vec());
     }
@@ -288,16 +219,8 @@ impl NodeClient {
     pub fn listxattr(&self, inode: u64) -> Result<Vec<String>, ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::ListXattrs { inode }, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let xattrs_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
-        let xattrs = xattrs_response
+        let xattrs = response
             .as_xattrs_response()
             .ok_or(ErrorCode::BadResponse)?;
 
@@ -323,14 +246,7 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
     }
@@ -349,14 +265,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         Ok(())
     }
@@ -378,14 +287,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -402,14 +304,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -431,14 +326,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -460,18 +348,9 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let attr_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
         return Ok(metadata_to_fuse_fileattr(
-            &attr_response.as_attr_response().unwrap(),
+            &response.as_attr_response().unwrap(),
         ));
     }
 
@@ -493,14 +372,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -519,12 +391,7 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        Ok(rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
+        Ok(response
             .as_read_response()
             .ok_or(ErrorCode::BadResponse)?
             .to_vec())
@@ -549,11 +416,7 @@ impl NodeClient {
             &mut buffer,
         ) {
             Ok(response) => {
-                let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-                let data = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-                    .unwrap()
-                    .as_read_response()
-                    .unwrap();
+                let data = response.as_read_response().unwrap();
                 callback(Ok(data));
                 return;
             }
@@ -567,7 +430,7 @@ impl NodeClient {
     pub fn read_to_vec(&self, inode: u64, offset: u64, size: u32) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
-        let mut buffer = Vec::with_capacity((size + 1) as usize);
+        let mut buffer = AlignedVec::with_capacity((size + 1) as usize);
         let response = self.send(
             RkyvRequest::Read {
                 inode,
@@ -576,13 +439,8 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
         // TODO: optimize away the to_vec()
-        let data = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
+        let data = response
             .as_read_response()
             .ok_or(ErrorCode::BadResponse)?
             .to_vec();
@@ -595,12 +453,7 @@ impl NodeClient {
         let response = self.send(RkyvRequest::ListDir { inode }, &mut buffer)?;
 
         let mut result = vec![];
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let entries = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
+        let entries = response
             .as_directory_listing_response()
             .ok_or(ErrorCode::BadResponse)?;
         for entry in entries {
@@ -624,14 +477,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -646,16 +492,8 @@ impl NodeClient {
             },
             &mut buffer,
         )?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        let written_response =
-            rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned).unwrap();
 
-        written_response
+        response
             .as_bytes_written_response()
             .ok_or(ErrorCode::BadResponse)
     }
@@ -663,14 +501,7 @@ impl NodeClient {
     pub fn fsync(&self, inode: u64) -> Result<(), ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::Fsync { inode }, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -684,14 +515,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
@@ -705,14 +529,7 @@ impl NodeClient {
 
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(request, &mut buffer)?;
-        let rkyv_data = response
-            .response_as_rkyv_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .rkyv_data();
-        rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
-            .unwrap()
-            .as_empty_response()
-            .ok_or(ErrorCode::BadResponse)?;
+        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
         return Ok(());
     }
