@@ -25,8 +25,6 @@ pub mod client;
 pub mod fuse_adapter;
 pub mod storage;
 
-include!(concat!(env!("OUT_DIR"), "/messages_generated.mod"));
-
 pub fn fuse_allow_other_enabled() -> io::Result<bool> {
     let file = File::open("/etc/fuse.conf")?;
     for line in BufReader::new(file).lines() {

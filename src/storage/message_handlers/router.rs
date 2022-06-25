@@ -1,10 +1,8 @@
 use crate::base::message_types::{ArchivedRkyvRequest, CommitId, FileKind, RkyvRequest};
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
-use crate::base::{finalize_response, FlatBufferWithResponse};
-use crate::base::{DistributionRequirement, ResultResponse};
+use crate::base::DistributionRequirement;
 use crate::base::{LocalContext, RequestMetaInfo};
 use crate::client::RemoteRaftGroups;
-use crate::generated::*;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};
 use crate::storage::message_handlers::transaction_coordinator::{
     create_transaction, hardlink_transaction, rename_transaction, rmdir_transaction,
@@ -12,36 +10,14 @@ use crate::storage::message_handlers::transaction_coordinator::{
 };
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
-use flatbuffers::FlatBufferBuilder;
 use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;
 use rkyv::AlignedVec;
 use std::sync::Arc;
 
-pub fn rkyv_response_to_fb(
-    mut builder: FlatBufferBuilder,
-    rkyv_response: RkyvGenericResponse,
-) -> ResultResponse {
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    return Ok((builder, ResponseType::RkyvResponse, offset));
-}
-
-pub fn to_error_response(
-    mut builder: FlatBufferBuilder,
-    error_code: ErrorCode,
-) -> FlatBufferBuilder {
+pub fn to_error_response(error_code: ErrorCode) -> AlignedVec {
     let rkyv_response = RkyvGenericResponse::ErrorOccurred(error_code);
-    let rkyv_bytes = rkyv::to_bytes::<_, 8>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let offset = response_builder.finish().as_union_value();
-    finalize_response(&mut builder, ResponseType::RkyvResponse, offset);
-    return builder;
+    rkyv::to_bytes::<_, 8>(&rkyv_response).unwrap()
 }
 
 // Determines whether the request can be handled by the local node, or whether it needs to be
@@ -65,16 +41,12 @@ fn can_handle_locally(request_meta: &RequestMetaInfo, local_rafts: &LocalRaftGro
 async fn forward_request(
     request: AlignedVec,
     meta: RequestMetaInfo,
-    builder: FlatBufferBuilder<'static>,
     rafts: Arc<RemoteRaftGroups>,
-) -> FlatBufferWithResponse<'static> {
+) -> AlignedVec {
     if let Ok(response) = rafts.forward_raw_request(request, meta).await {
-        FlatBufferWithResponse::with_separate_response(builder, response)
+        response
     } else {
-        FlatBufferWithResponse::new(to_error_response(
-            FlatBufferBuilder::new(),
-            ErrorCode::Uncategorized,
-        ))
+        to_error_response(ErrorCode::Uncategorized)
     }
 }
 
@@ -83,28 +55,19 @@ pub async fn request_router(
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
-    mut builder: FlatBufferBuilder<'static>,
-) -> FlatBufferWithResponse<'static> {
+) -> AlignedVec {
     let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
     let meta = request.meta_info();
     if !can_handle_locally(&meta, &raft) {
-        return forward_request(aligned, meta, builder, remote_rafts.clone()).await;
+        return forward_request(aligned, meta, remote_rafts.clone()).await;
     }
 
     match request_router_inner(aligned, raft, remote_rafts, context).await {
         Ok(rkyv_response) => {
             // TODO: optimize Read responses to avoid copying all the data. We should just take the .data Vec and write it out
-            let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-            let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-            let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-            response_builder.add_rkyv_data(flatbuffer_offset);
-            let offset = response_builder.finish().as_union_value();
-            finalize_response(&mut builder, ResponseType::RkyvResponse, offset);
-            FlatBufferWithResponse::new(builder)
+            rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap()
         }
-        Err(error_code) => {
-            FlatBufferWithResponse::new(to_error_response(FlatBufferBuilder::new(), error_code))
-        }
+        Err(error_code) => to_error_response(error_code),
     }
 }
 

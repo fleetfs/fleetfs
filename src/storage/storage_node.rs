@@ -1,6 +1,5 @@
 use std::fs;
 
-use flatbuffers::FlatBufferBuilder;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::length_delimited;
 
@@ -8,6 +7,7 @@ use log::{debug, error};
 
 use crate::base::node_id_from_address;
 use crate::storage::message_handlers::request_router;
+use byteorder::{ByteOrder, LittleEndian};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -32,7 +32,6 @@ fn spawn_connection_handler(
             .little_endian()
             .new_read(reader);
 
-        let mut builder = FlatBufferBuilder::new();
         loop {
             let frame = match reader.next().await {
                 None => return,
@@ -44,22 +43,18 @@ fn spawn_connection_handler(
                     }
                 },
             };
-            builder.reset();
             let mut aligned = AlignedVec::with_capacity(frame.len());
             aligned.extend_from_slice(&frame);
-            let response = request_router(
-                aligned,
-                raft.clone(),
-                remote_raft.clone(),
-                context.clone(),
-                builder,
-            )
-            .await;
-            if let Err(e) = writer.write_all(response.as_ref()).await {
+            let response =
+                request_router(aligned, raft.clone(), remote_raft.clone(), context.clone()).await;
+            // TODO optimize this to avoid the copy
+            let mut result = vec![0u8; response.len() + 4];
+            result[4..].copy_from_slice(&response);
+            LittleEndian::write_u32(&mut result, response.len() as u32);
+            if let Err(e) = writer.write_all(&result).await {
                 debug!("Client connection closed: {}", e);
                 return;
             };
-            builder = response.into_buffer();
         }
     });
 }

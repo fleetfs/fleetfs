@@ -300,6 +300,7 @@ impl<T: PeerClient> DataStorage<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::base::message_types::CommitId;
     use crate::client::PeerClient;
     use crate::storage::local::data_storage::{
         stores_index, to_global_index, to_local_index_ceiling, DataStorage, BLOCK_SIZE,
@@ -309,12 +310,12 @@ mod tests {
     use futures_util::future::FutureExt;
     use raft::eraftpb::Message;
     use rand::Rng;
+    use rkyv::AlignedVec;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::fs;
     use std::io::Error;
     use tempfile::tempdir;
-    use crate::base::message_types::CommitId;
 
     #[test]
     fn local_index_ceiling() {
@@ -442,7 +443,7 @@ mod tests {
         fn send_raw<T: AsRef<[u8]> + Send + 'static>(
             &self,
             _data: T,
-        ) -> BoxFuture<'static, Result<Vec<u8>, Error>> {
+        ) -> BoxFuture<'static, Result<AlignedVec, Error>> {
             unimplemented!()
         }
 

@@ -1,63 +1,17 @@
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
-
-use crate::base::message_types::RkyvGenericResponse;
-use crate::base::ResultResponse;
-use crate::generated::*;
+use crate::base::message_types::{ArchivedRkyvGenericResponse, RkyvGenericResponse};
 use crate::ErrorCode;
 use rkyv::AlignedVec;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
-pub fn empty_response(mut builder: FlatBufferBuilder) -> ResultResponse {
-    let rkyv_response = RkyvGenericResponse::Empty;
-    let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
-    let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
-    let mut response_builder = RkyvResponseBuilder::new(&mut builder);
-    response_builder.add_rkyv_data(flatbuffer_offset);
-    let response_offset = response_builder.finish().as_union_value();
-
-    return Ok((builder, ResponseType::RkyvResponse, response_offset));
-}
-
-pub fn finalize_response_without_prefix(
-    builder: &mut FlatBufferBuilder,
-    response_type: ResponseType,
-    finish_offset: WIPOffset<UnionWIPOffset>,
-) {
-    let mut generic_response_builder = GenericResponseBuilder::new(builder);
-    generic_response_builder.add_response_type(response_type);
-    generic_response_builder.add_response(finish_offset);
-    let finish_offset = generic_response_builder.finish();
-    builder.finish(finish_offset, None);
-}
-
-pub fn finalize_response(
-    builder: &mut FlatBufferBuilder,
-    response_type: ResponseType,
-    finish_offset: WIPOffset<UnionWIPOffset>,
-) {
-    let mut generic_response_builder = GenericResponseBuilder::new(builder);
-    generic_response_builder.add_response_type(response_type);
-    generic_response_builder.add_response(finish_offset);
-    let finish_offset = generic_response_builder.finish();
-    builder.finish_size_prefixed(finish_offset, None);
-}
-
-pub fn response_or_error(buffer: &[u8]) -> Result<GenericResponse, ErrorCode> {
-    let response = flatbuffers::get_root::<GenericResponse>(buffer);
-    if response.response_type() == ResponseType::RkyvResponse {
-        let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
-        let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());
-        rkyv_aligned.extend_from_slice(rkyv_data);
-        if let Some(error_code) = rkyv::check_archived_root::<RkyvGenericResponse>(&rkyv_aligned)
-            .unwrap()
-            .as_error_response()
-        {
-            return Err(error_code);
-        }
+pub fn response_or_error(buffer: &AlignedVec) -> Result<&ArchivedRkyvGenericResponse, ErrorCode> {
+    let response = rkyv::check_archived_root::<RkyvGenericResponse>(buffer).unwrap();
+    if let Some(error_code) = response.as_error_response() {
+        Err(error_code)
+    } else {
+        Ok(response)
     }
-    return Ok(response);
 }
 
 pub fn check_access(
