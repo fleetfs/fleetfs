@@ -6,7 +6,7 @@ repository = "https://github.com/fleetfs/fleetfs"
 version = "0.2.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.61"
 exclude = ["*.sh", "cloud_benchmark/"]
 
 [dependencies]
