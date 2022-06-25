@@ -427,27 +427,6 @@ impl NodeClient {
         };
     }
 
-    pub fn read_to_vec(&self, inode: u64, offset: u64, size: u32) -> Result<Vec<u8>, ErrorCode> {
-        assert_ne!(inode, ROOT_INODE);
-
-        let mut buffer = AlignedVec::with_capacity((size + 1) as usize);
-        let response = self.send(
-            RkyvRequest::Read {
-                inode,
-                offset,
-                read_size: size,
-            },
-            &mut buffer,
-        )?;
-        // TODO: optimize away the to_vec()
-        let data = response
-            .as_read_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .to_vec();
-
-        Ok(data)
-    }
-
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuser::FileType)>, ErrorCode> {
         let mut buffer = self.get_or_create_buffer();
         let response = self.send(RkyvRequest::ListDir { inode }, &mut buffer)?;
