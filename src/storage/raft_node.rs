@@ -342,7 +342,7 @@ impl RaftNode {
             to_process.push((request_data, pending_response));
         }
 
-        return to_process;
+        to_process
     }
 
     fn _process_commited_entries(
@@ -569,7 +569,7 @@ impl RaftNode {
 
         self.process_raft_queue();
 
-        return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
+        receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)))
     }
 
     pub fn propose_raw(
@@ -587,6 +587,6 @@ impl RaftNode {
 
         self.process_raft_queue();
 
-        return receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)));
+        receiver.map(|x| x.unwrap_or(Err(ErrorCode::Uncategorized)))
     }
 }

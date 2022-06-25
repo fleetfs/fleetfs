@@ -39,7 +39,7 @@ pub async fn fsck(
                 }
             }
 
-            return Ok(RkyvGenericResponse::Empty);
+            Ok(RkyvGenericResponse::Empty)
         })
         .await
 }
@@ -54,5 +54,5 @@ pub async fn checksum_request(
         let checksum = rgroup.local_data_checksum()?;
         checksums.insert(rgroup.get_raft_group_id(), checksum);
     }
-    return Ok(RkyvGenericResponse::Checksums(checksums));
+    Ok(RkyvGenericResponse::Checksums(checksums))
 }

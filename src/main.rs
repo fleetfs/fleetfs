@@ -1,5 +1,3 @@
-#![allow(clippy::needless_return)]
-
 use clap::crate_version;
 use clap::Arg;
 use clap::Command;
@@ -259,5 +257,5 @@ fn main() -> Result<(), ErrorCode> {
         fuser::mount2(fs, &mount_point, &options).unwrap();
     }
 
-    return Ok(());
+    Ok(())
 }

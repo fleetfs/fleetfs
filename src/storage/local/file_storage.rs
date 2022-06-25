@@ -228,11 +228,11 @@ impl FileStorage {
         let write_result = self.data_storage.write_local_blocks(inode, offset, data);
         // Reply with the total requested write size, since that's what the FUSE client is expecting, even though this node only wrote some of the bytes
         let total_bytes = data.len() as u32;
-        return write_result
+        write_result
             .map(move |_| RkyvGenericResponse::Written {
                 bytes_written: total_bytes,
             })
-            .map_err(into_error_code);
+            .map_err(into_error_code)
     }
 
     pub fn hardlink_stage0_link_increment(
