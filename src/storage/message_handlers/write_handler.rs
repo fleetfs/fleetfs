@@ -154,10 +154,11 @@ pub fn commit_write(
             unreachable!("This should have been handled by the LockTable");
         }
         ArchivedRkyvRequest::FilesystemReady
-        | ArchivedRkyvRequest::Flatbuffer(_)
         | ArchivedRkyvRequest::FilesystemInformation
         | ArchivedRkyvRequest::FilesystemChecksum
         | ArchivedRkyvRequest::FilesystemCheck
+        | ArchivedRkyvRequest::Read { .. }
+        | ArchivedRkyvRequest::ReadRaw { .. }
         | ArchivedRkyvRequest::Lookup { .. }
         | ArchivedRkyvRequest::GetAttr { .. }
         | ArchivedRkyvRequest::ListDir { .. }

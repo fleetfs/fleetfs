@@ -2,15 +2,13 @@ use std::cell::{RefCell, RefMut};
 use std::ffi::OsString;
 use std::net::SocketAddr;
 
-use flatbuffers::FlatBufferBuilder;
 use thread_local::ThreadLocal;
 
-use crate::base::fast_data_protocol::decode_fast_read_response_inplace;
 use crate::base::message_types::{
     ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, RkyvGenericResponse,
     RkyvRequest, Timestamp, UserContext,
 };
-use crate::base::{finalize_request_without_prefix, response_or_error};
+use crate::base::response_or_error;
 use crate::client::tcp_client::TcpClient;
 use crate::generated::*;
 use crate::storage::ROOT_INODE;
@@ -57,7 +55,6 @@ fn metadata_to_fuse_fileattr(metadata: &EntryMetadata) -> FileAttr {
 pub struct NodeClient {
     tcp_client: TcpClient,
     response_buffer: ThreadLocal<RefCell<Vec<u8>>>,
-    request_builder: ThreadLocal<RefCell<FlatBufferBuilder<'static>>>,
 }
 
 impl NodeClient {
@@ -65,17 +62,7 @@ impl NodeClient {
         NodeClient {
             tcp_client: TcpClient::new(server_ip_port),
             response_buffer: ThreadLocal::new(),
-            request_builder: ThreadLocal::new(),
         }
-    }
-
-    fn get_or_create_builder(&self) -> RefMut<FlatBufferBuilder<'static>> {
-        let mut builder = self
-            .request_builder
-            .get_or(|| RefCell::new(FlatBufferBuilder::new()))
-            .borrow_mut();
-        builder.reset();
-        return builder;
     }
 
     fn get_or_create_buffer(&self) -> RefMut<Vec<u8>> {
@@ -83,25 +70,6 @@ impl NodeClient {
             .response_buffer
             .get_or(|| RefCell::new(vec![]))
             .borrow_mut();
-    }
-
-    fn send_flatbuffer_receive_raw<'b>(
-        &self,
-        request: &[u8],
-        buffer: &'b mut Vec<u8>,
-    ) -> Result<&'b mut Vec<u8>, ErrorCode> {
-        let request = RkyvRequest::Flatbuffer(request.as_ref().to_vec());
-        let mut serializer = AllocSerializer::<64>::default();
-        serializer.serialize_value(&request).unwrap();
-        let request_buffer = serializer.into_serializer().into_inner();
-        let mut send_buffer = vec![0; request_buffer.len() + 4];
-        LittleEndian::write_u32(&mut send_buffer, request_buffer.len() as u32);
-        // TODO: optimize out this copy
-        send_buffer[4..].copy_from_slice(&request_buffer);
-        self.tcp_client
-            .send_and_receive_length_prefixed(&send_buffer, buffer.as_mut())
-            .map_err(|_| ErrorCode::Uncategorized)?;
-        Ok(buffer)
     }
 
     fn send<'b>(
@@ -540,19 +508,26 @@ impl NodeClient {
     pub fn readlink(&self, inode: u64) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ReadRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_offset(0);
+        let mut buffer = self.get_or_create_buffer();
         // TODO: this just tries to read a value longer than the longest link.
         // instead we should be using a special readlink message
-        request_builder.add_read_size(999_999);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::ReadRequest, finish_offset);
-
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send_flatbuffer_receive_raw(builder.finished_data(), &mut buffer)?;
-        decode_fast_read_response_inplace(response).map(Clone::clone)
+        let response = self.send(
+            RkyvRequest::Read {
+                inode,
+                offset: 0,
+                read_size: 999_999,
+            },
+            &mut buffer,
+        )?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        Ok(rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_read_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .to_vec())
     }
 
     pub fn read<F: FnOnce(Result<&[u8], ErrorCode>)>(
@@ -564,26 +539,24 @@ impl NodeClient {
     ) {
         assert_ne!(inode, ROOT_INODE);
 
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ReadRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_offset(offset);
-        request_builder.add_read_size(size);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::ReadRequest, finish_offset);
-
         let mut buffer = self.get_or_create_buffer();
-        match self.send_flatbuffer_receive_raw(builder.finished_data(), &mut buffer) {
-            Ok(response) => match decode_fast_read_response_inplace(response) {
-                Ok(data) => {
-                    callback(Ok(data));
-                    return;
-                }
-                Err(e) => {
-                    callback(Err(e));
-                    return;
-                }
+        match self.send(
+            RkyvRequest::Read {
+                inode,
+                offset,
+                read_size: size,
             },
+            &mut buffer,
+        ) {
+            Ok(response) => {
+                let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
+                let data = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+                    .unwrap()
+                    .as_read_response()
+                    .unwrap();
+                callback(Ok(data));
+                return;
+            }
             Err(e) => {
                 callback(Err(e));
                 return;
@@ -594,19 +567,27 @@ impl NodeClient {
     pub fn read_to_vec(&self, inode: u64, offset: u64, size: u32) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
-        let mut builder = self.get_or_create_builder();
-        let mut request_builder = ReadRequestBuilder::new(&mut builder);
-        request_builder.add_inode(inode);
-        request_builder.add_offset(offset);
-        request_builder.add_read_size(size);
-        let finish_offset = request_builder.finish().as_union_value();
-        finalize_request_without_prefix(&mut builder, RequestType::ReadRequest, finish_offset);
-
         let mut buffer = Vec::with_capacity((size + 1) as usize);
-        self.send_flatbuffer_receive_raw(builder.finished_data(), &mut buffer)?;
-        decode_fast_read_response_inplace(&mut buffer)?;
+        let response = self.send(
+            RkyvRequest::Read {
+                inode,
+                offset,
+                read_size: size,
+            },
+            &mut buffer,
+        )?;
+        let rkyv_data = response
+            .response_as_rkyv_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .rkyv_data();
+        // TODO: optimize away the to_vec()
+        let data = rkyv::check_archived_root::<RkyvGenericResponse>(rkyv_data)
+            .unwrap()
+            .as_read_response()
+            .ok_or(ErrorCode::BadResponse)?
+            .to_vec();
 
-        Ok(buffer)
+        Ok(data)
     }
 
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuser::FileType)>, ErrorCode> {

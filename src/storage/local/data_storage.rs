@@ -1,10 +1,8 @@
 use futures::Future;
 use futures::FutureExt;
 
-use crate::base::message_types::ErrorCode;
-use crate::base::LengthPrefixedVec;
+use crate::base::message_types::{CommitId, ErrorCode};
 use crate::client::PeerClient;
-use crate::generated::CommitId;
 use crate::storage::local::response_helpers::into_error_code;
 use crate::storage::ROOT_INODE;
 use futures::future::{err, join_all, Either};
@@ -174,7 +172,7 @@ impl<T: PeerClient> DataStorage<T> {
         inode: u64,
         global_offset: u64,
         global_size: u32,
-    ) -> io::Result<LengthPrefixedVec> {
+    ) -> io::Result<Vec<u8>> {
         assert_ne!(inode, ROOT_INODE);
 
         let local_start =
@@ -195,8 +193,8 @@ impl<T: PeerClient> DataStorage<T> {
         // Could underflow if file length is less than local_start
         let size = min(local_end, local_size).saturating_sub(local_start);
 
-        let mut contents = LengthPrefixedVec::zeros(size as usize);
-        file.read_exact_at(contents.bytes_mut(), local_start)?;
+        let mut contents = vec![0u8; size as usize];
+        file.read_exact_at(&mut contents, local_start)?;
 
         Ok(contents)
     }
@@ -207,7 +205,7 @@ impl<T: PeerClient> DataStorage<T> {
         global_offset: u64,
         global_size: u32,
         required_commit: CommitId,
-    ) -> impl Future<Output = Result<LengthPrefixedVec, ErrorCode>> + '_ {
+    ) -> impl Future<Output = Result<Vec<u8>, ErrorCode>> + '_ {
         let local_data = match self.read_raw(inode, global_offset, global_size) {
             Ok(value) => value,
             Err(error) => {
@@ -237,9 +235,9 @@ impl<T: PeerClient> DataStorage<T> {
             for x in tmp_blocks.iter() {
                 data_blocks.push(x);
             }
-            data_blocks.insert(local_rank as usize, local_data.bytes());
+            data_blocks.insert(local_rank as usize, &local_data);
 
-            let mut result = LengthPrefixedVec::with_capacity(global_size as usize);
+            let mut result = Vec::with_capacity(global_size as usize);
             let partial_first_block = BLOCK_SIZE - global_offset % BLOCK_SIZE;
             let first_block_index = (global_offset / BLOCK_SIZE) as usize % data_blocks.len();
             let first_block_size = data_blocks[first_block_index].len();
@@ -302,9 +300,7 @@ impl<T: PeerClient> DataStorage<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::base::LengthPrefixedVec;
     use crate::client::PeerClient;
-    use crate::generated::*;
     use crate::storage::local::data_storage::{
         stores_index, to_global_index, to_local_index_ceiling, DataStorage, BLOCK_SIZE,
     };
@@ -318,6 +314,7 @@ mod tests {
     use std::fs;
     use std::io::Error;
     use tempfile::tempdir;
+    use crate::base::message_types::CommitId;
 
     #[test]
     fn local_index_ceiling() {
@@ -430,7 +427,7 @@ mod tests {
                     .read(inode, offset, size, CommitId::new(0, 0))
                     .now_or_never()
                     .unwrap();
-                assert_eq!(result.unwrap().bytes(), expected_data);
+                assert_eq!(result.unwrap(), expected_data);
             }
         }
     }
@@ -442,26 +439,10 @@ mod tests {
     }
 
     impl<'a> PeerClient for FakePeerClient<'a> {
-        fn send_and_receive_length_prefixed<T: AsRef<[u8]> + Send + Sync + 'static>(
+        fn send_raw<T: AsRef<[u8]> + Send + 'static>(
             &self,
             _data: T,
         ) -> BoxFuture<'static, Result<Vec<u8>, Error>> {
-            unimplemented!()
-        }
-
-        fn send_flatbuffer_unprefixed_and_receive_length_prefixed<
-            T: AsRef<[u8]> + Send + 'static,
-        >(
-            &self,
-            _data: T,
-        ) -> BoxFuture<'static, Result<LengthPrefixedVec, Error>> {
-            unimplemented!()
-        }
-
-        fn send_unprefixed_and_receive_length_prefixed<T: AsRef<[u8]> + Send + 'static>(
-            &self,
-            _data: T,
-        ) -> BoxFuture<'static, Result<LengthPrefixedVec, Error>> {
             unimplemented!()
         }
 
@@ -494,7 +475,7 @@ mod tests {
                 .unwrap()
                 .read_raw(inode, offset, size)
                 .unwrap();
-            ready(Ok(data.bytes().to_vec())).boxed()
+            ready(Ok(data)).boxed()
         }
     }
 }

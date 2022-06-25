@@ -1,7 +1,4 @@
-use crate::base::{
-    flatbuffer_request_meta_info, AccessType, DistributionRequirement, RequestMetaInfo,
-};
-use crate::generated::*;
+use crate::base::{AccessType, DistributionRequirement, RequestMetaInfo};
 use bytecheck::CheckBytes;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -44,6 +41,19 @@ impl From<&ArchivedFileKind> for FileKind {
             ArchivedFileKind::Directory => FileKind::Directory,
             ArchivedFileKind::Symlink => FileKind::Symlink,
         }
+    }
+}
+
+#[derive(Archive, Debug, Deserialize, PartialEq, Serialize, Clone, Copy)]
+#[archive_attr(derive(CheckBytes))]
+pub struct CommitId {
+    pub term: u64,
+    pub index: u64,
+}
+
+impl CommitId {
+    pub fn new(term: u64, index: u64) -> Self {
+        Self { term, index }
     }
 }
 
@@ -160,6 +170,18 @@ pub enum RkyvRequest {
         key: String,
         context: UserContext,
     },
+    // Reads only the blocks of data on this node
+    ReadRaw {
+        required_commit: CommitId,
+        inode: u64,
+        offset: u64,
+        read_size: u32,
+    },
+    Read {
+        inode: u64,
+        offset: u64,
+        read_size: u32,
+    },
     Write {
         inode: u64,
         offset: u64,
@@ -175,7 +197,6 @@ pub enum RkyvRequest {
         raft_group: u16,
         data: Vec<u8>,
     },
-    Flatbuffer(Vec<u8>),
     // Internal request to lock an inode
     Lock {
         inode: u64,
@@ -419,6 +440,8 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::SetXattr { .. } => write!(f, "SetXattr"),
             ArchivedRkyvRequest::RemoveXattr { .. } => write!(f, "RemoveXattr"),
             ArchivedRkyvRequest::Write { inode, .. } => write!(f, "Write: {}", inode),
+            ArchivedRkyvRequest::Read { inode, .. } => write!(f, "Read: {}", inode),
+            ArchivedRkyvRequest::ReadRaw { inode, .. } => write!(f, "ReadRaw: {}", inode),
             ArchivedRkyvRequest::LatestCommit { raft_group } => {
                 write!(f, "LatestCommit: {}", raft_group)
             }
@@ -428,7 +451,6 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::RaftMessage { raft_group, .. } => {
                 write!(f, "RaftMessage: {}", raft_group)
             }
-            ArchivedRkyvRequest::Flatbuffer(_) => write!(f, "Flatbuffer"),
             ArchivedRkyvRequest::Lock { inode } => write!(f, "Lock: {}", inode),
             ArchivedRkyvRequest::Unlock { inode, lock_id } => {
                 write!(f, "Unlock: {}, {}", inode, lock_id)
@@ -470,6 +492,14 @@ impl ArchivedRkyvRequest {
                 inode: Some(inode.into()),
                 lock_id: None,
                 access_type: AccessType::NoAccess,
+                distribution_requirement: DistributionRequirement::RaftGroup,
+            },
+            ArchivedRkyvRequest::ReadRaw { inode, .. }
+            | ArchivedRkyvRequest::Read { inode, .. } => RequestMetaInfo {
+                raft_group: None,
+                inode: Some(inode.into()),
+                lock_id: None,
+                access_type: AccessType::ReadData,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
             ArchivedRkyvRequest::SetXattr { inode, .. }
@@ -595,10 +625,6 @@ impl ArchivedRkyvRequest {
                 access_type: AccessType::WriteMetadata,
                 distribution_requirement: DistributionRequirement::RaftGroup,
             },
-            ArchivedRkyvRequest::Flatbuffer(data) => {
-                let request = get_root_as_generic_request(data);
-                flatbuffer_request_meta_info(&request)
-            }
         }
     }
 }

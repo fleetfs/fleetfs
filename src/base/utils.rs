@@ -20,18 +20,6 @@ pub fn empty_response(mut builder: FlatBufferBuilder) -> ResultResponse {
     return Ok((builder, ResponseType::RkyvResponse, response_offset));
 }
 
-pub fn finalize_request_without_prefix(
-    builder: &mut FlatBufferBuilder,
-    request_type: RequestType,
-    finish_offset: WIPOffset<UnionWIPOffset>,
-) {
-    let mut generic_request_builder = GenericRequestBuilder::new(builder);
-    generic_request_builder.add_request_type(request_type);
-    generic_request_builder.add_request(finish_offset);
-    let finish_offset = generic_request_builder.finish();
-    builder.finish(finish_offset, None);
-}
-
 pub fn finalize_response_without_prefix(
     builder: &mut FlatBufferBuilder,
     response_type: ResponseType,

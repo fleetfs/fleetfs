@@ -1,32 +1,5 @@
 namespace generated;
 
-union RequestType {ReadRequest, ReadRawRequest}
-
-table GenericRequest {
-  request: RequestType;
-}
-
-struct CommitId {
-  term: ulong;
-  index: ulong;
-}
-
-// Reads only the blocks of data on this node
-table ReadRawRequest {
-  required_commit: CommitId (required);
-  inode: ulong;
-  offset: ulong;
-  read_size: uint;
-}
-
-table ReadRequest {
-  inode: ulong;
-  offset: ulong;
-  read_size: uint;
-}
-
-root_type GenericRequest;
-
 table RkyvResponse {
   rkyv_data: [ubyte] (required);
 }

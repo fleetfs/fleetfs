@@ -1,6 +1,6 @@
-use crate::base::LengthPrefixedVec;
 use crate::generated::ResponseType;
 use crate::ErrorCode;
+use byteorder::{ByteOrder, LittleEndian};
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 pub type ResultResponse<'a> = Result<FlatBufferResponse<'a>, ErrorCode>;
@@ -16,7 +16,7 @@ pub type FlatBufferResponse<'a> = (
 // along, so that it can be reused.
 pub struct FlatBufferWithResponse<'a> {
     buffer: FlatBufferBuilder<'a>,
-    response: Option<LengthPrefixedVec>,
+    response: Option<Vec<u8>>,
 }
 
 impl<'a> FlatBufferWithResponse<'a> {
@@ -29,11 +29,15 @@ impl<'a> FlatBufferWithResponse<'a> {
 
     pub fn with_separate_response(
         buffer: FlatBufferBuilder<'a>,
-        response: LengthPrefixedVec,
+        response: Vec<u8>,
     ) -> FlatBufferWithResponse<'a> {
+        // TODO: optimize out this copy
+        let mut prefixed_response = vec![0; response.len() + 4];
+        LittleEndian::write_u32(&mut prefixed_response[..4], response.len() as u32);
+        prefixed_response[4..].copy_from_slice(&response);
         FlatBufferWithResponse {
             buffer,
-            response: Some(response),
+            response: Some(prefixed_response),
         }
     }
 
@@ -45,7 +49,7 @@ impl<'a> FlatBufferWithResponse<'a> {
 impl<'a> AsRef<[u8]> for FlatBufferWithResponse<'a> {
     fn as_ref(&self) -> &[u8] {
         if let Some(ref response) = self.response {
-            response.length_prefixed_bytes()
+            response
         } else {
             self.buffer.finished_data()
         }
