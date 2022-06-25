@@ -33,9 +33,8 @@ async fn propose(
             .propose(inode, request)
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
-        // TODO: optimize this to_vec() copy
-        response_or_error(response.bytes())?;
-        return Ok(response.bytes().to_vec());
+        response_or_error(&response)?;
+        return Ok(response);
     }
 }
 
@@ -251,7 +250,7 @@ async fn getattrs(
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
-        let response = response_or_error(response_data.bytes())?;
+        let response = response_or_error(&response_data)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -300,7 +299,7 @@ async fn lookup(
             .await
             .map_err(|_| ErrorCode::Uncategorized)?;
 
-        let response = response_or_error(response_data.bytes())?;
+        let response = response_or_error(&response_data)?;
         let rkyv_data = response
             .response_as_rkyv_response()
             .ok_or(ErrorCode::BadResponse)?
@@ -750,7 +749,7 @@ pub async fn create_transaction<'a>(
         .propose_to_specific_group(raft_group, &create_inode)
         .await
         .map_err(|_| ErrorCode::Uncategorized)?;
-    let response = response_or_error(create_response_data.bytes())?;
+    let response = response_or_error(&create_response_data)?;
     assert_eq!(response.response_type(), ResponseType::RkyvResponse);
     let rkyv_data = response.response_as_rkyv_response().unwrap().rkyv_data();
     let mut rkyv_aligned = AlignedVec::with_capacity(rkyv_data.len());

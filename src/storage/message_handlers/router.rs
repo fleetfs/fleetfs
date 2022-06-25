@@ -1,8 +1,8 @@
-use crate::base::message_types::{ArchivedRkyvRequest, FileKind, RkyvRequest};
+use crate::base::message_types::{ArchivedRkyvRequest, CommitId, FileKind, RkyvRequest};
 use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::{finalize_response, FlatBufferWithResponse};
-use crate::base::{flatbuffer_request_meta_info, LocalContext, RequestMetaInfo};
 use crate::base::{DistributionRequirement, ResultResponse};
+use crate::base::{LocalContext, RequestMetaInfo};
 use crate::client::RemoteRaftGroups;
 use crate::generated::*;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};
@@ -44,60 +44,6 @@ pub fn to_error_response(
     return builder;
 }
 
-async fn request_router_inner(
-    request: GenericRequest<'_>,
-    raft: Arc<LocalRaftGroupManager>,
-    _remote_rafts: Arc<RemoteRaftGroups>,
-    _context: LocalContext,
-    builder: FlatBufferBuilder<'static>,
-) -> Result<FlatBufferWithResponse<'static>, ErrorCode> {
-    match request.request_type() {
-        RequestType::ReadRequest => {
-            if let Some(read_request) = request.request_as_read_request() {
-                let inode = read_request.inode();
-                let offset = read_request.offset();
-                let read_size = read_request.read_size();
-                let latest_commit = raft
-                    .lookup_by_inode(inode)
-                    .get_latest_commit_from_leader()
-                    .await?;
-                raft.lookup_by_inode(inode).sync(latest_commit).await?;
-                return raft
-                    .lookup_by_inode(inode)
-                    .file_storage()
-                    // TODO: Use the real term, not zero
-                    .read(
-                        inode,
-                        offset,
-                        read_size,
-                        CommitId::new(0, latest_commit),
-                        builder,
-                    )
-                    .await;
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::ReadRawRequest => {
-            if let Some(read_request) = request.request_as_read_raw_request() {
-                let inode = read_request.inode();
-                raft.lookup_by_inode(inode)
-                    .sync(read_request.required_commit().index())
-                    .await?;
-                return Ok(raft.lookup_by_inode(inode).file_storage().read_raw(
-                    inode,
-                    read_request.offset(),
-                    read_request.read_size(),
-                    builder,
-                ));
-            } else {
-                return Err(ErrorCode::BadRequest);
-            }
-        }
-        RequestType::NONE => unreachable!(),
-    }
-}
-
 // Determines whether the request can be handled by the local node, or whether it needs to be
 // forwarded to a different raft group
 fn can_handle_locally(request_meta: &RequestMetaInfo, local_rafts: &LocalRaftGroupManager) -> bool {
@@ -132,47 +78,7 @@ async fn forward_request(
     }
 }
 
-async fn forward_flatbuffer_request(
-    request: &GenericRequest<'_>,
-    builder: FlatBufferBuilder<'static>,
-    rafts: Arc<RemoteRaftGroups>,
-) -> FlatBufferWithResponse<'static> {
-    if let Ok(response) = rafts.forward_flatbuffer_request(request).await {
-        FlatBufferWithResponse::with_separate_response(builder, response)
-    } else {
-        FlatBufferWithResponse::new(to_error_response(
-            FlatBufferBuilder::new(),
-            ErrorCode::Uncategorized,
-        ))
-    }
-}
-
 pub async fn request_router(
-    aligned: AlignedVec,
-    raft: Arc<LocalRaftGroupManager>,
-    remote_rafts: Arc<RemoteRaftGroups>,
-    context: LocalContext,
-    builder: FlatBufferBuilder<'static>,
-) -> FlatBufferWithResponse<'static> {
-    let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
-    match request {
-        ArchivedRkyvRequest::Flatbuffer(flatbuffer) => {
-            let request = get_root_as_generic_request(flatbuffer);
-            let response = flatbuffer_request_router(
-                request,
-                raft.clone(),
-                remote_rafts.clone(),
-                context.clone(),
-                builder,
-            )
-            .await;
-            response
-        }
-        _ => rkyv_request_router(aligned, raft, remote_rafts, context, builder).await,
-    }
-}
-
-async fn rkyv_request_router<'a>(
     aligned: AlignedVec,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
@@ -185,8 +91,9 @@ async fn rkyv_request_router<'a>(
         return forward_request(aligned, meta, builder, remote_rafts.clone()).await;
     }
 
-    match rkyv_request_router_inner(aligned, raft, remote_rafts, context).await {
+    match request_router_inner(aligned, raft, remote_rafts, context).await {
         Ok(rkyv_response) => {
+            // TODO: optimize Read responses to avoid copying all the data. We should just take the .data Vec and write it out
             let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
             let flatbuffer_offset = builder.create_vector_direct(&rkyv_bytes);
             let mut response_builder = RkyvResponseBuilder::new(&mut builder);
@@ -201,7 +108,7 @@ async fn rkyv_request_router<'a>(
     }
 }
 
-async fn rkyv_request_router_inner(
+async fn request_router_inner(
     aligned: AlignedVec,
     raft: Arc<LocalRaftGroupManager>,
     remote_rafts: Arc<RemoteRaftGroups>,
@@ -272,6 +179,44 @@ async fn rkyv_request_router_inner(
                 remote_rafts.clone(),
             )
             .await
+        }
+        ArchivedRkyvRequest::Read {
+            inode,
+            offset,
+            read_size,
+        } => {
+            let latest_commit = raft
+                .lookup_by_inode(inode.into())
+                .get_latest_commit_from_leader()
+                .await?;
+            raft.lookup_by_inode(inode.into())
+                .sync(latest_commit)
+                .await?;
+            raft.lookup_by_inode(inode.into())
+                .file_storage()
+                // TODO: Use the real term, not zero
+                .read(
+                    inode.into(),
+                    offset.into(),
+                    read_size.into(),
+                    CommitId::new(0, latest_commit),
+                )
+                .await
+        }
+        ArchivedRkyvRequest::ReadRaw {
+            inode,
+            required_commit,
+            offset,
+            read_size,
+        } => {
+            raft.lookup_by_inode(inode.into())
+                .sync(required_commit.index.into())
+                .await?;
+            raft.lookup_by_inode(inode.into()).file_storage().read_raw(
+                inode.into(),
+                offset.into(),
+                read_size.into(),
+            )
         }
         ArchivedRkyvRequest::Rmdir {
             parent,
@@ -420,26 +365,6 @@ async fn rkyv_request_router_inner(
                 .apply_messages(&[deserialized_message])
                 .unwrap();
             Ok(RkyvGenericResponse::Empty)
-        }
-        ArchivedRkyvRequest::Flatbuffer(_) => unreachable!(),
-    }
-}
-
-async fn flatbuffer_request_router<'a>(
-    request: GenericRequest<'a>,
-    raft: Arc<LocalRaftGroupManager>,
-    remote_rafts: Arc<RemoteRaftGroups>,
-    context: LocalContext,
-    builder: FlatBufferBuilder<'static>,
-) -> FlatBufferWithResponse<'static> {
-    if !can_handle_locally(&flatbuffer_request_meta_info(&request), &raft) {
-        return forward_flatbuffer_request(&request, builder, remote_rafts.clone()).await;
-    }
-
-    match request_router_inner(request, raft, remote_rafts, context, builder).await {
-        Ok(response) => response,
-        Err(error_code) => {
-            FlatBufferWithResponse::new(to_error_response(FlatBufferBuilder::new(), error_code))
         }
     }
 }

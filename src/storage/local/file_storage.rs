@@ -1,14 +1,12 @@
-use flatbuffers::FlatBufferBuilder;
 use log::info;
 use std::fs;
 
-use crate::base::fast_data_protocol::to_fast_read_response;
 use crate::base::message_types::{
-    DirectoryEntry, EntryMetadata, ErrorCode, FileKind, RkyvGenericResponse, Timestamp, UserContext,
+    CommitId, DirectoryEntry, EntryMetadata, ErrorCode, FileKind, RkyvGenericResponse, Timestamp,
+    UserContext,
 };
-use crate::base::{node_id_from_address, FlatBufferWithResponse};
+use crate::base::node_id_from_address;
 use crate::client::TcpPeerClient;
-use crate::generated::*;
 use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
 use crate::storage::local::metadata_storage::{InodeAttributes, MetadataStorage, MAX_NAME_LENGTH};
 use crate::storage::local::response_helpers::into_error_code;
@@ -198,27 +196,25 @@ impl FileStorage {
         offset: u64,
         read_size: u32,
         required_commit: CommitId,
-        builder: FlatBufferBuilder<'static>,
-    ) -> impl Future<Output = Result<FlatBufferWithResponse<'static>, ErrorCode>> + '_ {
+    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> + '_ {
         // No access check is needed, since we rely on the client to do it
         let read_result = self
             .data_storage
             .read(inode, offset, read_size, required_commit);
-        read_result.map(move |response| Ok(to_fast_read_response(builder, response)))
+        read_result.map(move |response| response.map(|data| RkyvGenericResponse::Read { data }))
     }
 
-    pub fn read_raw<'a>(
+    pub fn read_raw(
         &self,
         inode: u64,
         offset: u64,
         read_size: u32,
-        builder: FlatBufferBuilder<'a>,
-    ) -> FlatBufferWithResponse<'a> {
+    ) -> Result<RkyvGenericResponse, ErrorCode> {
         let data = self
             .data_storage
             .read_raw(inode, offset, read_size)
-            .map_err(into_error_code);
-        return to_fast_read_response(builder, data);
+            .map_err(into_error_code)?;
+        Ok(RkyvGenericResponse::Read { data })
     }
 
     pub fn write(
