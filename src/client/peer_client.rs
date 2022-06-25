@@ -1,8 +1,8 @@
 use log::error;
 use std::net::SocketAddr;
 
-use crate::base::message_types::{CommitId, ErrorCode, RkyvRequest};
 use crate::base::response_or_error;
+use crate::base::{CommitId, ErrorCode, RkyvRequest};
 use byteorder::{ByteOrder, LittleEndian};
 use futures::future::{ok, ready, BoxFuture, Either};
 use futures::FutureExt;

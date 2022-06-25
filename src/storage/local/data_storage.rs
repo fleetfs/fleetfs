@@ -1,9 +1,9 @@
 use futures::Future;
 use futures::FutureExt;
 
-use crate::base::message_types::{CommitId, ErrorCode};
+use crate::base::{CommitId, ErrorCode};
 use crate::client::PeerClient;
-use crate::storage::local::response_helpers::into_error_code;
+use crate::storage::local::error_helper::into_error_code;
 use crate::storage::ROOT_INODE;
 use futures::future::{err, join_all, Either};
 use log::info;
@@ -300,7 +300,7 @@ impl<T: PeerClient> DataStorage<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::base::message_types::CommitId;
+    use crate::base::CommitId;
     use crate::client::PeerClient;
     use crate::storage::local::data_storage::{
         stores_index, to_global_index, to_local_index_ceiling, DataStorage, BLOCK_SIZE,

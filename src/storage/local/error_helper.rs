@@ -1,4 +1,4 @@
-use crate::base::message_types::ErrorCode;
+use crate::base::ErrorCode;
 use std::io::ErrorKind;
 
 pub fn into_error_code(error: std::io::Error) -> ErrorCode {

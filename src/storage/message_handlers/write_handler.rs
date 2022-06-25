@@ -1,4 +1,4 @@
-use crate::base::message_types::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse};
+use crate::base::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse};
 use crate::storage::local::FileStorage;
 
 pub fn commit_write(
@@ -33,22 +33,12 @@ pub fn commit_write(
             key,
             context,
         } => file_storage.remove_xattr(inode.into(), key.as_str(), context.into()),
-        ArchivedRkyvRequest::Mkdir { .. } => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        ArchivedRkyvRequest::Hardlink { .. } => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        ArchivedRkyvRequest::Rename { .. } => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        ArchivedRkyvRequest::Create { .. } => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        ArchivedRkyvRequest::Unlink { .. } => {
-            unreachable!("Transaction coordinator should break these up into internal requests");
-        }
-        ArchivedRkyvRequest::Rmdir { .. } => {
+        ArchivedRkyvRequest::Mkdir { .. }
+        | ArchivedRkyvRequest::Hardlink { .. }
+        | ArchivedRkyvRequest::Rename { .. }
+        | ArchivedRkyvRequest::Create { .. }
+        | ArchivedRkyvRequest::Unlink { .. }
+        | ArchivedRkyvRequest::Rmdir { .. } => {
             unreachable!("Transaction coordinator should break these up into internal requests");
         }
         ArchivedRkyvRequest::Chmod {
@@ -147,10 +137,7 @@ pub fn commit_write(
             decrement_count,
             ..
         } => file_storage.decrement_inode_link_count(inode.into(), decrement_count.into()),
-        ArchivedRkyvRequest::Lock { .. } => {
-            unreachable!("This should have been handled by the LockTable");
-        }
-        ArchivedRkyvRequest::Unlock { .. } => {
+        ArchivedRkyvRequest::Lock { .. } | ArchivedRkyvRequest::Unlock { .. } => {
             unreachable!("This should have been handled by the LockTable");
         }
         ArchivedRkyvRequest::FilesystemReady

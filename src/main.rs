@@ -10,7 +10,7 @@ use log::warn;
 use log::LevelFilter;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
-use crate::base::message_types::ErrorCode;
+use crate::base::ErrorCode;
 use fuser::MountOption;
 use std::fs::File;
 use std::io;

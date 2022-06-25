@@ -2,8 +2,8 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Mutex;
 
-use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
+use byteorder::{ByteOrder, LittleEndian};
 use core::time::Duration;
 use rkyv::AlignedVec;
 
@@ -23,7 +23,7 @@ impl TcpClient {
         }
     }
 
-    pub fn send_and_receive_length_prefixed(
+    pub fn send_and_receive(
         &self,
         data: &[u8],
         response: &mut AlignedVec,
@@ -42,7 +42,12 @@ impl TcpClient {
 
         let mut stream = locked.take().expect("connected stream is None");
 
-        match stream.write_all(data) {
+        let mut send_buffer = vec![0; data.len() + 4];
+        LittleEndian::write_u32(&mut send_buffer, data.len() as u32);
+        // TODO: optimize out this copy
+        send_buffer[4..].copy_from_slice(data);
+
+        match stream.write_all(&send_buffer) {
             Ok(_) => {}
             Err(_) => {
                 // Retry once
@@ -53,7 +58,7 @@ impl TcpClient {
                 stream
                     .set_write_timeout(Some(Duration::from_secs(TIMEOUT)))
                     .expect("Timeout cannot be zero");
-                stream.write_all(data)?;
+                stream.write_all(&send_buffer)?;
             }
         }
 

@@ -10,7 +10,7 @@ use log::error;
 use log::warn;
 
 use crate::base::check_access;
-use crate::base::message_types::{FileKind, Timestamp, UserContext};
+use crate::base::{FileKind, Timestamp, UserContext};
 use crate::client::NodeClient;
 use crate::ErrorCode;
 use fuser::consts::FOPEN_DIRECT_IO;
