@@ -1,6 +1,6 @@
-use crate::base::message_types::{ArchivedRkyvRequest, CommitId, FileKind, RkyvRequest};
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::DistributionRequirement;
+use crate::base::{ArchivedRkyvRequest, CommitId, FileKind, RkyvRequest};
+use crate::base::{ErrorCode, RkyvGenericResponse};
 use crate::base::{LocalContext, RequestMetaInfo};
 use crate::client::RemoteRaftGroups;
 use crate::storage::message_handlers::fsck_handler::{checksum_request, fsck};

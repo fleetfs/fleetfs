@@ -4,14 +4,13 @@ use std::net::SocketAddr;
 
 use thread_local::ThreadLocal;
 
-use crate::base::message_types::{
+use crate::base::response_or_error;
+use crate::base::{
     ArchivedRkyvGenericResponse, EntryMetadata, ErrorCode, FileKind, RkyvRequest, Timestamp,
     UserContext,
 };
-use crate::base::response_or_error;
 use crate::client::tcp_client::TcpClient;
 use crate::storage::ROOT_INODE;
-use byteorder::{ByteOrder, LittleEndian};
 use fuser::FileAttr;
 use rkyv::ser::serializers::AllocSerializer;
 use rkyv::ser::Serializer;
@@ -71,21 +70,17 @@ impl NodeClient {
             .borrow_mut();
     }
 
-    fn send<'b>(
+    fn send<'a>(
         &self,
         request: RkyvRequest,
-        buffer: &'b mut AlignedVec,
-    ) -> Result<&'b ArchivedRkyvGenericResponse, ErrorCode> {
+        buffer: &'a mut AlignedVec,
+    ) -> Result<&'a ArchivedRkyvGenericResponse, ErrorCode> {
         // TODO: reuse these serializers to reduce allocations, like get_or_create_builder()
         let mut serializer = AllocSerializer::<64>::default();
         serializer.serialize_value(&request).unwrap();
         let request_buffer = serializer.into_serializer().into_inner();
-        let mut send_buffer = vec![0; request_buffer.len() + 4];
-        LittleEndian::write_u32(&mut send_buffer, request_buffer.len() as u32);
-        // TODO: optimize out this copy
-        send_buffer[4..].copy_from_slice(&request_buffer);
         self.tcp_client
-            .send_and_receive_length_prefixed(&send_buffer, buffer)
+            .send_and_receive(&request_buffer, buffer)
             .map_err(|_| ErrorCode::Uncategorized)?;
         response_or_error(buffer)
     }

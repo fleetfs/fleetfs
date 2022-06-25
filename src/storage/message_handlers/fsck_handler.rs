@@ -1,5 +1,5 @@
-use crate::base::message_types::{ErrorCode, RkyvGenericResponse};
 use crate::base::LocalContext;
+use crate::base::{ErrorCode, RkyvGenericResponse};
 use crate::client::{PeerClient, TcpPeerClient};
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;

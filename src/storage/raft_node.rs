@@ -27,9 +27,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::base::message_types::{
-    ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse, RkyvRequest,
-};
+use crate::base::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse, RkyvRequest};
 use protobuf::Message as ProtobufMessage;
 use rkyv::AlignedVec;
 
