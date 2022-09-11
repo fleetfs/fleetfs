@@ -30,7 +30,7 @@ pub enum DistributionRequirement {
     Node,                   // Must be processed by a specific node
 }
 
-#[derive(Archive, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[archive_attr(derive(CheckBytes))]
 pub enum ErrorCode {
     DoesNotExist,
@@ -50,7 +50,7 @@ pub enum ErrorCode {
     Uncategorized,
 }
 
-#[derive(Archive, Debug, Deserialize, PartialEq, Serialize, Clone, Copy)]
+#[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize, Clone, Copy)]
 #[archive_attr(derive(CheckBytes))]
 pub enum FileKind {
     File,
@@ -68,7 +68,7 @@ impl From<&ArchivedFileKind> for FileKind {
     }
 }
 
-#[derive(Archive, Debug, Deserialize, PartialEq, Serialize, Clone, Copy)]
+#[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize, Clone, Copy)]
 #[archive_attr(derive(CheckBytes))]
 pub struct CommitId {
     pub term: u64,
@@ -81,7 +81,7 @@ impl CommitId {
     }
 }
 
-#[derive(Archive, Debug, Deserialize, PartialEq, Serialize, Clone, Copy)]
+#[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize, Clone, Copy)]
 #[archive_attr(derive(CheckBytes))]
 pub struct InodeUidPair {
     pub inode: u64,
