@@ -160,11 +160,8 @@ impl FileStorage {
         context: UserContext,
     ) -> Result<RkyvGenericResponse, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
-        if let Err(error_code) = self.metadata_storage.chmod(inode, mode, context) {
-            Err(error_code)
-        } else {
-            Ok(RkyvGenericResponse::Empty)
-        }
+        self.metadata_storage.chmod(inode, mode, context)?;
+        Ok(RkyvGenericResponse::Empty)
     }
 
     pub fn chown(
@@ -175,19 +172,13 @@ impl FileStorage {
         context: UserContext,
     ) -> Result<RkyvGenericResponse, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
-        if let Err(error_code) = self.metadata_storage.chown(inode, uid, gid, context) {
-            Err(error_code)
-        } else {
-            Ok(RkyvGenericResponse::Empty)
-        }
+        self.metadata_storage.chown(inode, uid, gid, context)?;
+        Ok(RkyvGenericResponse::Empty)
     }
 
     pub fn fsync(&self, inode: u64) -> Result<RkyvGenericResponse, ErrorCode> {
-        if let Err(error_code) = self.data_storage.fsync(inode) {
-            Err(error_code)
-        } else {
-            Ok(RkyvGenericResponse::Empty)
-        }
+        self.data_storage.fsync(inode)?;
+        Ok(RkyvGenericResponse::Empty)
     }
 
     pub fn read(
