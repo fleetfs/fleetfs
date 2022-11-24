@@ -144,10 +144,7 @@ impl MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
-        let db = unsafe {
-            redb::Database::create(&metadata_dir.join("metadata.redb"), 2 * 1024 * 1024 * 1024)
-                .unwrap()
-        };
+        let db = unsafe { redb::Database::create(&metadata_dir.join("metadata.redb")).unwrap() };
         let txn = db.begin_write().unwrap();
         {
             let mut table = txn.open_table(PARENTS_TABLE).unwrap();
