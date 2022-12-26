@@ -484,9 +484,7 @@ impl RaftNode {
                 StateRole::Follower => applied_index,
                 StateRole::Candidate | StateRole::PreCandidate => applied_index,
             };
-            if compact_to > 0 {
-                compact_to -= 1;
-            }
+            compact_to = compact_to.saturating_sub(1);
             if let Err(error) = raft_node.mut_store().wl().compact(compact_to) {
                 match error {
                     Error::Store(store_error) => match store_error {

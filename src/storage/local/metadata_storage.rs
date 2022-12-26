@@ -144,7 +144,7 @@ impl MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
-        let db = redb::Database::create(&metadata_dir.join("metadata.redb")).unwrap();
+        let db = redb::Database::create(metadata_dir.join("metadata.redb")).unwrap();
         let txn = db.begin_write().unwrap();
         {
             let mut table = txn.open_table(PARENTS_TABLE).unwrap();
@@ -381,6 +381,8 @@ impl MetadataStorage {
         }
     }
 
+    // t_mode type is u16 on MacOS, but u32 on Linux
+    #[allow(clippy::unnecessary_cast)]
     pub fn chmod(
         &self,
         inode: Inode,
