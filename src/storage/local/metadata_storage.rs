@@ -144,7 +144,7 @@ impl MetadataStorage {
         let mut directories = HashMap::new();
         directories.insert(ROOT_INODE, HashMap::new());
 
-        let db = unsafe { redb::Database::create(&metadata_dir.join("metadata.redb")).unwrap() };
+        let db = redb::Database::create(&metadata_dir.join("metadata.redb")).unwrap();
         let txn = db.begin_write().unwrap();
         {
             let mut table = txn.open_table(PARENTS_TABLE).unwrap();
@@ -303,7 +303,7 @@ impl MetadataStorage {
             let txn = db.begin_read().unwrap();
             let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
             let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
-                let parent_inode = table.get(&inode).unwrap().unwrap();
+                let parent_inode = table.get(&inode).unwrap().unwrap().value();
                 assert_eq!(*vparent_inode, parent_inode);
                 parent_inode
             } else {
