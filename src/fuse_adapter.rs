@@ -115,6 +115,8 @@ fn into_fuse_error(error: ErrorCode) -> c_int {
     }
 }
 
+// t_mode type is u16 on MacOS, but u32 on Linux
+#[allow(clippy::unnecessary_cast)]
 fn as_file_kind(mut mode: u32) -> FileKind {
     mode &= libc::S_IFMT as u32;
 
@@ -297,6 +299,8 @@ impl Filesystem for FleetFUSE {
         }
     }
 
+    // t_mode type is u16 on MacOS, but u32 on Linux
+    #[allow(clippy::unnecessary_cast)]
     fn mknod(
         &mut self,
         req: &Request,
@@ -521,14 +525,14 @@ impl Filesystem for FleetFUSE {
 
     fn open(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
-        let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
+        let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
-                if flags as i32 & libc::O_TRUNC != 0 {
+                if flags & libc::O_TRUNC != 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
-                if flags as i32 & FMODE_EXEC != 0 {
+                if flags & FMODE_EXEC != 0 {
                     // Open is from internal exec syscall
                     (libc::X_OK, true, false)
                 } else {
@@ -644,10 +648,10 @@ impl Filesystem for FleetFUSE {
 
     fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
-        let (access_mask, read, write) = match flags as i32 & libc::O_ACCMODE {
+        let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
-                if flags as i32 & libc::O_TRUNC != 0 {
+                if flags & libc::O_TRUNC != 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
@@ -880,7 +884,7 @@ impl Filesystem for FleetFUSE {
             reply.error(libc::EINVAL);
             return;
         };
-        let (read, write) = match flags as i32 & libc::O_ACCMODE {
+        let (read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => (true, false),
             libc::O_WRONLY => (false, true),
             libc::O_RDWR => (true, true),

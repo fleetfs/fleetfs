@@ -270,7 +270,7 @@ impl<T: PeerClient> DataStorage<T> {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
-            .open(&local_path)
+            .open(local_path)
             .expect("Couldn't create file");
         file.set_len(local_bytes)?;
 
