@@ -1,4 +1,5 @@
 use bytecheck::CheckBytes;
+use redb::{RedbValue, TypeName};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -65,6 +66,43 @@ impl From<&ArchivedFileKind> for FileKind {
             ArchivedFileKind::Directory => FileKind::Directory,
             ArchivedFileKind::Symlink => FileKind::Symlink,
         }
+    }
+}
+
+impl RedbValue for FileKind {
+    type SelfType<'a> = FileKind;
+    type AsBytes<'a> = [u8; 1];
+
+    fn fixed_width() -> Option<usize> {
+        Some(1)
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        match data[0] {
+            1 => FileKind::File,
+            2 => FileKind::Directory,
+            3 => FileKind::Symlink,
+            _ => unreachable!(),
+        }
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'a,
+        Self: 'b,
+    {
+        match value {
+            FileKind::File => [1],
+            FileKind::Directory => [2],
+            FileKind::Symlink => [3],
+        }
+    }
+
+    fn type_name() -> TypeName {
+        TypeName::new("fleetfs::FileKind")
     }
 }
 

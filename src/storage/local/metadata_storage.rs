@@ -15,11 +15,17 @@ pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
 pub const MAX_NAME_LENGTH: u32 = 255;
 pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024 * 1024;
 
+type Inode = u64;
+
 // Stores mapping of directory inodes to their parent
 const PARENTS_TABLE: TableDefinition<u64, u64> = TableDefinition::new("parents");
 
-type Inode = u64;
-type DirectoryDescriptor = HashMap<String, (Inode, FileKind)>;
+// Directory contents. This is considered metadata rather than data,
+// because it's replicated to all nodes to allow better searching.
+// Maybe we should revisit that design?
+// Maps (directory inodes, entry name) to -> inode
+const DIRECTORY_TABLE: TableDefinition<(Inode, &str), (Inode, FileKind)> =
+    TableDefinition::new("directory");
 
 #[derive(Clone, Debug)]
 pub struct InodeAttributes {
@@ -123,11 +129,6 @@ fn xattr_access_check(
 // TODO: add persistence
 // When acquiring locks on multiple fields, they must be in alphabetical order
 pub struct MetadataStorage {
-    // Directory contents. This is considered metadata rather than data,
-    // because it's replicated to all nodes to allow better searching.
-    // Maybe we should revisit that design?
-    // Maps directory inodes to maps of name -> inode
-    directories: Mutex<HashMap<Inode, DirectoryDescriptor>>,
     metadata: Mutex<HashMap<Inode, InodeAttributes>>,
     storage: Mutex<redb::Database>,
     // TODO: remove this once redb is stable & reliable
@@ -141,14 +142,12 @@ pub struct MetadataStorage {
 impl MetadataStorage {
     #[allow(clippy::new_without_default)]
     pub fn new(raft_group: u16, num_raft_groups: u16, metadata_dir: &Path) -> MetadataStorage {
-        let mut directories = HashMap::new();
-        directories.insert(ROOT_INODE, HashMap::new());
-
         let db = redb::Database::create(metadata_dir.join("metadata.redb")).unwrap();
         let txn = db.begin_write().unwrap();
         {
             let mut table = txn.open_table(PARENTS_TABLE).unwrap();
             table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
+            txn.open_table(DIRECTORY_TABLE).unwrap();
         }
         txn.commit().unwrap();
 
@@ -181,7 +180,6 @@ impl MetadataStorage {
 
         MetadataStorage {
             metadata: Mutex::new(metadata),
-            directories: Mutex::new(directories),
             storage: Mutex::new(db),
             parent_verification: Mutex::new(parents),
             next_inode: AtomicU64::new(start_inode),
@@ -211,7 +209,7 @@ impl MetadataStorage {
             return Err(ErrorCode::NameTooLong);
         }
 
-        let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
@@ -225,7 +223,9 @@ impl MetadataStorage {
             return Err(ErrorCode::AccessDenied);
         }
 
-        let maybe_inode = directories[&parent].get(name).map(|(inode, _)| *inode);
+        let txn = db.begin_read().unwrap();
+        let table = txn.open_table(DIRECTORY_TABLE).unwrap();
+        let maybe_inode = table.get((parent, name)).unwrap().map(|x| x.value().0);
         Ok(maybe_inode)
     }
 
@@ -292,36 +292,37 @@ impl MetadataStorage {
     }
 
     pub fn readdir(&self, inode: Inode) -> Result<Vec<(Inode, String, FileKind)>, ErrorCode> {
-        let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        if !metadata.contains_key(&inode) {
+            return Err(ErrorCode::DoesNotExist);
+        }
         let vdb = self
             .parent_verification
             .lock()
             .map_err(|_| ErrorCode::Corrupted)?;
 
-        if let Some(entries) = directories.get(&inode) {
-            let txn = db.begin_read().unwrap();
-            let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
-            let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
-                let parent_inode = table.get(&inode).unwrap().unwrap().value();
-                assert_eq!(*vparent_inode, parent_inode);
-                parent_inode
-            } else {
-                assert!(table.get(&inode).unwrap().is_none());
-                return Err(ErrorCode::InodeDoesNotExist);
-            };
-
-            let mut result: Vec<(Inode, String, FileKind)> = entries
-                .iter()
-                .map(|(name, (inode, kind))| (*inode, name.clone(), *kind))
-                .collect();
-            // TODO: kind of a hack
-            result.insert(0, (parent_inode, "..".to_string(), FileKind::Directory));
-            result.insert(0, (inode, ".".to_string(), FileKind::Directory));
-            Ok(result)
+        let txn = db.begin_read().unwrap();
+        let directory_table = txn.open_table(DIRECTORY_TABLE).unwrap();
+        let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
+        let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
+            let parent_inode = table.get(&inode).unwrap().unwrap().value();
+            assert_eq!(*vparent_inode, parent_inode);
+            parent_inode
         } else {
-            Err(ErrorCode::DoesNotExist)
-        }
+            assert!(table.get(&inode).unwrap().is_none());
+            return Err(ErrorCode::InodeDoesNotExist);
+        };
+
+        let mut result: Vec<(Inode, String, FileKind)> = directory_table
+            .range((inode, "")..(inode + 1, ""))
+            .unwrap()
+            .map(|(key, value)| (value.value().0, key.value().1.to_string(), value.value().1))
+            .collect();
+        // TODO: kind of a hack
+        result.insert(0, (parent_inode, "..".to_string(), FileKind::Directory));
+        result.insert(0, (inode, ".".to_string(), FileKind::Directory));
+        Ok(result)
     }
 
     pub fn utimens(
@@ -468,7 +469,7 @@ impl MetadataStorage {
             return Err(ErrorCode::AlreadyExists);
         }
 
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_attrs = metadata
             .get_mut(&parent)
@@ -486,10 +487,12 @@ impl MetadataStorage {
         parent_attrs.last_modified = now();
         parent_attrs.last_metadata_changed = now();
 
-        directories
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .insert(name.to_string(), (inode, inode_kind));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut table = txn.open_table(DIRECTORY_TABLE).unwrap();
+            table.insert((parent, name), (inode, inode_kind)).unwrap();
+        }
+        txn.commit().unwrap();
 
         Ok(())
     }
@@ -502,7 +505,7 @@ impl MetadataStorage {
         inode_kind: FileKind,
         context: UserContext,
     ) -> Result<u64, ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let parent_attrs = metadata
             .get_mut(&parent)
@@ -520,11 +523,17 @@ impl MetadataStorage {
         parent_attrs.last_modified = now();
         parent_attrs.last_metadata_changed = now();
 
-        let (old_inode, _) = directories
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?
-            .insert(name.to_string(), (new_inode, inode_kind))
-            .unwrap();
+        let txn = db.begin_write().unwrap();
+        let old_inode = {
+            let mut table = txn.open_table(DIRECTORY_TABLE).unwrap();
+            let (old_inode, _) = table
+                .insert((parent, name), (new_inode, inode_kind))
+                .unwrap()
+                .unwrap()
+                .value();
+            old_inode
+        };
+        txn.commit().unwrap();
 
         Ok(old_inode)
     }
@@ -618,22 +627,27 @@ impl MetadataStorage {
         link_inode_and_uid: Option<(u64, u32)>,
         context: UserContext,
     ) -> Result<(Inode, bool), ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().unwrap();
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        let parent_directory = directories
-            .get_mut(&parent)
-            .ok_or(ErrorCode::InodeDoesNotExist)?;
-        let (inode, _) = parent_directory.get(name).ok_or(ErrorCode::DoesNotExist)?;
+        let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
+        let txn = db.begin_write().unwrap();
+        let mut table = txn.open_table(DIRECTORY_TABLE).unwrap();
+        let (inode, _) = table
+            .get((parent, name))
+            .unwrap()
+            .ok_or(ErrorCode::DoesNotExist)?
+            .value();
 
         if let Some((retrieved_inode, _)) = link_inode_and_uid {
-            if retrieved_inode != *inode {
+            if retrieved_inode != inode {
                 // The inode that the client looked up is out of date (i.e. this link has been
                 // deleted and recreated since then). Tell the client to look it up again.
-                return Ok((*inode, false));
+                drop(table);
+                txn.abort().unwrap();
+                return Ok((inode, false));
             }
         }
 
-        let parent_attrs = metadata.get(&parent).ok_or(ErrorCode::InodeDoesNotExist)?;
         if !check_access(
             parent_attrs.uid,
             parent_attrs.gid,
@@ -642,6 +656,8 @@ impl MetadataStorage {
             context.gid(),
             libc::W_OK,
         ) {
+            drop(table);
+            txn.abort().unwrap();
             return Err(ErrorCode::AccessDenied);
         }
 
@@ -650,12 +666,16 @@ impl MetadataStorage {
         if parent_attrs.mode & libc::S_ISVTX as u16 != 0 && uid != parent_attrs.uid && uid != 0 {
             if let Some((_, inode_uid)) = link_inode_and_uid {
                 if uid != inode_uid {
+                    drop(table);
+                    txn.abort().unwrap();
                     return Err(ErrorCode::AccessDenied);
                 }
             } else {
                 // Sticky bit is on, and we need to check the inode's uid. Tell the client to lock
                 // it and look up the uid.
-                return Ok((*inode, false));
+                drop(table);
+                txn.abort().unwrap();
+                return Ok((inode, false));
             }
         }
 
@@ -664,9 +684,13 @@ impl MetadataStorage {
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         parent_attrs.last_metadata_changed = now();
         parent_attrs.last_modified = now();
-        let (inode, _) = parent_directory
-            .remove(name)
-            .ok_or(ErrorCode::DoesNotExist)?;
+        let (inode, _) = table
+            .remove((parent, name))
+            .unwrap()
+            .ok_or(ErrorCode::DoesNotExist)?
+            .value();
+        drop(table);
+        txn.commit().unwrap();
 
         Ok((inode, true))
     }
@@ -693,7 +717,6 @@ impl MetadataStorage {
         mode: u16,
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut vdb = self
@@ -726,7 +749,6 @@ impl MetadataStorage {
         metadata.insert(inode, inode_metadata.clone());
 
         if kind == FileKind::Directory {
-            directories.insert(inode, HashMap::new());
             let txn = db.begin_write().unwrap();
             {
                 let mut table = txn.open_table(PARENTS_TABLE).unwrap();
@@ -744,7 +766,6 @@ impl MetadataStorage {
         inode: Inode,
         count: u32,
     ) -> Result<Option<Inode>, ErrorCode> {
-        let mut directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut vdb = self
@@ -766,12 +787,17 @@ impl MetadataStorage {
                     let mut table = txn.open_table(PARENTS_TABLE).unwrap();
                     table.remove(&inode).unwrap();
                 }
-                txn.commit().unwrap();
                 vdb.remove(&inode).unwrap();
 
-                if let Some(entries) = directories.remove(&inode) {
-                    assert!(entries.is_empty(), "Deleted a non-empty directory inode");
+                {
+                    let mut directory_table = txn.open_table(DIRECTORY_TABLE).unwrap();
+                    let mut drain = directory_table.drain((inode, "")..(inode + 1, "")).unwrap();
+                    assert!(
+                        drain.next().is_none(),
+                        "Deleted a non-empty directory inode"
+                    );
                 }
+                txn.commit().unwrap();
             } else {
                 // Only delete file contents if this is not a directory (directories don't have data contents)
                 return Ok(Some(inode));
@@ -785,14 +811,20 @@ impl MetadataStorage {
         &self,
         inode: Inode,
     ) -> Result<(InodeAttributes, Option<u32>), ErrorCode> {
-        // TODO: find a way to avoid this clone()
-        let directories = self.directories.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
+        // TODO: find a way to avoid this clone()
         let attributes = metadata
             .get(&inode)
             .cloned()
             .ok_or(ErrorCode::DoesNotExist)?;
-        let directory_size = directories.get(&inode).map(|entries| entries.len() as u32);
+        let txn = db.begin_read().unwrap();
+        let table = txn.open_table(DIRECTORY_TABLE).unwrap();
+        let directory_size = if attributes.kind == FileKind::Directory {
+            Some(table.range((inode, "")..(inode + 1, "")).unwrap().count() as u32)
+        } else {
+            None
+        };
 
         Ok((attributes, directory_size))
     }
