@@ -954,7 +954,7 @@ impl Filesystem for FleetFUSE {
 }
 
 fn get_groups(pid: u32) -> Vec<u32> {
-    let path = format!("/proc/{}/task/{}/status", pid, pid);
+    let path = format!("/proc/{pid}/task/{pid}/status");
     let file = File::open(path).unwrap();
     for line in BufReader::new(file).lines() {
         let line = line.unwrap();

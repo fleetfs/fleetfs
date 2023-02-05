@@ -494,43 +494,43 @@ impl Debug for ArchivedRkyvRequest {
             ArchivedRkyvRequest::ReplaceLink { .. } => write!(f, "ReplaceLink"),
             ArchivedRkyvRequest::RemoveLink { .. } => write!(f, "RemoveLink"),
             ArchivedRkyvRequest::CreateInode { .. } => write!(f, "CreateInode"),
-            ArchivedRkyvRequest::Fsync { inode } => write!(f, "Fsync: {}", inode),
-            ArchivedRkyvRequest::GetAttr { inode } => write!(f, "GetAttr: {}", inode),
-            ArchivedRkyvRequest::ListDir { inode } => write!(f, "ListDir: {}", inode),
-            ArchivedRkyvRequest::ListXattrs { inode } => write!(f, "ListXattrs: {}", inode),
+            ArchivedRkyvRequest::Fsync { inode } => write!(f, "Fsync: {inode}"),
+            ArchivedRkyvRequest::GetAttr { inode } => write!(f, "GetAttr: {inode}"),
+            ArchivedRkyvRequest::ListDir { inode } => write!(f, "ListDir: {inode}"),
+            ArchivedRkyvRequest::ListXattrs { inode } => write!(f, "ListXattrs: {inode}"),
             ArchivedRkyvRequest::GetXattr { .. } => write!(f, "GetXattr"),
             ArchivedRkyvRequest::SetXattr { .. } => write!(f, "SetXattr"),
             ArchivedRkyvRequest::RemoveXattr { .. } => write!(f, "RemoveXattr"),
-            ArchivedRkyvRequest::Write { inode, .. } => write!(f, "Write: {}", inode),
-            ArchivedRkyvRequest::Read { inode, .. } => write!(f, "Read: {}", inode),
-            ArchivedRkyvRequest::ReadRaw { inode, .. } => write!(f, "ReadRaw: {}", inode),
+            ArchivedRkyvRequest::Write { inode, .. } => write!(f, "Write: {inode}"),
+            ArchivedRkyvRequest::Read { inode, .. } => write!(f, "Read: {inode}"),
+            ArchivedRkyvRequest::ReadRaw { inode, .. } => write!(f, "ReadRaw: {inode}"),
             ArchivedRkyvRequest::LatestCommit { raft_group } => {
-                write!(f, "LatestCommit: {}", raft_group)
+                write!(f, "LatestCommit: {raft_group}")
             }
             ArchivedRkyvRequest::RaftGroupLeader { raft_group } => {
-                write!(f, "RaftGroupLeader: {}", raft_group)
+                write!(f, "RaftGroupLeader: {raft_group}")
             }
             ArchivedRkyvRequest::RaftMessage { raft_group, .. } => {
-                write!(f, "RaftMessage: {}", raft_group)
+                write!(f, "RaftMessage: {raft_group}")
             }
-            ArchivedRkyvRequest::Lock { inode } => write!(f, "Lock: {}", inode),
+            ArchivedRkyvRequest::Lock { inode } => write!(f, "Lock: {inode}"),
             ArchivedRkyvRequest::Unlock { inode, lock_id } => {
-                write!(f, "Unlock: {}, {}", inode, lock_id)
+                write!(f, "Unlock: {inode}, {lock_id}")
             }
             ArchivedRkyvRequest::HardlinkRollback { inode, .. } => {
-                write!(f, "HardlinkRollback: {}", inode)
+                write!(f, "HardlinkRollback: {inode}")
             }
             ArchivedRkyvRequest::HardlinkIncrement { inode, .. } => {
-                write!(f, "HardlinkIncrement: {}", inode)
+                write!(f, "HardlinkIncrement: {inode}")
             }
             ArchivedRkyvRequest::DecrementInode { inode, .. } => {
-                write!(f, "DecrementInode: {}", inode)
+                write!(f, "DecrementInode: {inode}")
             }
             ArchivedRkyvRequest::UpdateParent { inode, .. } => {
-                write!(f, "UpdateParent: {}", inode)
+                write!(f, "UpdateParent: {inode}")
             }
             ArchivedRkyvRequest::UpdateMetadataChangedTime { inode, .. } => {
-                write!(f, "UpdateMetadataChangedTime: {}", inode)
+                write!(f, "UpdateMetadataChangedTime: {inode}")
             }
         }
     }

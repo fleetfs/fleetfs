@@ -110,7 +110,7 @@ impl RaftNode {
         // Bridge the messages to the log backend since we use env_logger
         let slogger = slog::Logger::root(
             slog_stdlog::StdLog.fuse(),
-            o!("tag" => format!("peer_{}", node_id)),
+            o!("tag" => format!("peer_{node_id}")),
         );
         let mut raft_node = RawNode::new(&raft_config, raft_storage, &slogger).unwrap();
         // Add the peers
@@ -126,7 +126,7 @@ impl RaftNode {
             raft_node.mut_store().wl().set_conf_state(new_state);
         }
 
-        let path = Path::new(&context.data_dir).join(format!("rgroup_{}", raft_group_id));
+        let path = Path::new(&context.data_dir).join(format!("rgroup_{raft_group_id}"));
         #[allow(clippy::expect_fun_call)]
         fs::create_dir_all(&path).expect(&format!("Failed to create storage dir: {:?}", &path));
 
@@ -490,11 +490,11 @@ impl RaftNode {
                     Error::Store(store_error) => match store_error {
                         StorageError::Compacted => {} // no-op
                         e => {
-                            panic!("Error during compaction: {}", e);
+                            panic!("Error during compaction: {e}");
                         }
                     },
                     e => {
-                        panic!("Error during compaction: {}", e);
+                        panic!("Error during compaction: {e}");
                     }
                 }
             }
@@ -520,7 +520,7 @@ impl RaftNode {
         }
 
         if let Err(e) = raft_node.mut_store().wl().append(ready.entries()) {
-            panic!("persist raft log fail: {:?}, need to retry or panic", e);
+            panic!("persist raft log fail: {e:?}, need to retry or panic");
         }
 
         let mut messages = ready.take_messages();
