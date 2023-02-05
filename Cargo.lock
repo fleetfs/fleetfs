@@ -708,9 +708,9 @@ dependencies = [
 
 [[package]]
 name = "redb"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f80b68be094197bbf0d997397e9bcae379ff6ce8325a785240e918524da18b4b"
+checksum = "78f210bb101d3a0ddba42f67b12a1d7186e584733ad028f119c8d217d867f03d"
 dependencies = [
  "libc",
  "pyo3-build-config",
