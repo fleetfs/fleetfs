@@ -99,7 +99,7 @@ impl Node {
 
     pub fn run(self) {
         if let Err(why) = fs::create_dir_all(&self.context.data_dir) {
-            panic!("Couldn't create storage dir: {}", why);
+            panic!("Couldn't create storage dir: {why}");
         };
 
         let bind_address = self.bind_address;

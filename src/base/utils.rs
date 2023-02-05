@@ -23,9 +23,7 @@ pub fn node_contains_raft_group(
     assert_eq!(
         total_nodes % replicas_per_raft_group,
         0,
-        "{} % {} != 0",
-        total_nodes,
-        replicas_per_raft_group
+        "{total_nodes} % {replicas_per_raft_group} != 0",
     );
 
     // Divide all nodes up into groups that can support a raft group
