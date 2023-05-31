@@ -314,11 +314,11 @@ impl MetadataStorage {
             return Err(ErrorCode::InodeDoesNotExist);
         };
 
-        let mut result: Vec<(Inode, String, FileKind)> = directory_table
-            .range((inode, "")..(inode + 1, ""))
-            .unwrap()
-            .map(|(key, value)| (value.value().0, key.value().1.to_string(), value.value().1))
-            .collect();
+        let mut result: Vec<(Inode, String, FileKind)> = vec![];
+        for r in directory_table.range((inode, "")..(inode + 1, "")).unwrap() {
+            let (key, value) = r.unwrap();
+            result.push((value.value().0, key.value().1.to_string(), value.value().1));
+        }
         // TODO: kind of a hack
         result.insert(0, (parent_inode, "..".to_string(), FileKind::Directory));
         result.insert(0, (inode, ".".to_string(), FileKind::Directory));
