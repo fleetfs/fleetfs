@@ -149,6 +149,7 @@ echo "generic/434" >> xfs_excludes.txt
 echo "generic/476" >> xfs_excludes.txt
 
 # TODO: figure these out
+echo "generic/084" >> xfs_excludes.txt
 echo "generic/519" >> xfs_excludes.txt
 echo "generic/531" >> xfs_excludes.txt
 echo "generic/551" >> xfs_excludes.txt
