@@ -20,8 +20,8 @@ env_logger = "0.10.0"
 slog-stdlog = "4.1"
 slog = "2.7" # slog is only used by the raft dependency
 fuser = { version = "0.12.0", features = ['abi-7-30'], default-features = false }
-rkyv = { version = "0.7.38", features = ["validation", "archive_le", "strict"] }
-bytecheck = "0.6.8"
+rkyv = { version = "0.7.42", features = ["validation", "archive_le", "strict"] }
+bytecheck = "0.7.0"
 redb = "1.1.0"
 libc = "0.2"
 byteorder = "1.3"
