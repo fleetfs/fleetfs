@@ -14,7 +14,7 @@ futures = "0.3"
 futures-util = "0.3.8"
 tokio-util = { version = "0.7.0", features = ['codec'] }
 tokio = { version = "1.28", features = ['io-util', 'time', 'rt-multi-thread', 'net'] }
-clap = { version = "3.1", features = ["cargo"] }
+clap = { version = "4.4.6", features = ["cargo"] }
 log = "0.4"
 env_logger = "0.10.0"
 slog-stdlog = "4.1"
