@@ -1,6 +1,6 @@
-use clap::crate_version;
 use clap::Arg;
 use clap::Command;
+use clap::{crate_version, ArgAction};
 
 use crate::client::NodeClient;
 use crate::fuse_adapter::FleetFUSE;
@@ -42,32 +42,28 @@ fn main() -> Result<(), ErrorCode> {
                 .long("port")
                 .value_name("PORT")
                 .default_value("3000")
-                .help("Set server port")
-                .takes_value(true),
+                .help("Set server port"),
         )
         .arg(
             Arg::new("bind-ip")
                 .long("bind-ip")
                 .value_name("BIND_IP")
                 .default_value("127.0.0.1")
-                .help("Address for server to listen on")
-                .takes_value(true),
+                .help("Address for server to listen on"),
         )
         .arg(
             Arg::new("data-dir")
                 .long("data-dir")
                 .value_name("DIR")
                 .default_value("/tmp/fleetfs")
-                .help("Set local directory used to store data")
-                .takes_value(true),
+                .help("Set local directory used to store data"),
         )
         .arg(
             Arg::new("peers")
                 .long("peers")
                 .value_name("PEERS")
                 .default_value("")
-                .help("Comma separated list of peer IP:PORT, or DNS-RECORD:PORT in which case DNS-RECORD must resolve to an A record containing --num-peers peers")
-                .takes_value(true),
+                .help("Comma separated list of peer IP:PORT, or DNS-RECORD:PORT in which case DNS-RECORD must resolve to an A record containing --num-peers peers"),
         )
         .arg(
             Arg::new("num-peers")
@@ -75,58 +71,57 @@ fn main() -> Result<(), ErrorCode> {
                 .value_name("NUM-PEERS")
                 .default_value("0")
                 .requires("peers")
-                .help("Number of peer records to expect in the DNS record specified in --peers")
-                .takes_value(true),
+                .help("Number of peer records to expect in the DNS record specified in --peers"),
         )
         .arg(
             Arg::new("redundancy-level")
                 .long("redundancy-level")
                 .value_name("REDUNDANCY-LEVEL")
                 .requires("peers")
-                .help("Number of failures that can be tolerated, in a replication group, before data is lost")
-                .takes_value(true),
+                .help("Number of failures that can be tolerated, in a replication group, before data is lost"),
         )
         .arg(
             Arg::new("server-ip-port")
                 .long("server-ip-port")
                 .value_name("IP_PORT")
                 .default_value("127.0.0.1:3000")
-                .help("Act as a client, and connect to given server")
-                .takes_value(true),
+                .help("Act as a client, and connect to given server"),
         )
         .arg(
             Arg::new("mount-point")
                 .long("mount-point")
                 .value_name("MOUNT_POINT")
                 .default_value("")
-                .help("Act as a client, and mount FUSE at given path")
-                .takes_value(true),
+                .help("Act as a client, and mount FUSE at given path"),
         )
         .arg(
             Arg::new("direct-io")
                 .long("direct-io")
+                .action(ArgAction::SetTrue)
                 .requires("mount-point")
                 .help("Mount FUSE with direct IO"),
         )
         .arg(
             Arg::new("fsck")
                 .long("fsck")
+                .action(ArgAction::SetTrue)
                 .help("Run a filesystem check on the cluster"),
         )
         .arg(
             Arg::new("get-leader")
                 .long("get-leader")
+                .action(ArgAction::SetTrue)
                 .help("Print the ID of the leader node"),
         )
         .arg(
             Arg::new("v")
                 .short('v')
-                .multiple_occurrences(true)
+                .action(ArgAction::Count)
                 .help("Sets the level of verbosity"),
         )
         .get_matches();
 
-    let verbosity: u64 = matches.occurrences_of("v");
+    let verbosity = matches.get_count("v");
     let log_level = match verbosity {
         0 => LevelFilter::Error,
         1 => LevelFilter::Warn,
@@ -140,37 +135,33 @@ fn main() -> Result<(), ErrorCode> {
         .filter_level(log_level)
         .init();
 
-    let port: u16 = matches
-        .value_of("port")
-        .unwrap_or_default()
-        .parse()
-        .unwrap();
-    let data_dir: String = matches.value_of("data-dir").unwrap_or_default().to_string();
+    let port: u16 = matches.get_one::<String>("port").unwrap().parse().unwrap();
+    let data_dir: String = matches.get_one::<String>("data-dir").unwrap().to_string();
     let bind_ip: IpAddr = matches
-        .value_of("bind-ip")
-        .unwrap_or_default()
+        .get_one::<String>("bind-ip")
+        .unwrap()
         .parse()
         .unwrap();
     let bind_address: SocketAddr = (bind_ip, port).into();
     let server_ip_port: SocketAddr = matches
-        .value_of("server-ip-port")
-        .unwrap_or_default()
+        .get_one::<String>("server-ip-port")
+        .unwrap()
         .parse()
         .unwrap();
     let mount_point: String = matches
-        .value_of("mount-point")
-        .unwrap_or_default()
+        .get_one::<String>("mount-point")
+        .unwrap()
         .to_string();
-    let direct_io: bool = matches.is_present("direct-io");
-    let fsck: bool = matches.is_present("fsck");
-    let get_leader: bool = matches.is_present("get-leader");
+    let direct_io: bool = matches.get_flag("direct-io");
+    let fsck: bool = matches.get_flag("fsck");
+    let get_leader: bool = matches.get_flag("get-leader");
     let num_peers: usize = matches
-        .value_of("num-peers")
-        .unwrap_or_default()
+        .get_one::<String>("num-peers")
+        .unwrap()
         .parse()
         .unwrap();
     let peers: Vec<SocketAddr> = if num_peers > 0 {
-        let record = format!("{}:{}", matches.value_of("peers").unwrap_or_default(), port);
+        let record = format!("{}:{}", matches.get_one::<String>("peers").unwrap(), port);
         let mut found_peers: Vec<SocketAddr> = match record.to_socket_addrs() {
             Ok(addresses) => addresses.collect(),
             Err(error) => {
@@ -197,8 +188,8 @@ fn main() -> Result<(), ErrorCode> {
         found_peers
     } else {
         matches
-            .value_of("peers")
-            .unwrap_or_default()
+            .get_one::<String>("peers")
+            .unwrap()
             .split(',')
             .map(ToString::to_string)
             .filter(|x| !x.is_empty())
@@ -207,7 +198,7 @@ fn main() -> Result<(), ErrorCode> {
     };
 
     let replicas_per_raft_group: usize =
-        if let Some(redundancy) = matches.value_of("redundancy-level") {
+        if let Some(redundancy) = matches.get_one::<String>("redundancy-level") {
             let redundancy: usize = redundancy.parse().unwrap();
             2 * redundancy + 1
         } else {
