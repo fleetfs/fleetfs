@@ -1,8 +1,6 @@
-use std::cell::{RefCell, RefMut};
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::net::SocketAddr;
-
-use thread_local::ThreadLocal;
 
 use crate::base::response_or_error;
 use crate::base::{
@@ -50,24 +48,19 @@ fn metadata_to_fuse_fileattr(metadata: &EntryMetadata) -> FileAttr {
     }
 }
 
+thread_local! {
+    static RESPONSE_BUFFERS: RefCell<AlignedVec> = RefCell::new(AlignedVec::new());
+}
+
 pub struct NodeClient {
     tcp_client: TcpClient,
-    response_buffer: ThreadLocal<RefCell<AlignedVec>>,
 }
 
 impl NodeClient {
     pub fn new(server_ip_port: SocketAddr) -> NodeClient {
         NodeClient {
             tcp_client: TcpClient::new(server_ip_port),
-            response_buffer: ThreadLocal::new(),
         }
-    }
-
-    fn get_or_create_buffer(&self) -> RefMut<AlignedVec> {
-        return self
-            .response_buffer
-            .get_or(|| RefCell::new(AlignedVec::new()))
-            .borrow_mut();
     }
 
     fn send<'a>(
@@ -86,19 +79,21 @@ impl NodeClient {
     }
 
     pub fn filesystem_ready(&self) -> Result<(), ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::FilesystemReady, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::FilesystemReady, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn fsck(&self) -> Result<(), ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::FilesystemCheck, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::FilesystemCheck, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn mkdir(
@@ -117,26 +112,28 @@ impl NodeClient {
             mode,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
 
-        Ok(metadata_to_fuse_fileattr(
-            &response.as_attr_response().unwrap(),
-        ))
+            Ok(metadata_to_fuse_fileattr(
+                &response.as_attr_response().unwrap(),
+            ))
+        })
     }
 
     pub fn lookup(&self, parent: u64, name: &str, context: UserContext) -> Result<u64, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(
-            RkyvRequest::Lookup {
-                parent,
-                name: name.to_string(),
-                context,
-            },
-            &mut buffer,
-        )?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(
+                RkyvRequest::Lookup {
+                    parent,
+                    name: name.to_string(),
+                    context,
+                },
+                buffer,
+            )?;
 
-        response.as_inode_response().ok_or(ErrorCode::BadResponse)
+            response.as_inode_response().ok_or(ErrorCode::BadResponse)
+        })
     }
 
     pub fn create(
@@ -148,47 +145,50 @@ impl NodeClient {
         mode: u16,
         kind: FileKind,
     ) -> Result<FileAttr, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(
-            RkyvRequest::Create {
-                parent,
-                name: name.to_string(),
-                uid,
-                gid,
-                mode,
-                kind,
-            },
-            &mut buffer,
-        )?;
-        Ok(metadata_to_fuse_fileattr(
-            &response.as_attr_response().unwrap(),
-        ))
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(
+                RkyvRequest::Create {
+                    parent,
+                    name: name.to_string(),
+                    uid,
+                    gid,
+                    mode,
+                    kind,
+                },
+                buffer,
+            )?;
+            Ok(metadata_to_fuse_fileattr(
+                &response.as_attr_response().unwrap(),
+            ))
+        })
     }
 
     pub fn statfs(&self) -> Result<StatFS, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::FilesystemInformation, &mut buffer)?;
-        if let ArchivedRkyvGenericResponse::FilesystemInformation {
-            block_size,
-            max_name_length,
-        } = response
-        {
-            Ok(StatFS {
-                block_size: block_size.into(),
-                max_name_length: max_name_length.into(),
-            })
-        } else {
-            Err(ErrorCode::BadResponse)
-        }
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::FilesystemInformation, buffer)?;
+            if let ArchivedRkyvGenericResponse::FilesystemInformation {
+                block_size,
+                max_name_length,
+            } = response
+            {
+                Ok(StatFS {
+                    block_size: block_size.into(),
+                    max_name_length: max_name_length.into(),
+                })
+            } else {
+                Err(ErrorCode::BadResponse)
+            }
+        })
     }
 
     pub fn getattr(&self, inode: u64) -> Result<FileAttr, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::GetAttr { inode }, &mut buffer)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::GetAttr { inode }, buffer)?;
 
-        Ok(metadata_to_fuse_fileattr(
-            &response.as_attr_response().unwrap(),
-        ))
+            Ok(metadata_to_fuse_fileattr(
+                &response.as_attr_response().unwrap(),
+            ))
+        })
     }
 
     pub fn getxattr(
@@ -197,31 +197,33 @@ impl NodeClient {
         key: &str,
         context: UserContext,
     ) -> Result<Vec<u8>, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(
-            RkyvRequest::GetXattr {
-                inode,
-                key: key.to_string(),
-                context,
-            },
-            &mut buffer,
-        )?;
-        let data = response.as_read_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(
+                RkyvRequest::GetXattr {
+                    inode,
+                    key: key.to_string(),
+                    context,
+                },
+                buffer,
+            )?;
+            let data = response.as_read_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(data.to_vec())
+            Ok(data.to_vec())
+        })
     }
 
     pub fn listxattr(&self, inode: u64) -> Result<Vec<String>, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::ListXattrs { inode }, &mut buffer)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::ListXattrs { inode }, buffer)?;
 
-        let xattrs = response
-            .as_xattrs_response()
-            .ok_or(ErrorCode::BadResponse)?;
+            let xattrs = response
+                .as_xattrs_response()
+                .ok_or(ErrorCode::BadResponse)?;
 
-        let attrs = xattrs.iter().map(|x| x.to_string()).collect();
+            let attrs = xattrs.iter().map(|x| x.to_string()).collect();
 
-        Ok(attrs)
+            Ok(attrs)
+        })
     }
 
     pub fn setxattr(
@@ -231,19 +233,20 @@ impl NodeClient {
         value: &[u8],
         context: UserContext,
     ) -> Result<(), ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(
-            RkyvRequest::SetXattr {
-                inode,
-                key: key.to_string(),
-                value: value.to_vec(),
-                context,
-            },
-            &mut buffer,
-        )?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(
+                RkyvRequest::SetXattr {
+                    inode,
+                    key: key.to_string(),
+                    value: value.to_vec(),
+                    context,
+                },
+                buffer,
+            )?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn removexattr(
@@ -258,11 +261,12 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn utimens(
@@ -280,11 +284,12 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn chmod(&self, inode: u64, mode: u32, context: UserContext) -> Result<(), ErrorCode> {
@@ -297,11 +302,12 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn chown(
@@ -319,11 +325,12 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn hardlink(
@@ -341,12 +348,13 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
 
-        Ok(metadata_to_fuse_fileattr(
-            &response.as_attr_response().unwrap(),
-        ))
+            Ok(metadata_to_fuse_fileattr(
+                &response.as_attr_response().unwrap(),
+            ))
+        })
     }
 
     pub fn rename(
@@ -365,31 +373,33 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn readlink(&self, inode: u64) -> Result<Vec<u8>, ErrorCode> {
         assert_ne!(inode, ROOT_INODE);
 
-        let mut buffer = self.get_or_create_buffer();
         // TODO: this just tries to read a value longer than the longest link.
         // instead we should be using a special readlink message
-        let response = self.send(
-            RkyvRequest::Read {
-                inode,
-                offset: 0,
-                read_size: 999_999,
-            },
-            &mut buffer,
-        )?;
-        Ok(response
-            .as_read_response()
-            .ok_or(ErrorCode::BadResponse)?
-            .to_vec())
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(
+                RkyvRequest::Read {
+                    inode,
+                    offset: 0,
+                    read_size: 999_999,
+                },
+                buffer,
+            )?;
+            Ok(response
+                .as_read_response()
+                .ok_or(ErrorCode::BadResponse)?
+                .to_vec())
+        })
     }
 
     pub fn read<F: FnOnce(Result<&[u8], ErrorCode>)>(
@@ -401,42 +411,44 @@ impl NodeClient {
     ) {
         assert_ne!(inode, ROOT_INODE);
 
-        let mut buffer = self.get_or_create_buffer();
-        match self.send(
-            RkyvRequest::Read {
-                inode,
-                offset,
-                read_size: size,
-            },
-            &mut buffer,
-        ) {
-            Ok(response) => {
-                let data = response.as_read_response().unwrap();
-                callback(Ok(data));
-            }
-            Err(e) => {
-                callback(Err(e));
-            }
-        };
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            match self.send(
+                RkyvRequest::Read {
+                    inode,
+                    offset,
+                    read_size: size,
+                },
+                buffer,
+            ) {
+                Ok(response) => {
+                    let data = response.as_read_response().unwrap();
+                    callback(Ok(data));
+                }
+                Err(e) => {
+                    callback(Err(e));
+                }
+            };
+        })
     }
 
     pub fn readdir(&self, inode: u64) -> Result<Vec<(u64, OsString, fuser::FileType)>, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::ListDir { inode }, &mut buffer)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::ListDir { inode }, buffer)?;
 
-        let mut result = vec![];
-        let entries = response
-            .as_directory_listing_response()
-            .ok_or(ErrorCode::BadResponse)?;
-        for entry in entries {
-            result.push((
-                entry.inode,
-                OsString::from(entry.name),
-                to_fuse_file_type(entry.kind),
-            ));
-        }
+            let mut result = vec![];
+            let entries = response
+                .as_directory_listing_response()
+                .ok_or(ErrorCode::BadResponse)?;
+            for entry in entries {
+                result.push((
+                    entry.inode,
+                    OsString::from(entry.name),
+                    to_fuse_file_type(entry.kind),
+                ));
+            }
 
-        Ok(result)
+            Ok(result)
+        })
     }
 
     pub fn truncate(&self, inode: u64, length: u64, context: UserContext) -> Result<(), ErrorCode> {
@@ -447,35 +459,38 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn write(&self, inode: u64, data: &[u8], offset: u64) -> Result<u32, ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(
-            RkyvRequest::Write {
-                inode,
-                offset,
-                data: data.to_vec(),
-            },
-            &mut buffer,
-        )?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(
+                RkyvRequest::Write {
+                    inode,
+                    offset,
+                    data: data.to_vec(),
+                },
+                buffer,
+            )?;
 
-        response
-            .as_bytes_written_response()
-            .ok_or(ErrorCode::BadResponse)
+            response
+                .as_bytes_written_response()
+                .ok_or(ErrorCode::BadResponse)
+        })
     }
 
     pub fn fsync(&self, inode: u64) -> Result<(), ErrorCode> {
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(RkyvRequest::Fsync { inode }, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(RkyvRequest::Fsync { inode }, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn unlink(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
@@ -485,11 +500,12 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn rmdir(&self, parent: u64, name: &str, context: UserContext) -> Result<(), ErrorCode> {
@@ -499,10 +515,11 @@ impl NodeClient {
             context,
         };
 
-        let mut buffer = self.get_or_create_buffer();
-        let response = self.send(request, &mut buffer)?;
-        response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
+        RESPONSE_BUFFERS.with_borrow_mut(|buffer| {
+            let response = self.send(request, buffer)?;
+            response.as_empty_response().ok_or(ErrorCode::BadResponse)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 }
