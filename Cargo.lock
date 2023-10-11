@@ -392,7 +392,6 @@ dependencies = [
  "slog",
  "slog-stdlog",
  "tempfile",
- "thread_local",
  "tokio",
  "tokio-util",
  "walkdir",
