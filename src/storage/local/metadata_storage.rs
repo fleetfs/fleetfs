@@ -790,10 +790,10 @@ impl MetadataStorage {
                 vdb.remove(&inode).unwrap();
 
                 {
-                    let mut directory_table = txn.open_table(DIRECTORY_TABLE).unwrap();
-                    let mut drain = directory_table.drain((inode, "")..(inode + 1, "")).unwrap();
+                    let directory_table = txn.open_table(DIRECTORY_TABLE).unwrap();
+                    let mut entries = directory_table.range((inode, "")..(inode + 1, "")).unwrap();
                     assert!(
-                        drain.next().is_none(),
+                        entries.next().is_none(),
                         "Deleted a non-empty directory inode"
                     );
                 }

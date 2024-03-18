@@ -1,4 +1,4 @@
-use redb::{RedbValue, TypeName};
+use redb::{TypeName, Value};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -86,7 +86,7 @@ impl From<&ArchivedFileKind> for FileKind {
     }
 }
 
-impl RedbValue for FileKind {
+impl Value for FileKind {
     type SelfType<'a> = FileKind;
     type AsBytes<'a> = [u8; 1];
 
