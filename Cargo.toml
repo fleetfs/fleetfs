@@ -16,10 +16,10 @@ tokio-util = { version = "0.7.0", features = ['codec'] }
 tokio = { version = "1.28", features = ['io-util', 'time', 'rt-multi-thread', 'net'] }
 clap = { version = "4.4.6", features = ["cargo"] }
 log = "0.4"
-env_logger = "0.10.0"
+env_logger = "0.11.5"
 slog-stdlog = "4.1"
 slog = "2.7" # slog is only used by the raft dependency
-fuser = { version = "0.12.0", features = ['abi-7-30'], default-features = false }
+fuser = { version = "0.15.0", features = ['abi-7-30'], default-features = false }
 rkyv = { version = "0.7.42", features = ["validation", "archive_le", "strict"] }
 bytecheck = "0.7.0"
 redb = "2.0.0"

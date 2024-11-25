@@ -159,7 +159,7 @@ impl Filesystem for FleetFUSE {
 
     fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {}
 
-    fn getattr(&mut self, _req: &Request, inode: u64, reply: ReplyAttr) {
+    fn getattr(&mut self, _req: &Request, inode: u64, _fh: Option<u64>, reply: ReplyAttr) {
         debug!("getattr() called with {:?}", inode);
         match self.client.getattr(inode) {
             Ok(attr) => reply.attr(&Duration::new(0, 0), &attr),
