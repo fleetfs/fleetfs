@@ -144,6 +144,7 @@ impl<T: PeerClient> DataStorage<T> {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .open(&local_path)
                 .expect("Couldn't create file");
             let local_size = file.metadata()?.len();
@@ -154,6 +155,7 @@ impl<T: PeerClient> DataStorage<T> {
             let mut file = OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .open(&local_path)?;
 
             file.seek(SeekFrom::Start(local_index))?;
@@ -270,6 +272,7 @@ impl<T: PeerClient> DataStorage<T> {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(local_path)
             .expect("Couldn't create file");
         file.set_len(local_bytes)?;
