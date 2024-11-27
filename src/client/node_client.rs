@@ -10,9 +10,7 @@ use crate::base::{
 use crate::client::tcp_client::TcpClient;
 use crate::storage::ROOT_INODE;
 use fuser::FileAttr;
-use rkyv::ser::serializers::AllocSerializer;
-use rkyv::ser::Serializer;
-use rkyv::AlignedVec;
+use rkyv::util::AlignedVec;
 use std::time::SystemTime;
 
 fn to_fuse_file_type(file_type: FileKind) -> fuser::FileType {
@@ -68,10 +66,7 @@ impl NodeClient {
         request: RkyvRequest,
         buffer: &'a mut AlignedVec,
     ) -> Result<&'a ArchivedRkyvGenericResponse, ErrorCode> {
-        // TODO: reuse these serializers to reduce allocations, like get_or_create_builder()
-        let mut serializer = AllocSerializer::<64>::default();
-        serializer.serialize_value(&request).unwrap();
-        let request_buffer = serializer.into_serializer().into_inner();
+        let request_buffer = rkyv::to_bytes::<rkyv::rancor::Error>(&request).unwrap();
         self.tcp_client
             .send_and_receive(&request_buffer, buffer)
             .map_err(|_| ErrorCode::Uncategorized)?;

@@ -1,5 +1,5 @@
 use crate::base::DistributionRequirement;
-use crate::base::{ArchivedRkyvRequest, CommitId, FileKind, RkyvRequest};
+use crate::base::{ArchivedRkyvRequest, CommitId, FileKind};
 use crate::base::{ErrorCode, RkyvGenericResponse};
 use crate::base::{LocalContext, RequestMetaInfo};
 use crate::client::RemoteRaftGroups;
@@ -12,12 +12,13 @@ use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use crate::storage::raft_node::sync_with_leader;
 use protobuf::Message as ProtobufMessage;
 use raft::prelude::Message;
-use rkyv::AlignedVec;
+use rkyv::rancor;
+use rkyv::util::AlignedVec;
 use std::sync::Arc;
 
 pub fn to_error_response(error_code: ErrorCode) -> AlignedVec {
     let rkyv_response = RkyvGenericResponse::ErrorOccurred(error_code);
-    rkyv::to_bytes::<_, 8>(&rkyv_response).unwrap()
+    rkyv::to_bytes::<rancor::Error>(&rkyv_response).unwrap()
 }
 
 // Determines whether the request can be handled by the local node, or whether it needs to be
@@ -56,7 +57,7 @@ pub async fn request_router(
     remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
 ) -> AlignedVec {
-    let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+    let request = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(&aligned).unwrap();
     let meta = request.meta_info();
     if !can_handle_locally(&meta, &raft) {
         return forward_request(aligned, meta, remote_rafts.clone()).await;
@@ -65,7 +66,7 @@ pub async fn request_router(
     match request_router_inner(aligned, raft, remote_rafts, context).await {
         Ok(rkyv_response) => {
             // TODO: optimize Read responses to avoid copying all the data. We should just take the .data Vec and write it out
-            rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap()
+            rkyv::to_bytes::<rancor::Error>(&rkyv_response).unwrap()
         }
         Err(error_code) => to_error_response(error_code),
     }
@@ -77,7 +78,7 @@ async fn request_router_inner(
     remote_rafts: Arc<RemoteRaftGroups>,
     context: LocalContext,
 ) -> Result<RkyvGenericResponse, ErrorCode> {
-    let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+    let request = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(&aligned).unwrap();
     match request {
         ArchivedRkyvRequest::FilesystemReady => {
             for node in raft.all_groups() {
@@ -323,7 +324,9 @@ async fn request_router_inner(
         }
         ArchivedRkyvRequest::RaftMessage { raft_group, data } => {
             let mut deserialized_message = Message::new();
-            deserialized_message.merge_from_bytes(data).unwrap();
+            deserialized_message
+                .merge_from_bytes(data.as_slice())
+                .unwrap();
             raft.lookup_by_raft_group(raft_group.into())
                 .apply_messages(&[deserialized_message])
                 .unwrap();

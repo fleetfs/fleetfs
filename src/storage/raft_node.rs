@@ -29,7 +29,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::base::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse, RkyvRequest};
 use protobuf::Message as ProtobufMessage;
-use rkyv::AlignedVec;
+use rkyv::rancor;
+use rkyv::util::AlignedVec;
 
 // Compact storage when it reaches 10MB
 const COMPACTION_THRESHOLD: u64 = 10 * 1024 * 1024;
@@ -283,10 +284,7 @@ impl RaftNode {
         request_data: Vec<u8>,
         pending_response: Option<PendingResponse>,
     ) -> Vec<(Vec<u8>, Option<PendingResponse>)> {
-        // TODO any way to optimize away this aligning copy?
-        let mut aligned = AlignedVec::with_capacity(request_data.len());
-        aligned.extend_from_slice(&request_data);
-        let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+        let request = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(&request_data).unwrap();
         let request_meta = request.meta_info();
 
         let mut lock_table = self.lock_table.lock().unwrap();
@@ -314,11 +312,10 @@ impl RaftNode {
                         }
                         if let Some(id) = new_lock_id {
                             let (lock_request_data, pending) = requests.pop().unwrap();
-                            // TODO optimize out this copy
-                            let mut aligned = AlignedVec::with_capacity(lock_request_data.len());
-                            aligned.extend_from_slice(&lock_request_data);
-                            let lock_request =
-                                rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+                            let lock_request = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(
+                                &lock_request_data,
+                            )
+                            .unwrap();
                             assert!(matches!(lock_request, ArchivedRkyvRequest::Lock { .. }));
                             if let Some(sender) = pending {
                                 sender
@@ -368,10 +365,7 @@ impl RaftNode {
             let to_process = self._process_lock_table(entry.data.to_vec(), pending_response);
 
             for (data, pending_response) in to_process {
-                // TODO any way to optimize away this aligning copy?
-                let mut aligned = AlignedVec::with_capacity(data.len());
-                aligned.extend_from_slice(&data);
-                let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+                let request = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(&data).unwrap();
                 if let Some(sender) = pending_response {
                     match commit_write(request, &self.file_storage) {
                         Ok(response) => sender.send(Ok(response)).ok().unwrap(),
@@ -560,7 +554,7 @@ impl RaftNode {
             let mut pending_responses = self.pending_responses.lock().unwrap();
             pending_responses.insert(uuid, sender);
         }
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
+        let rkyv_bytes = rkyv::to_bytes::<rancor::Error>(request).unwrap();
         self._propose(uuid, rkyv_bytes.to_vec());
 
         self.process_raft_queue();

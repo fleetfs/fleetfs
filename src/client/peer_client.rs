@@ -8,7 +8,8 @@ use futures::future::{ok, ready, BoxFuture, Either};
 use futures::FutureExt;
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
-use rkyv::AlignedVec;
+use rkyv::rancor;
+use rkyv::util::AlignedVec;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -96,7 +97,7 @@ impl TcpPeerClient {
         request: &RkyvRequest,
     ) -> BoxFuture<'static, Result<AlignedVec, std::io::Error>> {
         let pool = self.pool.clone();
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
+        let rkyv_bytes = rkyv::to_bytes::<rancor::Error>(request).unwrap();
 
         self.connect()
             .then(move |tcp_stream| match tcp_stream {

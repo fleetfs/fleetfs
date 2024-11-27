@@ -6,7 +6,8 @@ use crate::base::{
 use crate::client::RemoteRaftGroups;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use rand::Rng;
-use rkyv::{AlignedVec, Deserialize};
+use rkyv::rancor;
+use rkyv::util::AlignedVec;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +19,7 @@ async fn propose(
 ) -> Result<AlignedVec, ErrorCode> {
     if raft.inode_stored_locally(inode) {
         let rkyv_response = raft.lookup_by_inode(inode).propose(request).await?;
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(&rkyv_response).unwrap();
+        let rkyv_bytes = rkyv::to_bytes::<rancor::Error>(&rkyv_response).unwrap();
         response_or_error(&rkyv_bytes)?;
         Ok(rkyv_bytes)
     } else {
@@ -766,7 +767,7 @@ pub async fn hardlink_transaction(
             }
 
             // This is the response back to the client
-            let entry: EntryMetadata = attrs.deserialize(&mut rkyv::Infallible).unwrap();
+            let entry = rkyv::deserialize::<EntryMetadata, rkyv::rancor::Error>(attrs).unwrap();
             Ok(RkyvGenericResponse::EntryMetadata(entry))
         }
         Err(error_code) => {
