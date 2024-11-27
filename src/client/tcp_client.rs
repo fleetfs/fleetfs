@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use byteorder::ReadBytesExt;
 use byteorder::{ByteOrder, LittleEndian};
 use core::time::Duration;
-use rkyv::AlignedVec;
+use rkyv::util::AlignedVec;
 
 const TIMEOUT: u64 = 10;
 

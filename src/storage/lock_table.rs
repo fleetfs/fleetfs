@@ -1,7 +1,7 @@
 use crate::base::{AccessType, RequestMetaInfo};
-use crate::base::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse, RkyvRequest};
+use crate::base::{ArchivedRkyvRequest, ErrorCode, RkyvGenericResponse};
 use futures::channel::oneshot::Sender;
-use rkyv::AlignedVec;
+use rkyv::rancor;
 use std::collections::HashMap;
 
 pub enum FileLockType {
@@ -103,10 +103,7 @@ impl LockTable {
         let mut lock_id = None;
         let mut requests_to_process = self.pending_requests[&inode].len();
         for (i, (data, _)) in self.pending_requests[&inode].iter().enumerate() {
-            // TODO optimize out this copy
-            let mut aligned = AlignedVec::with_capacity(data.len());
-            aligned.extend_from_slice(data);
-            let request = rkyv::check_archived_root::<RkyvRequest>(&aligned).unwrap();
+            let request = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(data).unwrap();
             if matches!(request, ArchivedRkyvRequest::Lock { .. }) {
                 lock_id = Some(self.lock(inode));
                 requests_to_process = i + 1;

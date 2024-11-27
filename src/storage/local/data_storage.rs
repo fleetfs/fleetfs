@@ -313,7 +313,7 @@ mod tests {
     use futures_util::future::FutureExt;
     use raft::eraftpb::Message;
     use rand::Rng;
-    use rkyv::AlignedVec;
+    use rkyv::util::AlignedVec;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::fs;

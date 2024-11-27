@@ -1,10 +1,11 @@
 use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
 use crate::base::RequestMetaInfo;
-use crate::base::RkyvRequest;
+use crate::base::{ArchivedRkyvRequest, RkyvRequest};
 use crate::client::{PeerClient, TcpPeerClient};
 use futures_util::future::FutureExt;
-use rkyv::AlignedVec;
+use rkyv::rancor;
+use rkyv::util::AlignedVec;
 use std::collections::HashMap;
 use std::future::Future;
 
@@ -98,8 +99,8 @@ impl RemoteRaftGroups {
         &self,
         request: &RkyvRequest,
     ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
-        let rkyv_bytes = rkyv::to_bytes::<_, 64>(request).unwrap();
-        let serialized = rkyv::check_archived_root::<RkyvRequest>(&rkyv_bytes).unwrap();
+        let rkyv_bytes = rkyv::to_bytes::<rancor::Error>(request).unwrap();
+        let serialized = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(&rkyv_bytes).unwrap();
         let raft_group_id = serialized.meta_info().inode.unwrap() % self.total_raft_groups as u64;
         self.groups
             .get(&(raft_group_id as u16))

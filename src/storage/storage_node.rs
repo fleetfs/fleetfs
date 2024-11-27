@@ -17,7 +17,7 @@ use crate::base::LocalContext;
 use crate::client::RemoteRaftGroups;
 use crate::storage::raft_group_manager::LocalRaftGroupManager;
 use futures_util::stream::StreamExt;
-use rkyv::AlignedVec;
+use rkyv::util::AlignedVec;
 use tokio::io::AsyncWriteExt;
 
 fn spawn_connection_handler(

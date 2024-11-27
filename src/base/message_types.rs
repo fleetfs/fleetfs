@@ -31,16 +31,12 @@ pub enum DistributionRequirement {
 }
 
 #[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[archive(
+#[rkyv(
     // This will generate a PartialEq impl between our unarchived and archived
     // types:
     compare(PartialEq),
-    // bytecheck can be used to validate your data if you want. To use the safe
-    // API, you have to derive CheckBytes for the archived type:
-    check_bytes,
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub enum ErrorCode {
     DoesNotExist,
     InodeDoesNotExist,
@@ -60,16 +56,12 @@ pub enum ErrorCode {
 }
 
 #[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize, Clone, Copy)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub enum FileKind {
     File,
     Directory,
@@ -124,16 +116,12 @@ impl Value for FileKind {
 }
 
 #[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize, Clone, Copy)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub struct CommitId {
     pub term: u64,
     pub index: u64,
@@ -146,16 +134,12 @@ impl CommitId {
 }
 
 #[derive(Archive, Debug, Deserialize, PartialEq, Eq, Serialize, Clone, Copy)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub struct InodeUidPair {
     pub inode: u64,
     pub uid: u32,
@@ -168,13 +152,10 @@ impl InodeUidPair {
 }
 
 #[derive(Archive, Deserialize, Serialize)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
 )]
 pub enum RkyvRequest {
     FilesystemReady,
@@ -381,16 +362,12 @@ pub enum RkyvRequest {
 }
 
 #[derive(Archive, Deserialize, Serialize)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub struct DirectoryEntry {
     pub inode: u64,
     pub name: String,
@@ -398,16 +375,12 @@ pub struct DirectoryEntry {
 }
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub struct UserContext {
     pub uid: u32,
     pub gid: u32,
@@ -437,16 +410,12 @@ impl From<&ArchivedUserContext> for UserContext {
 }
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub struct Timestamp {
     pub seconds: i64,
     pub nanos: i32,
@@ -477,16 +446,12 @@ impl From<&ArchivedTimestamp> for Timestamp {
 }
 
 #[derive(Archive, Deserialize, Serialize)]
-#[archive(
-// This will generate a PartialEq impl between our unarchived and archived
-// types:
-compare(PartialEq),
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
+#[rkyv(
+    // This will generate a PartialEq impl between our unarchived and archived
+    // types:
+    compare(PartialEq),
+    derive(Debug)
 )]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
 pub struct EntryMetadata {
     pub inode: u64,
     pub size_bytes: u64,
@@ -506,13 +471,7 @@ pub struct EntryMetadata {
 }
 
 #[derive(Archive, Deserialize, Serialize)]
-#[archive(
-// bytecheck can be used to validate your data if you want. To use the safe
-// API, you have to derive CheckBytes for the archived type:
-check_bytes,
-)]
-// Derives can be passed through to the generated type:
-#[archive_attr(derive(Debug))]
+#[rkyv(derive(Debug))]
 pub enum RkyvGenericResponse {
     Lock {
         lock_id: u64,
@@ -791,7 +750,7 @@ impl ArchivedRkyvGenericResponse {
 
     pub fn as_attr_response(&self) -> Option<EntryMetadata> {
         if let ArchivedRkyvGenericResponse::EntryMetadata(attr) = self {
-            let entry: EntryMetadata = attr.deserialize(&mut rkyv::Infallible).unwrap();
+            let entry = rkyv::deserialize::<EntryMetadata, rkyv::rancor::Error>(attr).unwrap();
             Some(entry)
         } else {
             None
