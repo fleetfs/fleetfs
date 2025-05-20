@@ -339,8 +339,8 @@ impl MetadataStorage {
         // http://man7.org/linux/man-pages/man2/utimensat.2.html
         if inode_attrs.uid != context.uid()
             && context.uid() != 0
-            && (!atime.map_or(false, |x| x.nanos == libc::UTIME_NOW as i32)
-                || !mtime.map_or(false, |x| x.nanos == libc::UTIME_NOW as i32))
+            && (atime.is_none_or(|x| x.nanos != libc::UTIME_NOW as i32)
+                || mtime.is_none_or(|x| x.nanos != libc::UTIME_NOW as i32))
         {
             return Err(ErrorCode::OperationNotPermitted);
         }

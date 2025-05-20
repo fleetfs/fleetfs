@@ -76,10 +76,10 @@ pub fn node_id_from_address(address: &SocketAddr) -> u64 {
     match address.ip() {
         IpAddr::V4(v4) => {
             let octets = v4.octets();
-            u64::from(octets[0]) << 40
-                | u64::from(octets[1]) << 32
-                | u64::from(octets[2]) << 24
-                | u64::from(octets[3]) << 16
+            (u64::from(octets[0]) << 40)
+                | (u64::from(octets[1]) << 32)
+                | (u64::from(octets[2]) << 24)
+                | (u64::from(octets[3]) << 16)
                 | u64::from(port)
         }
         IpAddr::V6(v6) => {
