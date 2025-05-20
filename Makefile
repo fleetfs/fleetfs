@@ -20,7 +20,7 @@ build_integration_tests: pre
 
 xfstests: build_integration_tests
 	# Additional permissions are needed to be able to mount FUSE
-	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
+	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --cap-add CAP_SYSLOG --device /dev/fuse --security-opt apparmor:unconfined \
 	 --memory=2g --kernel-memory=200m \
 	 -v "$(shell pwd)/logs:/code/logs" fleetfs:tests bash -c "cd /code/fleetfs && ./xfstests.sh"
 
