@@ -350,7 +350,7 @@ fn rename_check_access(
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
 #[allow(clippy::too_many_arguments)]
-pub async fn rename_transaction<'a>(
+pub async fn rename_transaction(
     parent: u64,
     name: &str,
     new_parent: u64,
@@ -382,7 +382,7 @@ pub async fn rename_transaction<'a>(
 
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::cognitive_complexity)]
-async fn rename_transaction_lock_context<'a>(
+async fn rename_transaction_lock_context(
     parent: u64,
     name: &str,
     new_parent: u64,
@@ -508,7 +508,7 @@ async fn rename_transaction_lock_context<'a>(
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
-pub async fn rmdir_transaction<'a>(
+pub async fn rmdir_transaction(
     parent: u64,
     name: &str,
     context: UserContext,
@@ -574,7 +574,7 @@ pub async fn rmdir_transaction<'a>(
 
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
-pub async fn unlink_transaction<'a>(
+pub async fn unlink_transaction(
     parent: u64,
     name: &str,
     context: UserContext,
@@ -649,7 +649,7 @@ pub async fn unlink_transaction<'a>(
 // TODO: persist transaction state, so that it doesn't get lost if the coordinating machine dies
 // in the middle
 #[allow(clippy::too_many_arguments)]
-pub async fn create_transaction<'a>(
+pub async fn create_transaction(
     parent: u64,
     name: &str,
     uid: u32,
