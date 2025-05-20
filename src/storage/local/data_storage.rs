@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
-use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 use walkdir::WalkDir;
@@ -286,9 +285,7 @@ impl<T: PeerClient> DataStorage<T> {
         info!("Fsync'ing {}", inode);
         let local_path = self.to_local_path(&inode.to_string());
         let file = File::open(local_path).map_err(into_error_code)?;
-        unsafe {
-            libc::fsync(file.into_raw_fd());
-        }
+        file.sync_all().map_err(into_error_code)?;
         Ok(())
     }
 
