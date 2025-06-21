@@ -27,6 +27,9 @@ const PARENTS_TABLE: TableDefinition<u64, u64> = TableDefinition::new("parents")
 const DIRECTORY_TABLE: TableDefinition<(Inode, &str), (Inode, FileKind)> =
     TableDefinition::new("directory");
 
+// Maps the inode & xattr key to an xattr value
+const XATTR_TABLE: TableDefinition<(Inode, &str), &[u8]> = TableDefinition::new("xattrs");
+
 #[derive(Clone, Debug)]
 pub struct InodeAttributes {
     pub inode: Inode,
@@ -40,7 +43,6 @@ pub struct InodeAttributes {
     pub hardlinks: u32,
     pub uid: u32,
     pub gid: u32,
-    pub xattrs: HashMap<String, Vec<u8>>,
 }
 
 impl InodeAttributes {
@@ -148,6 +150,7 @@ impl MetadataStorage {
             let mut table = txn.open_table(PARENTS_TABLE).unwrap();
             table.insert(&ROOT_INODE, &ROOT_INODE).unwrap();
             txn.open_table(DIRECTORY_TABLE).unwrap();
+            txn.open_table(XATTR_TABLE).unwrap();
         }
         txn.commit().unwrap();
 
@@ -168,7 +171,6 @@ impl MetadataStorage {
                 hardlinks: 2,
                 uid: 0,
                 gid: 0,
-                xattrs: Default::default(),
             },
         );
 
@@ -235,23 +237,30 @@ impl MetadataStorage {
         key: &str,
         context: UserContext,
     ) -> Result<Vec<u8>, ErrorCode> {
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata.get(&inode).ok_or(ErrorCode::InodeDoesNotExist)?;
         xattr_access_check(key, libc::R_OK, inode_attrs, &context)?;
 
-        inode_attrs
-            .xattrs
-            .get(key)
-            .cloned()
+        let txn = db.begin_read().unwrap();
+        let table = txn.open_table(XATTR_TABLE).unwrap();
+        table
+            .get((inode, key))
+            .unwrap()
+            .map(|x| x.value().to_vec())
             .ok_or(ErrorCode::MissingXattrKey)
     }
 
     pub fn list_xattrs(&self, inode: Inode) -> Result<Vec<String>, ErrorCode> {
-        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
-        Ok(metadata
-            .get(&inode)
-            .map(|x| x.xattrs.keys().cloned().collect())
-            .unwrap_or_else(Vec::new))
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let txn = db.begin_read().unwrap();
+        let table = txn.open_table(XATTR_TABLE).unwrap();
+        let mut keys = vec![];
+        for item in table.range((inode, "")..(inode + 1, "")).unwrap() {
+            let (key, _) = item.unwrap();
+            keys.push(key.value().1.to_owned());
+        }
+        Ok(keys)
     }
 
     pub fn set_xattr(
@@ -261,12 +270,18 @@ impl MetadataStorage {
         value: &[u8],
         context: UserContext,
     ) -> Result<(), ErrorCode> {
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         xattr_access_check(key, libc::W_OK, inode_attrs, &context)?;
-        inode_attrs.xattrs.insert(key.to_string(), value.to_vec());
+        let txn = db.begin_write().unwrap();
+        {
+            let mut table = txn.open_table(XATTR_TABLE).unwrap();
+            table.insert((inode, key), value).unwrap();
+        }
+        txn.commit().unwrap();
         inode_attrs.last_metadata_changed = now();
 
         Ok(())
@@ -278,14 +293,21 @@ impl MetadataStorage {
         key: &str,
         context: UserContext,
     ) -> Result<(), ErrorCode> {
+        let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let inode_attrs = metadata
             .get_mut(&inode)
             .ok_or(ErrorCode::InodeDoesNotExist)?;
         xattr_access_check(key, libc::W_OK, inode_attrs, &context)?;
-        if inode_attrs.xattrs.remove(key).is_none() {
-            return Err(ErrorCode::MissingXattrKey);
+        let txn = db.begin_write().unwrap();
+        {
+            let mut table = txn.open_table(XATTR_TABLE).unwrap();
+            if table.remove((inode, key)).unwrap().is_none() {
+                // No need to commit the transaction, since nothing was modified
+                return Err(ErrorCode::MissingXattrKey);
+            }
         }
+        txn.commit().unwrap();
         inode_attrs.last_metadata_changed = now();
 
         Ok(())
@@ -744,7 +766,6 @@ impl MetadataStorage {
             hardlinks,
             uid,
             gid,
-            xattrs: Default::default(),
         };
         metadata.insert(inode, inode_metadata.clone());
 
@@ -781,8 +802,14 @@ impl MetadataStorage {
         if inode_attrs.hardlinks == 0 {
             let is_directory = inode_attrs.kind == FileKind::Directory;
             metadata.remove(&inode);
+            let txn = db.begin_write().unwrap();
+            {
+                let mut table = txn.open_table(XATTR_TABLE).unwrap();
+                table
+                    .retain_in((inode, "")..(inode + 1, ""), |_, _| false)
+                    .unwrap();
+            }
             if is_directory {
-                let txn = db.begin_write().unwrap();
                 {
                     let mut table = txn.open_table(PARENTS_TABLE).unwrap();
                     table.remove(&inode).unwrap();
@@ -799,6 +826,7 @@ impl MetadataStorage {
                 }
                 txn.commit().unwrap();
             } else {
+                txn.commit().unwrap();
                 // Only delete file contents if this is not a directory (directories don't have data contents)
                 return Ok(Some(inode));
             }
