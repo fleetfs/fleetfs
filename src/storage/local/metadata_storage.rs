@@ -554,8 +554,8 @@ impl MetadataStorage {
     }
 
     pub fn update_parent(&self, inode: u64, new_parent: u64) -> Result<(), ErrorCode> {
-        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut vdb = self
             .parent_verification
             .lock()
@@ -717,8 +717,8 @@ impl MetadataStorage {
         mode: u16,
         kind: FileKind,
     ) -> Result<(Inode, InodeAttributes), ErrorCode> {
-        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut vdb = self
             .parent_verification
             .lock()
@@ -766,8 +766,8 @@ impl MetadataStorage {
         inode: Inode,
         count: u32,
     ) -> Result<Option<Inode>, ErrorCode> {
-        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
+        let mut metadata = self.metadata.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut vdb = self
             .parent_verification
             .lock()
