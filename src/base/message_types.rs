@@ -1,4 +1,5 @@
 use redb::{TypeName, Value};
+use redb_derive::Value;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -409,7 +410,7 @@ impl From<&ArchivedUserContext> for UserContext {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy)]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, Copy, Value)]
 #[rkyv(
     // This will generate a PartialEq impl between our unarchived and archived
     // types:
@@ -424,44 +425,6 @@ pub struct Timestamp {
 impl Timestamp {
     pub fn new(seconds: i64, nanos: i32) -> Self {
         Self { seconds, nanos }
-    }
-}
-
-impl Value for Timestamp {
-    type SelfType<'a>
-        = Timestamp
-    where
-        Self: 'a;
-    type AsBytes<'a>
-        = [u8; 12]
-    where
-        Self: 'a;
-
-    fn fixed_width() -> Option<usize> {
-        Some(12)
-    }
-
-    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
-    where
-        Self: 'a,
-    {
-        let seconds = i64::from_le_bytes(data[0..8].try_into().unwrap());
-        let nanos = i32::from_le_bytes(data[8..12].try_into().unwrap());
-        Timestamp::new(seconds, nanos)
-    }
-
-    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
-    where
-        Self: 'b,
-    {
-        let mut tmp = [0; 12];
-        tmp[..8].copy_from_slice(&value.seconds.to_le_bytes());
-        tmp[8..].copy_from_slice(&value.nanos.to_le_bytes());
-        tmp
-    }
-
-    fn type_name() -> TypeName {
-        TypeName::new("fleetfs::Timestamp")
     }
 }
 
