@@ -205,8 +205,6 @@ fn xattr_access_check(
 // When acquiring locks on multiple fields, they must be in alphabetical order
 pub struct MetadataStorage {
     storage: Mutex<redb::Database>,
-    // TODO: remove this once redb is stable & reliable
-    parent_verification: Mutex<HashMap<Inode, Inode>>,
     // Raft guarantees that operations are performed in the same order across all nodes
     // which means that all nodes have the same value for this counter
     next_inode: AtomicU64,
@@ -252,7 +250,6 @@ impl MetadataStorage {
 
         MetadataStorage {
             storage: Mutex::new(db),
-            parent_verification: Mutex::new(parents),
             next_inode: AtomicU64::new(start_inode),
             durability_counter: AtomicU64::new(0),
             num_raft_groups: num_raft_groups as u64,
@@ -421,19 +418,10 @@ impl MetadataStorage {
         if attr_table.get(&inode).unwrap().is_none() {
             return Err(ErrorCode::DoesNotExist);
         }
-        let vdb = self
-            .parent_verification
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
 
         let directory_table = txn.open_table(DIRECTORY_TABLE).unwrap();
         let table: ReadOnlyTable<Inode, Inode> = txn.open_table(PARENTS_TABLE).unwrap();
-        let parent_inode = if let Some(vparent_inode) = vdb.get(&inode) {
-            let parent_inode = table.get(&inode).unwrap().unwrap().value();
-            assert_eq!(*vparent_inode, parent_inode);
-            parent_inode
-        } else {
-            assert!(table.get(&inode).unwrap().is_none());
+        let Some(parent_inode) = table.get(&inode).unwrap().map(|x| x.value()) else {
             return Err(ErrorCode::InodeDoesNotExist);
         };
 
@@ -745,10 +733,6 @@ impl MetadataStorage {
             txn.set_durability(Durability::None);
         }
         let attr_table = txn.open_table(ATTR_TABLE).unwrap();
-        let mut vdb = self
-            .parent_verification
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
         assert_eq!(
             attr_table.get(&inode).unwrap().unwrap().value().kind,
             FileKind::Directory
@@ -759,7 +743,6 @@ impl MetadataStorage {
             table.insert(&inode, &new_parent).unwrap();
         }
         txn.commit().unwrap();
-        vdb.insert(inode, new_parent);
 
         Ok(())
     }
@@ -957,10 +940,6 @@ impl MetadataStorage {
             txn.set_durability(Durability::None);
         }
         let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
-        let mut vdb = self
-            .parent_verification
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
 
         let inode = self.allocate_inode();
         let size = if kind == FileKind::Directory {
@@ -990,7 +969,6 @@ impl MetadataStorage {
                 let mut table = txn.open_table(PARENTS_TABLE).unwrap();
                 table.insert(&inode, &parent).unwrap();
             }
-            vdb.insert(inode, parent);
         }
         drop(attr_table);
         txn.commit().unwrap();
@@ -1009,10 +987,6 @@ impl MetadataStorage {
             txn.set_durability(Durability::None);
         }
         let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
-        let mut vdb = self
-            .parent_verification
-            .lock()
-            .map_err(|_| ErrorCode::Corrupted)?;
 
         let mut inode_attrs = attr_table
             .get(&inode)
@@ -1035,7 +1009,6 @@ impl MetadataStorage {
                     let mut table = txn.open_table(PARENTS_TABLE).unwrap();
                     table.remove(&inode).unwrap();
                 }
-                vdb.remove(&inode).unwrap();
 
                 {
                     let directory_table = txn.open_table(DIRECTORY_TABLE).unwrap();
