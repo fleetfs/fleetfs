@@ -8,7 +8,8 @@ use crate::base::check_access;
 use crate::base::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
 use fuser::FUSE_ROOT_ID;
-use redb::{Durability, ReadOnlyTable, ReadableTable, TableDefinition, TypeName, Value};
+use redb::{Durability, ReadOnlyTable, ReadableDatabase, ReadableTable, TableDefinition};
+use redb_derive::Value;
 use std::time::SystemTime;
 
 pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
@@ -33,7 +34,7 @@ const XATTR_TABLE: TableDefinition<(Inode, &str), &[u8]> = TableDefinition::new(
 // Maps the inode & xattr key to an xattr value
 const ATTR_TABLE: TableDefinition<Inode, InodeAttributes> = TableDefinition::new("attrs");
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Value)]
 pub struct InodeAttributes {
     pub inode: Inode,
     pub size: u64,
@@ -52,76 +53,6 @@ impl InodeAttributes {
     pub fn blocks(&self) -> u64 {
         // TODO: seems like this should be rounded up? Is that a bug?
         self.size / BLOCK_SIZE
-    }
-}
-
-type InodeTuple = (
-    Inode,
-    u64,
-    Timestamp,
-    Timestamp,
-    Timestamp,
-    FileKind,
-    u16,
-    u32,
-    u32,
-    u32,
-);
-
-impl Value for InodeAttributes {
-    type SelfType<'a>
-        = InodeAttributes
-    where
-        Self: 'a;
-    type AsBytes<'a>
-        = Vec<u8>
-    where
-        Self: 'a;
-
-    fn fixed_width() -> Option<usize> {
-        InodeTuple::fixed_width()
-    }
-
-    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
-    where
-        Self: 'a,
-    {
-        let tmp = InodeTuple::from_bytes(data);
-        Self {
-            inode: tmp.0,
-            size: tmp.1,
-            last_accessed: tmp.2,
-            last_modified: tmp.3,
-            last_metadata_changed: tmp.4,
-            kind: tmp.5,
-            mode: tmp.6,
-            hardlinks: tmp.7,
-            uid: tmp.8,
-            gid: tmp.9,
-        }
-    }
-
-    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
-    where
-        Self: 'b,
-    {
-        let tmp = (
-            value.inode,
-            value.size,
-            value.last_accessed,
-            value.last_modified,
-            value.last_metadata_changed,
-            value.kind,
-            value.mode,
-            value.hardlinks,
-            value.uid,
-            value.gid,
-        );
-        InodeTuple::as_bytes(&tmp)
-    }
-
-    fn type_name() -> TypeName {
-        TypeName::new("fleetfs::InodeAttributes")
     }
 }
 
@@ -355,7 +286,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         {
             let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
@@ -386,7 +317,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         {
             let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
@@ -446,7 +377,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut table = txn.open_table(ATTR_TABLE).unwrap();
 
@@ -512,7 +443,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut table = txn.open_table(ATTR_TABLE).unwrap();
         let mut inode_attrs = table
@@ -545,7 +476,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut table = txn.open_table(ATTR_TABLE).unwrap();
         let mut inode_attrs = table
@@ -587,7 +518,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut table = txn.open_table(ATTR_TABLE).unwrap();
         let mut inode_attrs = table
@@ -620,7 +551,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         {
             let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
@@ -662,7 +593,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
         let mut parent_attrs = attr_table
@@ -707,7 +638,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         {
             let mut table = txn.open_table(ATTR_TABLE).unwrap();
@@ -729,7 +660,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let attr_table = txn.open_table(ATTR_TABLE).unwrap();
         assert_eq!(
@@ -750,7 +681,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         {
             let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
@@ -780,7 +711,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         {
             let mut table = txn.open_table(ATTR_TABLE).unwrap();
@@ -826,7 +757,7 @@ impl MetadataStorage {
         let db = self.storage.lock().unwrap();
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
         let mut parent_attrs = attr_table
@@ -905,7 +836,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut table = txn.open_table(ATTR_TABLE).unwrap();
         let mut inode_attrs = table
@@ -936,7 +867,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
 
@@ -983,7 +914,7 @@ impl MetadataStorage {
         let db = self.storage.lock().map_err(|_| ErrorCode::Corrupted)?;
         let mut txn = db.begin_write().unwrap();
         if !self.durability_tick() {
-            txn.set_durability(Durability::None);
+            txn.set_durability(Durability::None).unwrap();
         }
         let mut attr_table = txn.open_table(ATTR_TABLE).unwrap();
 
