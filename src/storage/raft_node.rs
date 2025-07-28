@@ -549,7 +549,7 @@ impl RaftNode {
         &self,
         request: &RkyvRequest,
     ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> + use<> {
-        let uuid: u128 = rand::thread_rng().r#gen();
+        let uuid: u128 = rand::rng().random();
 
         let (sender, receiver) = oneshot::channel();
         {
@@ -568,7 +568,7 @@ impl RaftNode {
         &self,
         request: AlignedVec,
     ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> + use<> {
-        let uuid: u128 = rand::thread_rng().r#gen();
+        let uuid: u128 = rand::rng().random();
 
         let (sender, receiver) = oneshot::channel();
         {

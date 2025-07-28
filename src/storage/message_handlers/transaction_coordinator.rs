@@ -661,7 +661,7 @@ pub async fn create_transaction(
 ) -> Result<RkyvGenericResponse, ErrorCode> {
     // First create inode. This effectively begins the transaction.
     // TODO: actually load balance
-    let raft_group = rand::thread_rng().gen_range(0..remote_rafts.get_total_raft_groups());
+    let raft_group = rand::rng().random_range(0..remote_rafts.get_total_raft_groups());
     let create_inode = RkyvRequest::CreateInode {
         raft_group,
         parent,
