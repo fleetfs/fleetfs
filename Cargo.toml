@@ -5,7 +5,7 @@ license = "Apache-2.0"
 repository = "https://github.com/fleetfs/fleetfs"
 version = "0.2.0"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.88"
 exclude = ["*.sh", "cloud_benchmark/"]
 

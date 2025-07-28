@@ -1,13 +1,13 @@
 use clap::Arg;
 use clap::Command;
-use clap::{crate_version, ArgAction};
+use clap::{ArgAction, crate_version};
 
 use crate::client::NodeClient;
 use crate::fuse_adapter::FleetFUSE;
 use crate::storage::Node;
+use log::LevelFilter;
 use log::debug;
 use log::warn;
-use log::LevelFilter;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 use crate::base::ErrorCode;
