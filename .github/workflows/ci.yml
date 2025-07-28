@@ -28,7 +28,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt update
-          sudo apt install -y libfuse-dev build-essential xattr flatbuffers-compiler
+          sudo apt install -y libfuse-dev build-essential xattr
           echo user_allow_other | sudo tee -a /etc/fuse.conf
 
       - name: Install Rust
