@@ -211,7 +211,9 @@ impl RaftNode {
     }
 
     // TODO: we need to also get the term from the leader. The index alone isn't meaningful
-    pub fn get_latest_commit_from_leader(&self) -> impl Future<Output = Result<u64, ErrorCode>> {
+    pub fn get_latest_commit_from_leader(
+        &self,
+    ) -> impl Future<Output = Result<u64, ErrorCode>> + use<> {
         let raft_node = self.raft_node.lock().unwrap();
 
         if raft_node.raft.leader_id == self.node_id {
@@ -229,7 +231,7 @@ impl RaftNode {
         }
     }
 
-    pub fn get_leader(&self) -> impl Future<Output = Result<u64, ErrorCode>> {
+    pub fn get_leader(&self) -> impl Future<Output = Result<u64, ErrorCode>> + use<> {
         let raft_node = self.raft_node.lock().unwrap();
 
         if raft_node.raft.leader_id > 0 {
@@ -242,7 +244,7 @@ impl RaftNode {
     }
 
     // Wait until the given index has been committed
-    pub fn sync(&self, index: u64) -> impl Future<Output = Result<(), ErrorCode>> {
+    pub fn sync(&self, index: u64) -> impl Future<Output = Result<(), ErrorCode>> + use<> {
         // Make sure we have the lock on all data structures
         let _raft_node_locked = self.raft_node.lock().unwrap();
 
@@ -546,8 +548,8 @@ impl RaftNode {
     pub fn propose(
         &self,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
-        let uuid: u128 = rand::thread_rng().gen();
+    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> + use<> {
+        let uuid: u128 = rand::thread_rng().r#gen();
 
         let (sender, receiver) = oneshot::channel();
         {
@@ -565,8 +567,8 @@ impl RaftNode {
     pub fn propose_raw(
         &self,
         request: AlignedVec,
-    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> {
-        let uuid: u128 = rand::thread_rng().gen();
+    ) -> impl Future<Output = Result<RkyvGenericResponse, ErrorCode>> + use<> {
+        let uuid: u128 = rand::thread_rng().r#gen();
 
         let (sender, receiver) = oneshot::channel();
         {

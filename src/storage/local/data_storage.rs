@@ -386,7 +386,7 @@ mod tests {
 
         let mut data = vec![0u8; 20 * 1024];
         for element in &mut data {
-            *element = rand::thread_rng().gen();
+            *element = rand::thread_rng().r#gen();
         }
 
         cluster.write(0, 0, &data);
