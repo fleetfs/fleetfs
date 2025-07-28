@@ -59,7 +59,7 @@ impl RemoteRaftGroups {
         self.total_raft_groups
     }
 
-    pub fn wait_for_ready(&self) -> impl Future<Output = Result<(), std::io::Error>> {
+    pub fn wait_for_ready(&self) -> impl Future<Output = Result<(), std::io::Error>> + use<> {
         let mut group_futures = vec![];
         for (group, client) in self.groups.iter() {
             let group_future = client.send(&RkyvRequest::RaftGroupLeader { raft_group: *group });
@@ -79,7 +79,7 @@ impl RemoteRaftGroups {
         &self,
         inode: u64,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> + use<> {
         let raft_group_id = inode % self.total_raft_groups as u64;
         self.groups
             .get(&(raft_group_id as u16))
@@ -91,14 +91,14 @@ impl RemoteRaftGroups {
         &self,
         raft_group: u16,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> + use<> {
         self.groups.get(&raft_group).unwrap().send(request)
     }
 
     pub fn forward_request(
         &self,
         request: &RkyvRequest,
-    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> + use<> {
         let rkyv_bytes = rkyv::to_bytes::<rancor::Error>(request).unwrap();
         let serialized = rkyv::access::<ArchivedRkyvRequest, rancor::Error>(&rkyv_bytes).unwrap();
         let raft_group_id = serialized.meta_info().inode.unwrap() % self.total_raft_groups as u64;
@@ -112,7 +112,7 @@ impl RemoteRaftGroups {
         &self,
         request: AlignedVec,
         meta: RequestMetaInfo,
-    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> {
+    ) -> impl Future<Output = Result<AlignedVec, std::io::Error>> + use<> {
         let raft_group_id = meta.inode.unwrap() % self.total_raft_groups as u64;
         self.groups
             .get(&(raft_group_id as u16))

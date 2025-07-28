@@ -44,10 +44,9 @@ async fn forward_request(
     meta: RequestMetaInfo,
     rafts: Arc<RemoteRaftGroups>,
 ) -> AlignedVec {
-    if let Ok(response) = rafts.forward_raw_request(request, meta).await {
-        response
-    } else {
-        to_error_response(ErrorCode::Uncategorized)
+    match rafts.forward_raw_request(request, meta).await {
+        Ok(response) => response,
+        _ => to_error_response(ErrorCode::Uncategorized),
     }
 }
 

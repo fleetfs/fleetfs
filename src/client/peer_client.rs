@@ -84,11 +84,12 @@ impl TcpPeerClient {
 
     fn connect(&self) -> BoxFuture<'static, Result<TcpStream, std::io::Error>> {
         let mut locked = self.pool.lock().unwrap();
-        if let Some(stream) = locked.pop() {
-            ok(stream).boxed()
-        } else {
-            // TODO: should have an upper limit on the number of outstanding connections
-            TcpStream::connect(self.server_ip_port).boxed()
+        match locked.pop() {
+            Some(stream) => ok(stream).boxed(),
+            _ => {
+                // TODO: should have an upper limit on the number of outstanding connections
+                TcpStream::connect(self.server_ip_port).boxed()
+            }
         }
     }
 
