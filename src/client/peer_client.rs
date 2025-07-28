@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 use crate::base::response_or_error;
 use crate::base::{CommitId, ErrorCode, RkyvRequest};
 use byteorder::{ByteOrder, LittleEndian};
-use futures::future::{ok, ready, BoxFuture, Either};
 use futures::FutureExt;
+use futures::future::{BoxFuture, Either, ok, ready};
 use protobuf::Message as ProtobufMessage;
 use raft::eraftpb::Message;
 use rkyv::rancor;
@@ -27,7 +27,7 @@ pub trait PeerClient {
     fn send_raft_message(&self, raft_group: u16, message: Message) -> BoxFuture<'static, ()>;
 
     fn get_latest_commit(&self, raft_group: u16)
-        -> BoxFuture<'static, Result<u64, std::io::Error>>;
+    -> BoxFuture<'static, Result<u64, std::io::Error>>;
 
     fn filesystem_checksum(&self) -> BoxFuture<'static, Result<HashMap<u16, Vec<u8>>, ErrorCode>>;
 

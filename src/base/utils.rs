@@ -1,5 +1,5 @@
-use crate::base::message_types::ArchivedRkyvGenericResponse;
 use crate::base::ErrorCode;
+use crate::base::message_types::ArchivedRkyvGenericResponse;
 use rkyv::rancor;
 use rkyv::util::AlignedVec;
 use std::collections::hash_map::DefaultHasher;

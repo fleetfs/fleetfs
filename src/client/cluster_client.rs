@@ -1,6 +1,6 @@
-use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
 use crate::base::RequestMetaInfo;
+use crate::base::node_contains_raft_group;
 use crate::base::{ArchivedRkyvRequest, RkyvRequest};
 use crate::client::{PeerClient, TcpPeerClient};
 use futures_util::future::FutureExt;

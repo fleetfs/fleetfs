@@ -1,5 +1,5 @@
-use crate::base::node_contains_raft_group;
 use crate::base::LocalContext;
+use crate::base::node_contains_raft_group;
 use crate::storage::raft_node::RaftNode;
 use std::collections::HashMap;
 

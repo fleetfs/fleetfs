@@ -7,10 +7,10 @@ use crate::base::{
     UserContext,
 };
 use crate::client::TcpPeerClient;
-use crate::storage::local::data_storage::{DataStorage, BLOCK_SIZE};
-use crate::storage::local::error_helper::into_error_code;
-use crate::storage::local::metadata_storage::{InodeAttributes, MetadataStorage, MAX_NAME_LENGTH};
 use crate::storage::ROOT_INODE;
+use crate::storage::local::data_storage::{BLOCK_SIZE, DataStorage};
+use crate::storage::local::error_helper::into_error_code;
+use crate::storage::local::metadata_storage::{InodeAttributes, MAX_NAME_LENGTH, MetadataStorage};
 use futures::Future;
 use futures::FutureExt;
 use std::net::SocketAddr;

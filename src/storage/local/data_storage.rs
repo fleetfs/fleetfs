@@ -3,9 +3,9 @@ use futures::FutureExt;
 
 use crate::base::{CommitId, ErrorCode};
 use crate::client::PeerClient;
-use crate::storage::local::error_helper::into_error_code;
 use crate::storage::ROOT_INODE;
-use futures::future::{err, join_all, Either};
+use crate::storage::local::error_helper::into_error_code;
+use futures::future::{Either, err, join_all};
 use log::info;
 use sha2::{Digest, Sha256};
 use std::cmp::min;
@@ -300,13 +300,13 @@ impl<T: PeerClient> DataStorage<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ErrorCode;
     use crate::base::CommitId;
     use crate::client::PeerClient;
     use crate::storage::local::data_storage::{
-        stores_index, to_global_index, to_local_index_ceiling, DataStorage, BLOCK_SIZE,
+        BLOCK_SIZE, DataStorage, stores_index, to_global_index, to_local_index_ceiling,
     };
-    use crate::ErrorCode;
-    use futures::future::{ready, BoxFuture};
+    use futures::future::{BoxFuture, ready};
     use futures_util::future::FutureExt;
     use raft::eraftpb::Message;
     use rand::Rng;

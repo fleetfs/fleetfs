@@ -9,10 +9,10 @@ use log::debug;
 use log::error;
 use log::warn;
 
+use crate::ErrorCode;
 use crate::base::check_access;
 use crate::base::{FileKind, Timestamp, UserContext};
 use crate::client::NodeClient;
-use crate::ErrorCode;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
@@ -325,7 +325,10 @@ impl Filesystem for FleetFUSE {
             && file_type != libc::S_IFDIR as u32
         {
             // TODO
-            warn!("mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}", mode);
+            warn!(
+                "mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}",
+                mode
+            );
             reply.error(libc::ENOSYS);
         } else {
             match self.client.create(
