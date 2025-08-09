@@ -555,13 +555,12 @@ impl MetadataStorage {
             .value();
 
         // Only root can change uid
-        if let Some(uid) = uid {
-            if context.uid() != 0
+        if let Some(uid) = uid
+            && context.uid() != 0
                 // but no-op changes by the owner are not an error
                 && !(uid == inode_attrs.uid && context.uid() == inode_attrs.uid)
-            {
-                return Err(ErrorCode::OperationNotPermitted);
-            }
+        {
+            return Err(ErrorCode::OperationNotPermitted);
         }
         // Only owner may change the group
         if gid.is_some() && context.uid() != 0 && context.uid() != inode_attrs.uid {
@@ -842,15 +841,15 @@ impl MetadataStorage {
             .ok_or(ErrorCode::DoesNotExist)?
             .value();
 
-        if let Some((retrieved_inode, _)) = link_inode_and_uid {
-            if retrieved_inode != inode {
-                // The inode that the client looked up is out of date (i.e. this link has been
-                // deleted and recreated since then). Tell the client to look it up again.
-                drop(attr_table);
-                drop(dir_table);
-                txn.abort().unwrap();
-                return Ok((inode, false));
-            }
+        if let Some((retrieved_inode, _)) = link_inode_and_uid
+            && retrieved_inode != inode
+        {
+            // The inode that the client looked up is out of date (i.e. this link has been
+            // deleted and recreated since then). Tell the client to look it up again.
+            drop(attr_table);
+            drop(dir_table);
+            txn.abort().unwrap();
+            return Ok((inode, false));
         }
 
         if !check_access(
