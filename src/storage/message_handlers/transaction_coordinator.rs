@@ -310,22 +310,21 @@ fn rename_check_access(
     }
 
     // "Sticky bit" handling in new_parent
-    if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0 {
-        if let Some(attrs) = existing_dest_inode_attrs {
-            if context.uid() != 0
-                && context.uid() != new_parent_attrs.uid
-                && context.uid() != attrs.uid
-            {
-                return Err(ErrorCode::AccessDenied);
-            }
-        }
+    if new_parent_attrs.mode & libc::S_ISVTX as u16 != 0
+        && let Some(attrs) = existing_dest_inode_attrs
+        && context.uid() != 0
+        && context.uid() != new_parent_attrs.uid
+        && context.uid() != attrs.uid
+    {
+        return Err(ErrorCode::AccessDenied);
     }
 
     // Only overwrite an existing directory if it's empty
-    if let Some(attrs) = existing_dest_inode_attrs {
-        if attrs.kind == FileKind::Directory && attrs.directory_entries > 0 {
-            return Err(ErrorCode::NotEmpty);
-        }
+    if let Some(attrs) = existing_dest_inode_attrs
+        && attrs.kind == FileKind::Directory
+        && attrs.directory_entries > 0
+    {
+        return Err(ErrorCode::NotEmpty);
     }
 
     // Only move an existing directory to a new parent, if we have write access to it,
