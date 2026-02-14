@@ -19,7 +19,7 @@ log = "0.4"
 env_logger = "0.11.5"
 slog-stdlog = "4.1"
 slog = "2.7" # slog is only used by the raft dependency
-fuser = { version = "0.15.0", features = ['abi-7-30'], default-features = false }
+fuser = "0.17.0"
 rkyv = "0.8.8"
 redb = "3.0.0"
 redb-derive = "0.1.0"
