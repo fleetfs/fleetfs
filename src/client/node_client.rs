@@ -28,7 +28,7 @@ pub struct StatFS {
 
 fn metadata_to_fuse_fileattr(metadata: &EntryMetadata) -> FileAttr {
     FileAttr {
-        ino: metadata.inode,
+        ino: fuser::INodeNo(metadata.inode),
         size: metadata.size_bytes,
         blocks: metadata.size_blocks,
         atime: metadata.last_access_time.into(),

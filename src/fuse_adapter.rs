@@ -13,15 +13,13 @@ use crate::ErrorCode;
 use crate::base::check_access;
 use crate::base::{FileKind, Timestamp, UserContext};
 use crate::client::NodeClient;
-use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
-    Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
-    ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request,
-    TimeOrNow,
+    BsdFileFlags, Errno, FileHandle, Filesystem, FopenFlags, Generation, INodeNo, KernelConfig,
+    LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite,
+    ReplyXattr, Request, TimeOrNow, WriteFlags,
 };
-use libc::ENOSYS;
 use std::collections::HashMap;
-use std::os::raw::c_int;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -95,23 +93,23 @@ impl FleetFUSE {
     }
 }
 
-fn into_fuse_error(error: ErrorCode) -> c_int {
+fn into_fuse_error(error: ErrorCode) -> Errno {
     match error {
-        ErrorCode::DoesNotExist => libc::ENOENT,
-        ErrorCode::InodeDoesNotExist => libc::EBADFD,
-        ErrorCode::Uncategorized => libc::EIO,
-        ErrorCode::Corrupted => libc::EIO,
-        ErrorCode::RaftFailure => libc::EIO,
-        ErrorCode::BadResponse => libc::EIO,
-        ErrorCode::BadRequest => libc::EIO,
-        ErrorCode::FileTooLarge => libc::EFBIG,
-        ErrorCode::AccessDenied => libc::EACCES,
-        ErrorCode::OperationNotPermitted => libc::EPERM,
-        ErrorCode::NameTooLong => libc::ENAMETOOLONG,
-        ErrorCode::NotEmpty => libc::ENOTEMPTY,
-        ErrorCode::MissingXattrKey => libc::ENODATA,
-        ErrorCode::AlreadyExists => libc::EEXIST,
-        ErrorCode::InvalidXattrNamespace => libc::ENOTSUP,
+        ErrorCode::DoesNotExist => Errno::ENOENT,
+        ErrorCode::InodeDoesNotExist => Errno::EBADF,
+        ErrorCode::Uncategorized => Errno::EIO,
+        ErrorCode::Corrupted => Errno::EIO,
+        ErrorCode::RaftFailure => Errno::EIO,
+        ErrorCode::BadResponse => Errno::EIO,
+        ErrorCode::BadRequest => Errno::EIO,
+        ErrorCode::FileTooLarge => Errno::EFBIG,
+        ErrorCode::AccessDenied => Errno::EACCES,
+        ErrorCode::OperationNotPermitted => Errno::EPERM,
+        ErrorCode::NameTooLong => Errno::ENAMETOOLONG,
+        ErrorCode::NotEmpty => Errno::ENOTEMPTY,
+        ErrorCode::MissingXattrKey => Errno::NO_XATTR,
+        ErrorCode::AlreadyExists => Errno::EEXIST,
+        ErrorCode::InvalidXattrNamespace => Errno::ENOTSUP,
     }
 }
 
@@ -132,45 +130,45 @@ fn as_file_kind(mut mode: u32) -> FileKind {
 }
 
 impl Filesystem for FleetFUSE {
-    fn init(&mut self, _req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
+    fn init(&mut self, _req: &Request, _config: &mut KernelConfig) -> std::io::Result<()> {
         Ok(())
     }
 
-    fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         let name = if let Some(value) = name.to_str() {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         // TODO: avoid this double lookup
         match self
             .client
-            .lookup(parent, name, UserContext::new(req.uid(), req.gid()))
+            .lookup(parent.0, name, UserContext::new(req.uid(), req.gid()))
         {
             Ok(inode) => match self.client.getattr(inode) {
-                Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
+                Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, Generation(0)),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
             },
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {}
+    fn forget(&self, _req: &Request, _ino: INodeNo, _nlookup: u64) {}
 
-    fn getattr(&mut self, _req: &Request, inode: u64, _fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, _req: &Request, inode: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
         debug!("getattr() called with {:?}", inode);
-        match self.client.getattr(inode) {
+        match self.client.getattr(inode.0) {
             Ok(attr) => reply.attr(&Duration::new(0, 0), &attr),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
     fn setattr(
-        &mut self,
+        &self,
         req: &Request,
-        inode: u64,
+        inode: INodeNo,
         mode: Option<u32>,
         uid: Option<u32>,
         gid: Option<u32>,
@@ -178,18 +176,18 @@ impl Filesystem for FleetFUSE {
         atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
-        fh: Option<u64>,
+        fh: Option<FileHandle>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
-        _flags: Option<u32>,
+        _flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
         if let Some(mode) = mode {
             debug!("chmod() called with {:?}, {:o}", inode, mode);
             if let Err(error_code) =
                 self.client
-                    .chmod(inode, mode, UserContext::new(req.uid(), req.gid()))
+                    .chmod(inode.0, mode, UserContext::new(req.uid(), req.gid()))
             {
                 reply.error(into_fuse_error(error_code));
                 return;
@@ -201,13 +199,13 @@ impl Filesystem for FleetFUSE {
             if let Some(gid) = gid {
                 // Non-root users can only change gid to a group they're in
                 if req.uid() != 0 && !get_groups(req.pid()).contains(&gid) {
-                    reply.error(libc::EPERM);
+                    reply.error(Errno::EPERM);
                     return;
                 }
             }
             if let Err(error_code) =
                 self.client
-                    .chown(inode, uid, gid, UserContext::new(req.uid(), req.gid()))
+                    .chown(inode.0, uid, gid, UserContext::new(req.uid(), req.gid()))
             {
                 reply.error(into_fuse_error(error_code));
                 return;
@@ -221,20 +219,20 @@ impl Filesystem for FleetFUSE {
                 // This is important as it preserves the semantic that a file handle opened
                 // with W_OK will never fail to truncate, even if the file has been subsequently
                 // chmod'ed
-                if self.check_write(handle) {
+                if self.check_write(handle.0) {
                     if let Err(error_code) =
-                        self.client.truncate(inode, size, UserContext::new(0, 0))
+                        self.client.truncate(inode.0, size, UserContext::new(0, 0))
                     {
                         reply.error(into_fuse_error(error_code));
                         return;
                     }
                 } else {
-                    reply.error(libc::EACCES);
+                    reply.error(Errno::EACCES);
                     return;
                 }
             } else if let Err(error_code) =
                 self.client
-                    .truncate(inode, size, UserContext::new(req.uid(), req.gid()))
+                    .truncate(inode.0, size, UserContext::new(req.uid(), req.gid()))
             {
                 reply.error(into_fuse_error(error_code));
                 return;
@@ -275,7 +273,7 @@ impl Filesystem for FleetFUSE {
                 TimeOrNow::Now => Timestamp::new(0, libc::UTIME_NOW as i32),
             });
             if let Err(error_code) = self.client.utimens(
-                inode,
+                inode.0,
                 atimestamp,
                 mtimestamp,
                 UserContext::new(req.uid(), req.gid()),
@@ -285,15 +283,15 @@ impl Filesystem for FleetFUSE {
             }
         }
 
-        match self.client.getattr(inode) {
+        match self.client.getattr(inode.0) {
             Ok(attr) => reply.attr(&Duration::new(0, 0), &attr),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
+    fn readlink(&self, _req: &Request, inode: INodeNo, reply: ReplyData) {
         debug!("readlink() called on {:?}", inode);
-        match self.client.readlink(inode) {
+        match self.client.readlink(inode.0) {
             Ok(data) => reply.data(&data),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
@@ -302,9 +300,9 @@ impl Filesystem for FleetFUSE {
     // t_mode type is u16 on MacOS, but u32 on Linux
     #[allow(clippy::unnecessary_cast)]
     fn mknod(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         _umask: u32,
@@ -315,7 +313,7 @@ impl Filesystem for FleetFUSE {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         let file_type = mode & libc::S_IFMT as u32;
@@ -329,26 +327,26 @@ impl Filesystem for FleetFUSE {
                 "mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}",
                 mode
             );
-            reply.error(libc::ENOSYS);
+            reply.error(Errno::ENOSYS);
         } else {
             match self.client.create(
-                parent,
+                parent.0,
                 name,
                 req.uid(),
                 req.gid(),
                 mode as u16,
                 as_file_kind(mode),
             ) {
-                Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
+                Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, Generation(0)),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
             }
         }
     }
 
     fn mkdir(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         _umask: u32,
@@ -359,30 +357,30 @@ impl Filesystem for FleetFUSE {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         match self
             .client
-            .mkdir(parent, name, req.uid(), req.gid(), mode as u16)
+            .mkdir(parent.0, name, req.uid(), req.gid(), mode as u16)
         {
-            Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
+            Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, Generation(0)),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         debug!("unlink() called with {:?} {:?}", parent, name);
         let name = if let Some(value) = name.to_str() {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         if let Err(error_code) =
             self.client
-                .unlink(parent, name, UserContext::new(req.uid(), req.gid()))
+                .unlink(parent.0, name, UserContext::new(req.uid(), req.gid()))
         {
             reply.error(into_fuse_error(error_code));
         } else {
@@ -390,18 +388,18 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         debug!("rmdir() called with {:?} {:?}", parent, name);
         let name = if let Some(value) = name.to_str() {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         if let Err(error_code) =
             self.client
-                .rmdir(parent, name, UserContext::new(req.uid(), req.gid()))
+                .rmdir(parent.0, name, UserContext::new(req.uid(), req.gid()))
         {
             reply.error(into_fuse_error(error_code));
         } else {
@@ -410,9 +408,9 @@ impl Filesystem for FleetFUSE {
     }
 
     fn symlink(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         link: &Path,
         reply: ReplyEntry,
@@ -422,71 +420,75 @@ impl Filesystem for FleetFUSE {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         let link = if let Some(value) = link.to_str() {
             value
         } else {
             error!("Link is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
 
-        match self
-            .client
-            .create(parent, name, req.uid(), req.gid(), 0o755, FileKind::Symlink)
-        {
+        match self.client.create(
+            parent.0,
+            name,
+            req.uid(),
+            req.gid(),
+            0o755,
+            FileKind::Symlink,
+        ) {
             Ok(attrs) => {
                 if let Err(error_code) =
                     self.client
-                        .truncate(attrs.ino, 0, UserContext::new(req.uid(), req.gid()))
+                        .truncate(attrs.ino.0, 0, UserContext::new(req.uid(), req.gid()))
                 {
                     reply.error(into_fuse_error(error_code));
                     return;
                 }
                 if let Err(error_code) =
                     self.client
-                        .write(attrs.ino, &Vec::from(link.to_string()), 0)
+                        .write(attrs.ino.0, &Vec::from(link.to_string()), 0)
                 {
                     reply.error(into_fuse_error(error_code));
                     return;
                 }
 
-                reply.entry(&Duration::new(0, 0), &attrs, 0);
+                reply.entry(&Duration::new(0, 0), &attrs, Generation(0));
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
     fn rename(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
-        new_parent: u64,
+        new_parent: INodeNo,
         new_name: &OsStr,
-        _flags: u32,
+        _flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
         let name = if let Some(value) = name.to_str() {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         let new_name = if let Some(value) = new_name.to_str() {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         if let Err(error_code) = self.client.rename(
-            parent,
+            parent.0,
             name,
-            new_parent,
+            new_parent.0,
             new_name,
             UserContext::new(req.uid(), req.gid()),
         ) {
@@ -497,10 +499,10 @@ impl Filesystem for FleetFUSE {
     }
 
     fn link(
-        &mut self,
+        &self,
         req: &Request,
-        inode: u64,
-        new_parent: u64,
+        inode: INodeNo,
+        new_parent: INodeNo,
         new_name: &OsStr,
         reply: ReplyEntry,
     ) {
@@ -512,46 +514,41 @@ impl Filesystem for FleetFUSE {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         match self.client.hardlink(
-            inode,
-            new_parent,
+            inode.0,
+            new_parent.0,
             new_name,
             UserContext::new(req.uid(), req.gid()),
         ) {
-            Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, 0),
+            Ok(attr) => reply.entry(&Duration::new(0, 0), &attr, Generation(0)),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn open(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
+    fn open(&self, req: &Request, inode: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         debug!("open() called for {:?}", inode);
-        let (access_mask, read, write) = match flags & libc::O_ACCMODE {
-            libc::O_RDONLY => {
+        let (access_mask, read, write) = match flags.acc_mode() {
+            fuser::OpenAccMode::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
-                if flags & libc::O_TRUNC != 0 {
-                    reply.error(libc::EACCES);
+                if flags.0 & libc::O_TRUNC != 0 {
+                    reply.error(Errno::EACCES);
                     return;
                 }
-                if flags & FMODE_EXEC != 0 {
+                if flags.0 & FMODE_EXEC != 0 {
                     // Open is from internal exec syscall
                     (libc::X_OK, true, false)
                 } else {
                     (libc::R_OK, true, false)
                 }
             }
-            libc::O_WRONLY => (libc::W_OK, false, true),
-            libc::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
-            // Exactly one access mode flag must be specified
-            _ => {
-                reply.error(libc::EINVAL);
-                return;
-            }
+            fuser::OpenAccMode::O_WRONLY => (libc::W_OK, false, true),
+            fuser::OpenAccMode::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
         };
 
-        match self.client.getattr(inode) {
+        match self.client.getattr(inode.0) {
             Ok(attr) => {
                 if check_access(
                     attr.uid,
@@ -561,10 +558,14 @@ impl Filesystem for FleetFUSE {
                     req.gid(),
                     access_mask,
                 ) {
-                    let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
-                    reply.opened(self.allocate_file_handle(read, write), flags);
+                    let flags = if self.direct_io {
+                        FopenFlags::FOPEN_DIRECT_IO
+                    } else {
+                        FopenFlags::empty()
+                    };
+                    reply.opened(FileHandle(self.allocate_file_handle(read, write)), flags);
                 } else {
-                    reply.error(libc::EACCES);
+                    reply.error(Errno::EACCES);
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -572,104 +573,111 @@ impl Filesystem for FleetFUSE {
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: &Request,
-        inode: u64,
-        fh: u64,
-        offset: i64,
+        inode: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         size: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
         debug!("read() called on {:?}", inode);
-        assert!(offset >= 0);
-        if !self.check_read(fh) {
-            reply.error(libc::EACCES);
+        if !self.check_read(fh.0) {
+            reply.error(Errno::EACCES);
             return;
         }
 
         self.client
-            .read(inode, offset as u64, size, move |result| match result {
+            .read(inode.0, offset, size, move |result| match result {
                 Ok(data) => reply.data(data),
                 Err(error_code) => reply.error(into_fuse_error(error_code)),
             });
     }
 
     fn write(
-        &mut self,
+        &self,
         _req: &Request,
-        inode: u64,
-        fh: u64,
-        offset: i64,
+        inode: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         data: &[u8],
-        _write_flags: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _write_flags: WriteFlags,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
         debug!("write() called with {:?}", inode);
-        assert!(offset >= 0);
-        if !self.check_write(fh) {
-            reply.error(libc::EACCES);
+        if !self.check_write(fh.0) {
+            reply.error(Errno::EACCES);
             return;
         }
-        match self.client.write(inode, data, offset as u64) {
+        match self.client.write(inode.0, data, offset) {
             Ok(written) => reply.written(written),
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn flush(&mut self, _req: &Request, inode: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(
+        &self,
+        _req: &Request,
+        inode: INodeNo,
+        _fh: FileHandle,
+        _lock_owner: LockOwner,
+        reply: ReplyEmpty,
+    ) {
         debug!("flush() called on {:?}", inode);
-        reply.error(ENOSYS);
+        reply.error(Errno::ENOSYS);
     }
 
     fn release(
-        &mut self,
+        &self,
         _req: &Request,
-        inode: u64,
-        fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        inode: INodeNo,
+        fh: FileHandle,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
         debug!("release() called on {:?} {}", inode, fh);
-        self.deallocate_file_handle(fh);
+        self.deallocate_file_handle(fh.0);
         reply.ok();
     }
 
-    fn fsync(&mut self, _req: &Request, inode: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+    fn fsync(
+        &self,
+        _req: &Request,
+        inode: INodeNo,
+        _fh: FileHandle,
+        _datasync: bool,
+        reply: ReplyEmpty,
+    ) {
         debug!("fsync() called with {:?}", inode);
-        if let Err(error_code) = self.client.fsync(inode) {
+        if let Err(error_code) = self.client.fsync(inode.0) {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
         }
     }
 
-    fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
+    fn opendir(&self, req: &Request, inode: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         debug!("opendir() called on {:?}", inode);
-        let (access_mask, read, write) = match flags & libc::O_ACCMODE {
-            libc::O_RDONLY => {
+        let (access_mask, read, write) = match flags.acc_mode() {
+            fuser::OpenAccMode::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
-                if flags & libc::O_TRUNC != 0 {
-                    reply.error(libc::EACCES);
+                if flags.0 & libc::O_TRUNC != 0 {
+                    reply.error(Errno::EACCES);
                     return;
                 }
                 (libc::R_OK, true, false)
             }
-            libc::O_WRONLY => (libc::W_OK, false, true),
-            libc::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
-            // Exactly one access mode flag must be specified
-            _ => {
-                reply.error(libc::EINVAL);
-                return;
-            }
+            fuser::OpenAccMode::O_WRONLY => (libc::W_OK, false, true),
+            fuser::OpenAccMode::O_RDWR => (libc::R_OK | libc::W_OK, true, true),
         };
 
-        match self.client.getattr(inode) {
+        match self.client.getattr(inode.0) {
             Ok(attr) => {
                 if check_access(
                     attr.uid,
@@ -679,10 +687,14 @@ impl Filesystem for FleetFUSE {
                     req.gid(),
                     access_mask,
                 ) {
-                    let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
-                    reply.opened(self.allocate_file_handle(read, write), flags);
+                    let flags = if self.direct_io {
+                        FopenFlags::FOPEN_DIRECT_IO
+                    } else {
+                        FopenFlags::empty()
+                    };
+                    reply.opened(FileHandle(self.allocate_file_handle(read, write)), flags);
                 } else {
-                    reply.error(libc::EACCES);
+                    reply.error(Errno::EACCES);
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -691,22 +703,21 @@ impl Filesystem for FleetFUSE {
 
     // TODO: send offset to server and do pagination
     fn readdir(
-        &mut self,
+        &self,
         _req: &Request,
-        inode: u64,
-        _fh: u64,
-        offset: i64,
+        inode: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
         mut reply: ReplyDirectory,
     ) {
         debug!("readdir() called with {:?}", inode);
-        assert!(offset >= 0);
-        match self.client.readdir(inode) {
+        match self.client.readdir(inode.0) {
             Ok(entries) => {
                 for (index, entry) in entries.iter().skip(offset as usize).enumerate() {
                     let (inode, name, file_type) = entry;
 
                     let buffer_full: bool =
-                        reply.add(*inode, offset + index as i64 + 1, *file_type, name);
+                        reply.add(INodeNo(*inode), offset + index as u64 + 1, *file_type, name);
 
                     if buffer_full {
                         break;
@@ -719,29 +730,36 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn releasedir(&mut self, _req: &Request, inode: u64, fh: u64, _flags: i32, reply: ReplyEmpty) {
+    fn releasedir(
+        &self,
+        _req: &Request,
+        inode: INodeNo,
+        fh: FileHandle,
+        _flags: OpenFlags,
+        reply: ReplyEmpty,
+    ) {
         debug!("releasedir() called on {:?} {}", inode, fh);
-        self.deallocate_file_handle(fh);
+        self.deallocate_file_handle(fh.0);
         reply.ok();
     }
 
     fn fsyncdir(
-        &mut self,
+        &self,
         _req: &Request,
-        inode: u64,
-        _fh: u64,
+        inode: INodeNo,
+        _fh: FileHandle,
         _datasync: bool,
         reply: ReplyEmpty,
     ) {
         debug!("fsyncdir() called with {:?}", inode);
-        if let Err(error_code) = self.client.fsync(inode) {
+        if let Err(error_code) = self.client.fsync(inode.0) {
             reply.error(into_fuse_error(error_code));
         } else {
             reply.ok();
         }
     }
 
-    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+    fn statfs(&self, _req: &Request, _ino: INodeNo, reply: ReplyStatfs) {
         debug!("statfs()");
         match self.client.statfs() {
             Ok(info) => reply.statfs(
@@ -759,9 +777,9 @@ impl Filesystem for FleetFUSE {
     }
 
     fn setxattr(
-        &mut self,
+        &self,
         req: &Request,
-        inode: u64,
+        inode: INodeNo,
         name: &OsStr,
         value: &[u8],
         _flags: i32,
@@ -773,12 +791,12 @@ impl Filesystem for FleetFUSE {
             value
         } else {
             error!("Key is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         if let Err(error_code) =
             self.client
-                .setxattr(inode, name, value, UserContext::new(req.uid(), req.gid()))
+                .setxattr(inode.0, name, value, UserContext::new(req.uid(), req.gid()))
         {
             reply.error(into_fuse_error(error_code));
         } else {
@@ -786,18 +804,18 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn getxattr(&mut self, req: &Request, inode: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+    fn getxattr(&self, req: &Request, inode: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
         debug!("getxattr() called with {:?} {:?}", inode, name);
         let name = if let Some(value) = name.to_str() {
             value
         } else {
             error!("Key is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         match self
             .client
-            .getxattr(inode, name, UserContext::new(req.uid(), req.gid()))
+            .getxattr(inode.0, name, UserContext::new(req.uid(), req.gid()))
         {
             Ok(data) => {
                 if size == 0 {
@@ -805,16 +823,16 @@ impl Filesystem for FleetFUSE {
                 } else if data.len() <= size as usize {
                     reply.data(&data);
                 } else {
-                    reply.error(libc::ERANGE);
+                    reply.error(Errno::ERANGE);
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn listxattr(&mut self, _req: &Request, inode: u64, size: u32, reply: ReplyXattr) {
+    fn listxattr(&self, _req: &Request, inode: INodeNo, size: u32, reply: ReplyXattr) {
         debug!("listxattr() called with {:?}", inode);
-        match self.client.listxattr(inode).map(|xattrs| {
+        match self.client.listxattr(inode.0).map(|xattrs| {
             let mut bytes = vec![];
             // Convert to concatenated null-terminated strings
             for attr in xattrs {
@@ -829,25 +847,25 @@ impl Filesystem for FleetFUSE {
                 } else if data.len() <= size as usize {
                     reply.data(&data);
                 } else {
-                    reply.error(libc::ERANGE);
+                    reply.error(Errno::ERANGE);
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
         }
     }
 
-    fn removexattr(&mut self, req: &Request, inode: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn removexattr(&self, req: &Request, inode: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         debug!("removexattr() called with {:?} {:?}", inode, name);
         let name = if let Some(value) = name.to_str() {
             value
         } else {
             error!("Key is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
         if let Err(error_code) =
             self.client
-                .removexattr(inode, name, UserContext::new(req.uid(), req.gid()))
+                .removexattr(inode.0, name, UserContext::new(req.uid(), req.gid()))
         {
             reply.error(into_fuse_error(error_code));
         } else {
@@ -855,14 +873,21 @@ impl Filesystem for FleetFUSE {
         }
     }
 
-    fn access(&mut self, req: &Request, inode: u64, mask: i32, reply: ReplyEmpty) {
+    fn access(&self, req: &Request, inode: INodeNo, mask: fuser::AccessFlags, reply: ReplyEmpty) {
         debug!("access() called with {:?} {:?}", inode, mask);
-        match self.client.getattr(inode) {
+        match self.client.getattr(inode.0) {
             Ok(attr) => {
-                if check_access(attr.uid, attr.gid, attr.perm, req.uid(), req.gid(), mask) {
+                if check_access(
+                    attr.uid,
+                    attr.gid,
+                    attr.perm,
+                    req.uid(),
+                    req.gid(),
+                    mask.bits() as i32,
+                ) {
                     reply.ok();
                 } else {
-                    reply.error(libc::EACCES);
+                    reply.error(Errno::EACCES);
                 }
             }
             Err(error_code) => reply.error(into_fuse_error(error_code)),
@@ -870,9 +895,9 @@ impl Filesystem for FleetFUSE {
     }
 
     fn create(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         _umask: u32,
@@ -884,21 +909,16 @@ impl Filesystem for FleetFUSE {
             value
         } else {
             error!("Path component is not UTF-8");
-            reply.error(libc::EINVAL);
+            reply.error(Errno::EINVAL);
             return;
         };
-        let (read, write) = match flags & libc::O_ACCMODE {
-            libc::O_RDONLY => (true, false),
-            libc::O_WRONLY => (false, true),
-            libc::O_RDWR => (true, true),
-            // Exactly one access mode flag must be specified
-            _ => {
-                reply.error(libc::EINVAL);
-                return;
-            }
+        let (read, write) = match OpenFlags(flags).acc_mode() {
+            fuser::OpenAccMode::O_RDONLY => (true, false),
+            fuser::OpenAccMode::O_WRONLY => (false, true),
+            fuser::OpenAccMode::O_RDWR => (true, true),
         };
         match self.client.create(
-            parent,
+            parent.0,
             name,
             req.uid(),
             req.gid(),
@@ -906,13 +926,17 @@ impl Filesystem for FleetFUSE {
             as_file_kind(mode),
         ) {
             Ok(attr) => {
-                let flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
+                let flags = if self.direct_io {
+                    FopenFlags::FOPEN_DIRECT_IO
+                } else {
+                    FopenFlags::empty()
+                };
                 // TODO: implement flags
                 reply.created(
                     &Duration::new(0, 0),
                     &attr,
-                    0,
-                    self.allocate_file_handle(read, write),
+                    Generation(0),
+                    FileHandle(self.allocate_file_handle(read, write)),
                     flags,
                 )
             }
@@ -921,26 +945,26 @@ impl Filesystem for FleetFUSE {
     }
 
     fn getlk(
-        &mut self,
+        &self,
         _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
+        _ino: INodeNo,
+        _fh: FileHandle,
+        _lock_owner: LockOwner,
         _start: u64,
         _end: u64,
         _typ: i32,
         _pid: u32,
         reply: ReplyLock,
     ) {
-        reply.error(ENOSYS);
+        reply.error(Errno::ENOSYS);
     }
 
     fn setlk(
-        &mut self,
+        &self,
         _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _lock_owner: u64,
+        _ino: INodeNo,
+        _fh: FileHandle,
+        _lock_owner: LockOwner,
         _start: u64,
         _end: u64,
         _typ: i32,
@@ -948,11 +972,11 @@ impl Filesystem for FleetFUSE {
         _sleep: bool,
         reply: ReplyEmpty,
     ) {
-        reply.error(ENOSYS);
+        reply.error(Errno::ENOSYS);
     }
 
-    fn bmap(&mut self, _req: &Request, _ino: u64, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
-        reply.error(ENOSYS);
+    fn bmap(&self, _req: &Request, _ino: INodeNo, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
+        reply.error(Errno::ENOSYS);
     }
 }
 

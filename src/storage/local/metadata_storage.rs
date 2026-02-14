@@ -7,12 +7,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::base::check_access;
 use crate::base::{ErrorCode, FileKind, Timestamp, UserContext};
 use crate::storage::local::data_storage::BLOCK_SIZE;
-use fuser::FUSE_ROOT_ID;
+use fuser::INodeNo;
 use redb::{Durability, ReadOnlyTable, ReadableDatabase, ReadableTable, TableDefinition};
 use redb_derive::Value;
 use std::time::SystemTime;
 
-pub const ROOT_INODE: u64 = FUSE_ROOT_ID;
+pub const ROOT_INODE: u64 = INodeNo::ROOT.0;
 pub const MAX_NAME_LENGTH: u32 = 255;
 pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024 * 1024;
 

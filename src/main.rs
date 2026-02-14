@@ -11,7 +11,7 @@ use log::warn;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 use crate::base::ErrorCode;
-use fuser::MountOption;
+use fuser::{Config, MountOption, SessionACL};
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -229,23 +229,30 @@ fn main() -> Result<(), ErrorCode> {
             "Connecting to server {} and mounting FUSE at {}",
             &server_ip_port, &mount_point
         );
-        let mut options = vec![
+        let options = vec![
             MountOption::FSName("fleetfs".to_string()),
             MountOption::AutoUnmount,
         ];
         if direct_io {
             println!("Using Direct IO");
         }
-        if let Ok(enabled) = fuse_allow_other_enabled() {
-            if enabled {
-                options.push(MountOption::AllowOther);
+        let allow_other = match fuse_allow_other_enabled() {
+            Ok(enabled) => enabled,
+            Err(_) => {
+                eprintln!("Unable to read /etc/fuse.conf");
+                false
             }
-        } else {
-            eprintln!("Unable to read /etc/fuse.conf");
-        }
+        };
 
         let fs = FleetFUSE::new(server_ip_port, direct_io);
-        fuser::mount2(fs, &mount_point, &options).unwrap();
+        let mut config = Config::default();
+        config.mount_options = options;
+        config.acl = if allow_other {
+            SessionACL::All
+        } else {
+            SessionACL::Owner
+        };
+        fuser::mount2(fs, &mount_point, &config).unwrap();
     }
 
     Ok(())
